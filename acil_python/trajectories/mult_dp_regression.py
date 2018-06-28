@@ -1,9 +1,9 @@
 from argparse import ArgumentParser
-from acil_python.get_longitudinal_constraints_graph \
+from acil_python.trajectories.get_longitudinal_constraints_graph \
   import get_longitudinal_constraints_graph
 import numpy as np
 from numpy import abs, dot, mean, log, sum, exp, tile, max, sum, isnan, diag, \
-     sqrt, pi, newaxis, outer, genfromtxt
+     sqrt, pi, newaxis, outer, genfromtxt, where
 from numpy.random import multivariate_normal, randn, gamma
 import networkx as nx
 from scipy.optimize import minimize_scalar
@@ -1153,6 +1153,91 @@ class MultDPRegression:
         self.lower_bounds_.append(lower_bound)
         return lower_bound
 
+    def to_df(self, ref_target_name=None, preserve_col=False):
+        """Converts the current model to a pandas data frame, with columns
+        indicating trajectory membership.
+
+        Parameters
+        ----------
+        ref_target_name : str, optional
+            Name of the target variable to be used as a reference for trajetory
+            ordering. The trajectory with the lowest average (reference) target
+            value will be assigned a value of 0, the next lowest average value
+            will be assigned a value of 1, etc. If none specified, the first
+            target variable will be used.        
+
+        preserve_col : boolean
+            If true, the column names in the returned data frame correpsonding
+            to the trajectory names will refer to the columns of the R matrix
+            from which they are derived. This can be useful when you want to
+            refer back to the model from the data frame.
+            
+        Returns
+        -------
+        df : Pandas dataframe
+            Additional columns 'traj', 'traj_0', 'traj_1', ... . 'traj'
+            contains integer values indicating which trajectory the data
+            instance belongs to. 'traj_*' contain actual probabilities that the
+            data instance belongs to a particular trajectory.    
+        """
+        tmp_dict = {}
+        for i, n in enumerate(self.predictor_names_):
+            tmp_dict[n] = pd.Series(self.X_[:, i])
+
+        for i, n in enumerate(self.target_names_):
+            tmp_dict[n] = pd.Series(self.Y_[:, i])
+
+        df = pd.DataFrame(tmp_dict)
+
+        df = df.assign(data_names = pd.Series(self.data_names_,
+                                               index=df.index))
+
+        cluster_ids = np.max(self.R_, 0) > self.prob_thresh_
+        n_clusters = np.sum(cluster_ids)
+
+        traj = []
+        traj_cols = []
+        for i in xrange(0, self.R_.shape[0]):
+            traj.append(where(max(self.R_[i, cluster_ids]) == \
+                                self.R_[i, cluster_ids])[0][0])
+            traj_cols.append(where(max(self.R_[i, :]) == \
+                                self.R_[i, :])[0][0])
+                                
+        col_to_traj = {}
+        traj_to_col = {}
+    
+        j = 0
+        if ref_target_name is not None:
+            j = self.target_names_.index(ref_target_name)
+        
+        tmp = np.argsort(np.sum((self.R_[:, cluster_ids].T*self.Y_[:, j]), 1)/\
+            np.sum(self.R_[:, cluster_ids], 0))
+        for i in xrange(0, n_clusters):
+            col_to_traj[tmp[i]] = i
+            traj_to_col[i] = tmp[i]
+            
+        traj_sort = np.ones(len(traj))
+        for i in xrange(0, n_clusters):
+            traj_sort[np.array(traj) == i] = 1 + col_to_traj[i]
+
+        if preserve_col:
+            df = df.assign(traj = pd.Series(np.array(traj_cols), index=df.index))
+        else:
+            df = df.assign(traj = pd.Series(traj_sort, index=df.index))
+        
+        for i in xrange(0, n_clusters):
+            df = df.assign(tmp_col_name = \
+                pd.Series(self.R_[:, cluster_ids][:, traj_to_col[i]],
+                          index=df.index))
+            if preserve_col:
+                df.rename(columns={'tmp_col_name' : 'traj_' + \
+                    str(np.where(cluster_ids)[0][i])}, inplace=True)
+            else:
+                df.rename(columns={'tmp_col_name' : 'traj_' + str(i+1)},
+                        inplace=True)
+            
+        return df        
+        
 if __name__ == "__main__":        
     desc = """Run the multiple Dirichlet Process regression algorithm"""
         
