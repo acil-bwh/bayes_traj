@@ -284,9 +284,8 @@ class MultDPRegression:
         
         # Initialize the latent variables if needed
         if self.R_ is None:
-            self.R_ = np.random.rand(self.N_, self.K_)
-            self.R_ = (self.R_.T/sum(self.R_, axis=1)).T
-        
+            self.init_R_mat()
+            
         if self.lambda_a_ is None:
             self.lambda_a_ = np.zeros([self.D_, self.K_])
             for k in xrange(0, self.K_):
@@ -320,9 +319,6 @@ class MultDPRegression:
         if tol is None:
             compute_lower_bound = False
 
-        # Make sure the constraints are honored 
-        self.apply_constraints(self.constraint_subgraphs_, self.R_)
-        
         inc = 0
         prev = -sys.float_info.max
         perc_change = sys.float_info.max
@@ -806,7 +802,7 @@ class MultDPRegression:
         # ID, etc.     
         for i in np.arange(0, num_nodes):
             R[node_ids[i], :] = normalized_mat[i, :]
-
+        
     def update_R_rows_longitudinal_(self, constraint_subgraph, R):
         """Updates 'R_' by enforcing longitudinal points to have the same row
         probabilities.
@@ -910,6 +906,31 @@ class MultDPRegression:
         unnormalized_term *= r_term
         
         return unnormalized_term        
+
+    def init_R_mat(self):
+        """Initializes 'R_', using the stick-breaking construction. Also
+        enforces any longitudinal constraints.
+        """
+        tmp = np.random.beta(1, self.alpha_, (self.N_, self.K_))
+        one_tmp = 1. - tmp
+
+        self.R_ = np.array([np.prod(one_tmp[:, 0:k], 1)*tmp[:, k] \
+            for k in np.arange(0, self.K_)]).T
+
+        #self.R_[:, self.K_-1] = 1-np.sum(self.R_[:, 0:self.K_-1], 1)
+
+        num_subgraphs = len(self.constraint_subgraphs_)
+    
+        for i in xrange(0, num_subgraphs):
+            is_longitudinal = True
+            for e in self.constraint_subgraphs_[i].edges():
+                if self.constraint_subgraphs_[i][e[0]][e[1]]['constraint'] != \
+                  'longitudinal':
+                  is_longitudinal = False
+                  break
+            if is_longitudinal:
+                node_ids = [n for n in self.constraint_subgraphs_[i].nodes()]
+                self.R_[node_ids, :] = self.R_[node_ids[0], :]
 
     def compute_energy_(self, state_mat_row1, state_mat_row2, constraint):
         """Computes the energy function value represented by 'H' in Eq. 20 of
