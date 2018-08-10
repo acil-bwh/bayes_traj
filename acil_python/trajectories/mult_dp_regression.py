@@ -330,11 +330,11 @@ class MultDPRegression:
             self.R_ = self.update_z(self.X_, self.Y_,
                                     self.constraint_subgraphs_)
 
-            print "iter {}: inter: {}, var: {}, {}".\
+            print("iter {}: inter: {}, var: {}, {}".\
               format(inc,
                      np.min(self.w_mu_[0, 0, :]),
                      np.max(self.lambda_b_[0,:]/self.lambda_a_[0,:]),
-                     sum(self.R_, 0))
+                     sum(self.R_, 0)))
               
             if compute_lower_bound:                
                 curr = self.compute_lower_bound()
