@@ -330,11 +330,7 @@ class MultDPRegression:
             self.R_ = self.update_z(self.X_, self.Y_,
                                     self.constraint_subgraphs_)
 
-            print("iter {}: inter: {}, var: {}, {}".\
-              format(inc,
-                     np.min(self.w_mu_[0, 0, :]),
-                     np.max(self.lambda_b_[0,:]/self.lambda_a_[0,:]),
-                     sum(self.R_, 0)))
+            print("iter {},  {}".format(inc, sum(self.R_, 0)))
               
             if compute_lower_bound:                
                 curr = self.compute_lower_bound()
@@ -426,7 +422,7 @@ class MultDPRegression:
 
         # Now apply constraints
         self.apply_constraints(constraint_subgraphs, R)
-                        
+
         return R
 
     def apply_constraints(self, constraint_subgraphs, R):
@@ -829,8 +825,10 @@ class MultDPRegression:
         # The following operation computes the expectation. Because of the 
         # longitudinal constraint, the only state configurations that have
         # non-zero probability are those that put all the data instances in
-        # this group into the same cluster.
-        vec = np.prod(R[node_ids, :], 0)
+        # this group into the same cluster. Note that we take the sum of the
+        # log to deal with the product of (potentially) many small values.
+        tmp_vec = np.sum(np.log(R[node_ids, :] + np.finfo(float).tiny), 0)
+        vec = np.exp(tmp_vec + 700 - np.max(tmp_vec))
         vec = vec/np.sum(vec)
         
         # Now update the rows of 'normalized_mat'.
@@ -1046,9 +1044,10 @@ class MultDPRegression:
             The constraints are encoded in a networkx graph, each node should
             indicate an instance index, and edges indicate constraints. Each
             edge should have a string attribute called 'constraint', which must
-            either take a value of 'must_link' or 'cannot_link'. Generally, the
-            graph describing 'constraints' will be composed of connected 
-            subgraphs. This routine isolates the connected subgraphs.
+            either take a value of 'must_link', 'cannot_link', or
+            'longitudinal'. Generally, the graph describing 'constraints' will
+            be composed of connected subgraphs. This routine isolates the
+            connected subgraphs.
     
         Returns
         -------
