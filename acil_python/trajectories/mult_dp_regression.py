@@ -330,11 +330,10 @@ class MultDPRegression:
             self.R_ = self.update_z(self.X_, self.Y_,
                                     self.constraint_subgraphs_)
 
-            print("iter {},  {}".format(inc, sum(self.R_, 0)))
+            #print("iter {},  {}".format(inc, sum(self.R_, 0)))
               
             if compute_lower_bound:                
                 curr = self.compute_lower_bound()
-                self.lower_bounds_.append(curr)                
                 perc_change = 100.*((curr-prev)/np.abs(prev))
                 prev = curr
 
@@ -1113,21 +1112,25 @@ class MultDPRegression:
         """
         term_2 = 0.5*dot(sum(self.R_, 0), sum(psi(self.lambda_a_) - \
             log(self.lambda_b_), 0))
-            
+        
         term_3 = 0.        
         for d in xrange(0, self.D_):
+            non_nan_ids = ~np.isnan(self.Y_[:, d])
             for k in xrange(0, self.K_):
                 term_3 += (self.lambda_a_[d, k]/self.lambda_b_[d, k])*\
-                  (dot(dot((self.X_**2), self.w_var_[:, d, k]), 
-                         self.R_[:, k]) + \
-                    sum((self.X_[:, :, newaxis]*self.X_[:, newaxis, :])*\
+                  (dot(dot((self.X_[non_nan_ids, :]**2), self.w_var_[:, d, k]),
+                         self.R_[non_nan_ids, k]) + \
+                    sum((self.X_[non_nan_ids, :, newaxis]*\
+                         self.X_[non_nan_ids, newaxis, :])*\
                            outer(self.w_mu_[:, d, k], self.w_mu_[:, d, k])*\
-                           self.R_[:, k, newaxis, newaxis]) + \
-                           dot(self.R_[:, k], self.Y_[:, d]**2) + \
-                      -2*dot(self.R_[:, k]*self.Y_[:, d], dot(self.X_[:, :], 
+                           self.R_[non_nan_ids, k, newaxis, newaxis]) + \
+                           dot(self.R_[non_nan_ids, k], \
+                               self.Y_[non_nan_ids, d]**2) + \
+                      -2*dot(self.R_[non_nan_ids, k]*self.Y_[non_nan_ids, d], \
+                             dot(self.X_[non_nan_ids, :], 
                             self.w_mu_[:, d, k])))
         term_3 *= -0.5
-
+        
         term_6 = np.sum(np.dot(self.R_, psi(self.v_a_) - \
                                psi(self.v_a_ + self.v_b_)))
 
@@ -1136,21 +1139,21 @@ class MultDPRegression:
             term_7 += \
               sum(self.R_[:, k]*sum(psi(self.v_b_[0:k]) - \
                                     psi(self.v_a_[0:k] + self.v_b_[0:k])))
-
+                                    
         term_8 = (self.alpha_ - 1.)*sum(psi(self.v_b_) - \
                                         psi(self.v_a_ + self.v_b_))
-
+                                        
         term_12 = 0.
         for k in xrange(0, self.K_):
             term_12 += sum(-(0.5/self.w_var0_)*(self.w_var_[:, :, k] + \
                 self.w_mu_[:, :, k]**2 - 2*self.w_mu0_*self.w_mu_[:, :, k]))
-
+                
         term_15 = np.sum(np.dot(self.lambda_a0_ - 1, \
                          (psi(self.lambda_a_) - log(self.lambda_b_))))
-        
+                         
         term_16 = -np.sum(np.dot(self.lambda_b0_, \
                           (self.lambda_a_/self.lambda_b_)))
-
+                          
         ids = self.R_ > 0.
         term_17 = -np.sum(self.R_[ids]*log(self.R_[ids]))
         
@@ -1161,12 +1164,12 @@ class MultDPRegression:
             term_18 += -gammaln(alpha + beta) + gammaln(alpha) + \
               gammaln(beta) - (alpha - 1)*(psi(alpha) - psi(alpha + beta)) - \
               (beta - 1)*(psi(beta) - psi(alpha + beta))
-        
+              
         term_19 = 0.5*np.sum(log(self.w_var_))
         
         term_20 = np.sum(self.lambda_a_ - log(self.lambda_b_) + \
             gammaln(self.lambda_a_) + (1 - self.lambda_a_)*psi(self.lambda_a_))
-
+            
         lower_bound = term_2 + term_3 + term_6 + term_7 + term_8 + term_12 + \
           term_15 + term_16 + term_17 + term_18 + term_19 + term_20
 
