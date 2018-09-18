@@ -325,7 +325,7 @@ class MultDPRegression:
         while inc < iters or (perc_change > tol and tol is not None):
             inc += 1
             w_start = time.time()
-            self.update_w()
+            self.update_w_accel()
             w_stop = time.time()
             w_time = w_stop - w_start
             
@@ -488,34 +488,32 @@ class MultDPRegression:
 
     def update_w_accel(self):
         """This function is an accelerated version of update_w that uses
-        vectorization. It should provide the exact same updates.
+        vectorization. This function should produce the same updates as
+        update_w (but faster!).
         """
-        tmp1 = (self.lambda_a_/self.lambda_b_)*\
-          (np.sum(self.R_[:, :, newaxis]*self.X_[:, newaxis, :]**2, 0)).T
+        tmp1 = (self.lambda_a_/self.lambda_b_)[newaxis, :, :]*\
+          (np.sum(self.R_[:, :, newaxis]*\
+                  self.X_[:, newaxis, :]**2, 0).T)[:, newaxis, :]
 
-        self.w_var_ = (tmp1[newaxis, :, :] + \
-                       (1.0/self.w_var0_)[:, :, newaxis])**-1
+        self.w_var_ = (tmp1 + (1.0/self.w_var0_)[:, :, newaxis])**-1
 
-        R_expanded = self.R_[:, newaxis, :]
-        X_expanded = self.X_[:, :, newaxis]
-        Y_expanded = self.Y_[:, :, newaxis, newaxis]    
-    
-        mu0_DIV_var0 = (self.w_mu0_/self.w_var0_)[:, :, newaxis]
-        for d in xrange(0, self.D_):
-            non_nan_ids = ~np.isnan(self.Y_[:, d])
-        
-            sum_term = sum(R_expanded[non_nan_ids, :, :]*\
-                           X_expanded[non_nan_ids, :, :]*\
-                        (dot(self.X_[non_nan_ids, :], \
-                             self.w_mu_[:, d, :])[:, newaxis, :] - \
-                        X_expanded[non_nan_ids, :, :]*\
-                        self.w_mu_[:, d, :][newaxis, :, :] - \
-                    Y_expanded[non_nan_ids, d, :, :]), 0)
+        mu0_DIV_var0 = self.w_mu0_/self.w_var0_
+        for m in xrange(0, self.M_):
+            ids = np.ones(self.M_, dtype=bool)
+            ids[m] = False
+            for d in xrange(0, self.D_):
+                non_nan_ids = ~np.isnan(self.Y_[:, d])
 
-            self.w_mu_[:, d, :] = w_var[:, d, :]*\
-                (-(self.lambda_a_[d, :]/self.lambda_b_[d, :])*\
-                sum_term + mu0_DIV_var0[:, d, :])
-                                 
+                sum_term = sum(self.R_[non_nan_ids, :]*\
+                    self.X_[non_nan_ids, m, newaxis]*\
+                    (dot(self.X_[:, ids][non_nan_ids, :], \
+                         self.w_mu_[ids, d, :]) - \
+                        self.Y_[non_nan_ids, d][:, newaxis]), 0)
+                        
+                self.w_mu_[m, d, :] = self.w_var_[m, d, :]*\
+                    (-(self.lambda_a_[d, :]/self.lambda_b_[d, :])*\
+                    sum_term + mu0_DIV_var0[m, d])
+                
     def update_lambda(self):
         """Update the variational distribution over latent variable lambda.
         """
