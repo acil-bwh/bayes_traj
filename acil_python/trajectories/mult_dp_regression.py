@@ -10,7 +10,7 @@ from scipy.optimize import minimize_scalar
 from scipy.misc import logsumexp
 from scipy.special import psi, gammaln
 import pandas as pd
-import pdb, sys, pickle
+import pdb, sys, pickle, time
     
 class MultDPRegression:
     """Uses Dirichlet process mixture modeling to identify mixtures of 
@@ -324,13 +324,34 @@ class MultDPRegression:
         perc_change = sys.float_info.max
         while inc < iters or (perc_change > tol and tol is not None):
             inc += 1
+            w_start = time.time()
             self.update_w()
+            w_stop = time.time()
+            w_time = w_stop - w_start
+            
+            l_start = time.time()
             self.update_lambda()
+            l_stop = time.time()
+            l_time = l_stop - l_start
+            
+            v_start = time.time()
             self.update_v()
+            v_stop = time.time()
+            v_time = v_stop - v_start
+            
+            r_start = time.time()
             self.R_ = self.update_z(self.X_, self.Y_,
                                     self.constraint_subgraphs_)
+            r_stop = time.time()
+            r_time = r_stop - r_start
 
-            #print("iter {},  {}".format(inc, sum(self.R_, 0)))
+
+            print "r: {}, w: {}, l: {}, v: {}".\
+              format(100*r_time/(r_time + w_time + l_time + v_time),
+                    100*w_time/(r_time + w_time + l_time + v_time),
+                            100*l_time/(r_time + w_time + l_time + v_time),
+                            100*v_time/(r_time + w_time + l_time + v_time))
+            print("iter {},  {}".format(inc, sum(self.R_, 0)))
               
             if compute_lower_bound:                
                 curr = self.compute_lower_bound()
@@ -456,7 +477,6 @@ class MultDPRegression:
                             self.lambda_b_[d, k])*\
                             sum(self.R_[:, k]*self.X_[:, m]**2) + \
                             1.0/self.w_var0_[m, d])**-1
-
                         self.w_mu_[m, d, k] = self.w_var_[m, d, k]*\
                           (-(self.lambda_a_[d, k]/\
                             self.lambda_b_[d, k])*sum(self.R_[non_nan_ids, k]*\
@@ -466,6 +486,36 @@ class MultDPRegression:
                                  self.Y_[non_nan_ids, d])) + \
                                  self.w_mu0_[m, d]/self.w_var0_[m, d])
 
+    def update_w_accel(self):
+        """This function is an accelerated version of update_w that uses
+        vectorization. It should provide the exact same updates.
+        """
+        tmp1 = (self.lambda_a_/self.lambda_b_)*\
+          (np.sum(self.R_[:, :, newaxis]*self.X_[:, newaxis, :]**2, 0)).T
+
+        self.w_var_ = (tmp1[newaxis, :, :] + \
+                       (1.0/self.w_var0_)[:, :, newaxis])**-1
+
+        R_expanded = self.R_[:, newaxis, :]
+        X_expanded = self.X_[:, :, newaxis]
+        Y_expanded = self.Y_[:, :, newaxis, newaxis]    
+    
+        mu0_DIV_var0 = (self.w_mu0_/self.w_var0_)[:, :, newaxis]
+        for d in xrange(0, self.D_):
+            non_nan_ids = ~np.isnan(self.Y_[:, d])
+        
+            sum_term = sum(R_expanded[non_nan_ids, :, :]*\
+                           X_expanded[non_nan_ids, :, :]*\
+                        (dot(self.X_[non_nan_ids, :], \
+                             self.w_mu_[:, d, :])[:, newaxis, :] - \
+                        X_expanded[non_nan_ids, :, :]*\
+                        self.w_mu_[:, d, :][newaxis, :, :] - \
+                    Y_expanded[non_nan_ids, d, :, :]), 0)
+
+            self.w_mu_[:, d, :] = w_var[:, d, :]*\
+                (-(self.lambda_a_[d, :]/self.lambda_b_[d, :])*\
+                sum_term + mu0_DIV_var0[:, d, :])
+                                 
     def update_lambda(self):
         """Update the variational distribution over latent variable lambda.
         """
