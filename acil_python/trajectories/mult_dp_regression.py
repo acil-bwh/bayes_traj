@@ -114,6 +114,8 @@ class MultDPRegression:
         self.data_names_ = None
         self.target_names_ = None
         self.predictor_names_ = None                
+
+        self.sig_trajs_ = np.ones(self.K_, dtype=bool)
         
         assert self.w_mu0_.shape[0] == self.w_var0_.shape[0] and \
           self.w_mu0_.shape[1] == self.w_var0_.shape[1], \
@@ -330,7 +332,7 @@ class MultDPRegression:
             w_time = w_stop - w_start
             
             l_start = time.time()
-            self.update_lambda()
+            self.update_lambda_accel()
             l_stop = time.time()
             l_time = l_stop - l_start
             
@@ -344,13 +346,14 @@ class MultDPRegression:
                                     self.constraint_subgraphs_)
             r_stop = time.time()
             r_time = r_stop - r_start
+            self.sig_trajs_ = np.sum(self.R_, 0) > 1e-10
 
-
-            print "r: {}, w: {}, l: {}, v: {}".\
+            print "r: {}, w: {}, l: {}, v: {}, tot time (s): {}".\
               format(100*r_time/(r_time + w_time + l_time + v_time),
                     100*w_time/(r_time + w_time + l_time + v_time),
                             100*l_time/(r_time + w_time + l_time + v_time),
-                            100*v_time/(r_time + w_time + l_time + v_time))
+                            100*v_time/(r_time + w_time + l_time + v_time),
+                            r_time + w_time + v_time + l_time)
             print("iter {},  {}".format(inc, sum(self.R_, 0)))
               
             if compute_lower_bound:                
@@ -491,11 +494,13 @@ class MultDPRegression:
         vectorization. This function should produce the same updates as
         update_w (but faster!).
         """
-        tmp1 = (self.lambda_a_/self.lambda_b_)[newaxis, :, :]*\
-          (np.sum(self.R_[:, :, newaxis]*\
-                  self.X_[:, newaxis, :]**2, 0).T)[:, newaxis, :]
+        tmp1 = (self.lambda_a_[:, self.sig_trajs_]/\
+                self.lambda_b_[:, self.sig_trajs_])[newaxis, :, :]*\
+            (np.sum(self.R_[:, self.sig_trajs_, newaxis]*\
+                    self.X_[:, newaxis, :]**2, 0).T)[:, newaxis, :]
 
-        self.w_var_ = (tmp1 + (1.0/self.w_var0_)[:, :, newaxis])**-1
+        self.w_var_[:, :, self.sig_trajs_] = \
+          (tmp1 + (1.0/self.w_var0_)[:, :, newaxis])**-1
 
         mu0_DIV_var0 = self.w_mu0_/self.w_var0_
         for m in xrange(0, self.M_):
@@ -504,16 +509,18 @@ class MultDPRegression:
             for d in xrange(0, self.D_):
                 non_nan_ids = ~np.isnan(self.Y_[:, d])
 
-                sum_term = sum(self.R_[non_nan_ids, :]*\
+                sum_term = sum(self.R_[non_nan_ids, :][:, self.sig_trajs_]*\
                     self.X_[non_nan_ids, m, newaxis]*\
                     (dot(self.X_[:, ids][non_nan_ids, :], \
-                         self.w_mu_[ids, d, :]) - \
-                        self.Y_[non_nan_ids, d][:, newaxis]), 0)
+                         self.w_mu_[ids, d, :][:, self.sig_trajs_]) - \
+                           self.Y_[non_nan_ids, d][:, newaxis]), 0)
                         
-                self.w_mu_[m, d, :] = self.w_var_[m, d, :]*\
-                    (-(self.lambda_a_[d, :]/self.lambda_b_[d, :])*\
+                self.w_mu_[m, d, self.sig_trajs_] = \
+                  self.w_var_[m, d, self.sig_trajs_]*\
+                    (-(self.lambda_a_[d, self.sig_trajs_]/\
+                       self.lambda_b_[d, self.sig_trajs_])*\
                     sum_term + mu0_DIV_var0[m, d])
-                
+                        
     def update_lambda(self):
         """Update the variational distribution over latent variable lambda.
         """
@@ -529,17 +536,43 @@ class MultDPRegression:
                         for j in xrange(i, self.M_):
                             if i == j:
                                 tmp += (self.w_var_[i, d, k] + \
-                                        self.w_mu_[i, d, k]**2)*self.X_[:, i]**2
+                                    self.w_mu_[i, d, k]**2)*self.X_[:, i]**2
                             else:
                                 tmp += 2*self.w_mu_[i, d, k]*\
                                   self.w_mu_[j, d, k]*self.X_[:, i]*\
                                   self.X_[:, j]
 
                     self.lambda_b_[d, k] = self.lambda_b0_[d] + \
-                      0.5*sum(self.R_[non_nan_ids, k]*(tmp[non_nan_ids] - 2*self.Y_[non_nan_ids, d]*\
-                        np.dot(self.X_[non_nan_ids, :], self.w_mu_[:, d, k]) + \
+                      0.5*sum(self.R_[non_nan_ids, k]*(tmp[non_nan_ids] - \
+                        2*self.Y_[non_nan_ids, d]*\
+                        np.dot(self.X_[non_nan_ids, :], \
+                               self.w_mu_[:, d, k]) + \
                         self.Y_[non_nan_ids, d]**2))                    
 
+    def update_lambda_accel(self):
+        """Accelerated version of update_lamdba (uses vectorization and
+        broadcasting). Should provide the same updates as update_lambda.
+        """
+        self.lambda_a_[:, self.sig_trajs_] = self.lambda_a0_[:, newaxis] + \
+          0.5*sum(self.R_[:, self.sig_trajs_], 0)[newaxis, :]
+
+        for d in xrange(0, self.D_):
+            non_nan_ids = ~np.isnan(self.Y_[:, d])
+
+            tmp = (dot(self.w_mu_[:, d, self.sig_trajs_].T, \
+                       self.X_.T)**2).T + \
+                np.sum((self.X_[:, newaxis, :]**2)*\
+                    (self.w_var_[:, d, self.sig_trajs_].T)[newaxis, :, :], 2)
+
+            self.lambda_b_[d, self.sig_trajs_] = \
+              self.lambda_b0_[d, newaxis] + \
+                    0.5*sum(self.R_[non_nan_ids, :][:, self.sig_trajs_]*\
+                            (tmp[non_nan_ids, :] - \
+                2*self.Y_[non_nan_ids, d, newaxis]*\
+                np.dot(self.X_[non_nan_ids, :], \
+                       self.w_mu_[:, d, self.sig_trajs_]) + \
+                self.Y_[non_nan_ids, d, newaxis]**2), 0)
+                     
     def sample(self, index=None, x=None):
         """sample from the posterior distribution using the input data. 
 
