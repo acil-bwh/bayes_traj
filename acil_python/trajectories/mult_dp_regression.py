@@ -342,7 +342,7 @@ class MultDPRegression:
             v_time = v_stop - v_start
             
             r_start = time.time()
-            self.R_ = self.update_z(self.X_, self.Y_,
+            self.R_ = self.update_z_accel(self.X_, self.Y_,
                                     self.constraint_subgraphs_)
             r_stop = time.time()
             r_time = r_stop - r_start
@@ -415,17 +415,11 @@ class MultDPRegression:
 
             for d in xrange(0, self.D_):
                 non_nan_ids = ~np.isnan(Y[:, d])
-                tmp = 0.0
-                for i in xrange(0, self.M_):
-                    for j in xrange(i, self.M_):
-                        if i == j:
-                            tmp += (self.w_var_[i, d, k] + \
-                                self.w_mu_[i, d, k]**2)*X[non_nan_ids, i]**2
-                        else:
-                            tmp += 2*self.w_mu_[i, d, k]*\
-                              self.w_mu_[j, d, k]*X[non_nan_ids, i]*\
-                              X[non_nan_ids, j]
-                
+                tmp = (dot(self.w_mu_[:, d, k].T, \
+                    X[non_nan_ids, :].T)**2).T + \
+                    np.sum((X[non_nan_ids, :]**2)*\
+                    (self.w_var_[:, d, k].T), 1)
+
                 ln_rho[non_nan_ids, k] += 0.5*(psi(self.lambda_a_[d, k]) - \
                     log(self.lambda_b_[d, k]) - log(2*np.pi) - \
                     (self.lambda_a_[d, k]/self.lambda_b_[d ,k])*\
@@ -445,9 +439,53 @@ class MultDPRegression:
 
         # Now apply constraints
         self.apply_constraints(constraint_subgraphs, R)
-
         return R
 
+    def update_z_accel(self, X, Y, constraint_subgraphs):
+        """
+        """
+        expec_ln_v = psi(self.v_a_) - psi(self.v_a_ + self.v_b_)
+        expec_ln_1_minus_v = psi(self.v_b_) - psi(self.v_a_ + self.v_b_)
+        
+        tmp = np.array(expec_ln_v)
+        for k in xrange(1, self.K_):
+            tmp[k] += np.sum(expec_ln_1_minus_v[0:k])
+
+        ln_rho = np.ones([self.N_, self.K_])*tmp[newaxis, :]
+            
+        for d in xrange(0, self.D_):
+            non_nan_ids = ~np.isnan(Y[:, d])
+    
+            tmp = (dot(self.w_mu_[:, d, :].T, \
+                X[non_nan_ids, :].T)**2).T + \
+                np.sum((X[non_nan_ids, newaxis, :]**2)*\
+                (self.w_var_[:, d, :].T)[newaxis, :, :], 2)
+            
+            ln_rho[non_nan_ids, :] += \
+              0.5*(psi(self.lambda_a_[d, :]) - \
+                log(self.lambda_b_[d, :]) - \
+                log(2*np.pi) - \
+                (self.lambda_a_[d, :]/self.lambda_b_[d, :])*\
+                (tmp - \
+                 2*Y[non_nan_ids, d, newaxis]*dot(X[non_nan_ids, :], \
+                self.w_mu_[:, d, :]) + \
+                Y[non_nan_ids, d, newaxis]**2))
+
+        # The values of 'ln_rho' will in general have large magnitude, causing
+        # exponentiation to result in overflow. All we really care about is the
+        # normalization of each row. We can use the identity exp(a) = 
+        # 10**(a*log10(e)) to put things in base ten, and then subtract from 
+        # each row the max value and also clipping the resulting row vector to
+        # lie within -300, 300 to ensure that when we exponentiate we don't
+        # have any overflow issues.
+        rho_10 = ln_rho*np.log10(np.e)
+        rho_10_shift = 10**((rho_10.T - max(rho_10, 1)).T + 300).clip(-300, 300)
+        R = (rho_10_shift.T/sum(rho_10_shift, 1)).T
+
+        # Now apply constraints
+        self.apply_constraints(self.constraint_subgraphs_, R)
+        return R
+    
     def apply_constraints(self, constraint_subgraphs, R):
         """
         """
@@ -536,11 +574,12 @@ class MultDPRegression:
                         for j in xrange(i, self.M_):
                             if i == j:
                                 tmp += (self.w_var_[i, d, k] + \
-                                    self.w_mu_[i, d, k]**2)*self.X_[:, i]**2
+                                    self.w_mu_[i, d, k]**2)*\
+                                    self.X_[non_nan_ids, i]**2
                             else:
                                 tmp += 2*self.w_mu_[i, d, k]*\
-                                  self.w_mu_[j, d, k]*self.X_[:, i]*\
-                                  self.X_[:, j]
+                                  self.w_mu_[j, d, k]*self.X_[non_nan_ids, i]*\
+                                  self.X_[non_nan_ids, j]
 
                     self.lambda_b_[d, k] = self.lambda_b0_[d] + \
                       0.5*sum(self.R_[non_nan_ids, k]*(tmp[non_nan_ids] - \
@@ -560,15 +599,14 @@ class MultDPRegression:
             non_nan_ids = ~np.isnan(self.Y_[:, d])
 
             tmp = (dot(self.w_mu_[:, d, self.sig_trajs_].T, \
-                       self.X_.T)**2).T + \
-                np.sum((self.X_[:, newaxis, :]**2)*\
+                       self.X_[non_nan_ids, :].T)**2).T + \
+                np.sum((self.X_[non_nan_ids, newaxis, :]**2)*\
                     (self.w_var_[:, d, self.sig_trajs_].T)[newaxis, :, :], 2)
 
             self.lambda_b_[d, self.sig_trajs_] = \
               self.lambda_b0_[d, newaxis] + \
                     0.5*sum(self.R_[non_nan_ids, :][:, self.sig_trajs_]*\
-                            (tmp[non_nan_ids, :] - \
-                2*self.Y_[non_nan_ids, d, newaxis]*\
+                (tmp - 2*self.Y_[non_nan_ids, d, newaxis]*\
                 np.dot(self.X_[non_nan_ids, :], \
                        self.w_mu_[:, d, self.sig_trajs_]) + \
                 self.Y_[non_nan_ids, d, newaxis]**2), 0)
