@@ -130,7 +130,7 @@ class MultDPRegression:
     def fit(self, X, Y, iters=None, tol=None, R=None, v_a=None, v_b=None, 
             w_mu=None, w_var=None, lambda_a=None, lambda_b=None, 
             constraints=None, data_names=None, target_names=None,
-            predictor_names=None):
+            predictor_names=None, verbose=False):
         """Run the DP proportion mixture model algorithm using predictors 'X'
         and proportion data 'Y'. 
 
@@ -222,6 +222,12 @@ class MultDPRegression:
 
         predictor_names : list of M strings, optional
             Stores the names of the M predictors
+
+        verbose : bool, optional
+            If true, a printout of the sum along rows of the R_ matrix will
+            be provided during optimization. This sum indicates how many data
+            instances are being assigned to each of the K possible
+            trajectories.
         """
         if tol is None and iters is None:
             raise ValueError('Neither tol nor iters has been set')
@@ -347,14 +353,16 @@ class MultDPRegression:
             r_stop = time.time()
             r_time = r_stop - r_start
             self.sig_trajs_ = np.sum(self.R_, 0) > 1e-10
-
+            
             print "r: {}, w: {}, l: {}, v: {}, tot time (s): {}".\
               format(100*r_time/(r_time + w_time + l_time + v_time),
                     100*w_time/(r_time + w_time + l_time + v_time),
                             100*l_time/(r_time + w_time + l_time + v_time),
                             100*v_time/(r_time + w_time + l_time + v_time),
                             r_time + w_time + v_time + l_time)
-            print("iter {},  {}".format(inc, sum(self.R_, 0)))
+
+            if verbose:
+                print("iter {},  {}".format(inc, sum(self.R_, 0)))
               
             if compute_lower_bound:                
                 curr = self.compute_lower_bound()
@@ -765,15 +773,39 @@ class MultDPRegression:
         ----------
         Gelman et al, 'Bayesian Data Analysis, 3rd Edition'
         """
+        # Computation of WAIC2 needs to account for the dependence introduced
+        # by the constraints. Gather together the nodes between which there
+        # are constraints and the nodes that are not involved in a constraint.
+        node_groups = []
+        no_constraints_ids = np.ones(self.N_, dtype=bool)
+        if self.constraints_ is not None:
+            no_constraints_ids[self.constraints_.nodes()] = False
+
+            # Only if all the constraints within a subgraph are longitudinal
+            # should they be considered as a block when computing WAIC2.
+            for g in self.constraint_subgraphs_:
+                is_longitudinal = True
+                for e in g.edges():
+                    if g[e[0]][e[1]]['constraint'] != 'longitudinal':
+                        is_longitudinal = False
+                        break
+                if is_longitudinal:
+                    node_groups.append(g.nodes())
+
+        for n in np.where(no_constraints_ids)[0]:
+            node_groups.append(n)
+
         accum = np.zeros([self.N_, self.D_, S])
         for s in xrange(0, S):
-            for n in xrange(0, self.N_):
-                z = np.random.multinomial(1, self.R_[n, :])
+            print s
+            for nodes in node_groups:                
+                z = np.random.multinomial(1, self.R_[nodes, :])
                 for d in xrange(0, self.D_):
                     co = multivariate_normal(self.w_mu_[:, d, 
                                                         z.astype(bool)][:, 0],
                         diag(self.w_var_[:, d, z.astype(bool)][:, 0]), 1)
-                    mu = dot(co, self.X_[n, :])
+                   
+                    mu = dot(co[0], self.X_[nodes, :].T)
 
                     # Draw a precision value from the gamma distribution. Note
                     # that numpy uses a slightly different parameterization
@@ -781,17 +813,15 @@ class MultDPRegression:
                     shape = self.lambda_a_[d, z.astype(bool)]
                     var = 1./gamma(shape, scale, size=1)
 
-                    accum[n, d, s] = (1/sqrt(2*np.pi*var))*exp(-(1/(2*var))*\
-                        (mu - self.Y_[n, d])**2)
+                    accum[nodes, d, s] += \
+                      (1/sqrt(2*np.pi*var))*exp(-(1/(2*var))*\
+                                                (mu - self.Y_[nodes, d])**2)
 
         lppd = np.nansum(log(np.nanmean(accum, axis=2)))
 
         mean_ln_accum = np.nanmean(log(accum), axis=2)
-        tmp = np.zeros([self.N_, self.D_])
-        for s in xrange(0, S):
-            tmp += (1./(S-1.))*(log(accum[:, :, s]) - mean_ln_accum)**2
-
-        p_waic2 = np.nansum(tmp)
+        p_waic2 = np.nansum((1./(S-1.))*(log(accum) - \
+                                         mean_ln_accum[:, :, newaxis])**2)
         waic2 = -2.*(lppd - p_waic2)
 
         return waic2
