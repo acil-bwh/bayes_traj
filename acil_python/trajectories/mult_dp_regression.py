@@ -130,7 +130,7 @@ class MultDPRegression:
     def fit(self, X, Y, iters=None, tol=None, R=None, v_a=None, v_b=None, 
             w_mu=None, w_var=None, lambda_a=None, lambda_b=None, 
             constraints=None, data_names=None, target_names=None,
-            predictor_names=None, verbose=False):
+            predictor_names=None, minibatch_size=None, verbose=False):
         """Run the DP proportion mixture model algorithm using predictors 'X'
         and proportion data 'Y'. 
 
@@ -223,6 +223,10 @@ class MultDPRegression:
         predictor_names : list of M strings, optional
             Stores the names of the M predictors
 
+        minibatch_size : int, optional
+            The size of the minibatch to use for stochastic variational
+            inference. It must be less than the total number of data points.
+            
         verbose : bool, optional
             If true, a printout of the sum along rows of the R_ matrix will
             be provided during optimization. This sum indicates how many data
@@ -266,7 +270,11 @@ class MultDPRegression:
             assert len(set(predictor_names)) == len(predictor_names), \
               "Duplicate predictor name found"
             self.predictor_names_ = predictor_names
-                        
+
+        if minibatch_size is not None:
+            assert minibatch_size > 0 and minibatch_size < self.X_.shape[0], \
+            "Invalid minibatch size"
+            
         assert self.w_mu0_.shape[0] == self.X_.shape[1], \
           "Dimension mismatch between mu_ and X_"
         assert self.X_.shape[0] == self.Y_.shape[0], \
@@ -308,6 +316,13 @@ class MultDPRegression:
             self.w_mu_ = np.zeros([self.M_, self.D_, self.K_])
             for k in xrange(0, self.K_):
                 self.w_mu_[:, :, k] = self.w_mu0_
+                
+        #if self.w_mu_ is None:
+        #    self.w_mu_ = np.zeros([self.M_, self.D_, self.K_])
+        #    for m in xrange(0, self.M_):
+        #        for d in xrange(0, self.D_):
+        #            self.w_mu_[m, d, :] = np.sqrt(self.w_var0_[m, d])*\
+        #              np.random.randn(self.K_) + self.w_mu0_[m, d]
 
         if self.w_var_ is None:
             self.w_var_ = np.zeros([self.M_, self.D_, self.K_])
@@ -328,63 +343,137 @@ class MultDPRegression:
             compute_lower_bound = False
 
         inc = 0
-        prev = -sys.float_info.max
-        perc_change = sys.float_info.max
-        while inc < iters or (perc_change > tol and tol is not None):
-            inc += 1
-            w_start = time.time()
-            self.update_w_accel()
-            w_stop = time.time()
-            w_time = w_stop - w_start
+        if minibatch_size is not None:
+            kappa = 0.51 # tau is in (0.5, 1]
             
-            l_start = time.time()
-            self.update_lambda_accel()
-            l_stop = time.time()
-            l_time = l_stop - l_start
-            
-            v_start = time.time()
-            self.update_v()
-            v_stop = time.time()
-            v_time = v_stop - v_start
-            
-            r_start = time.time()
-            self.R_ = self.update_z_accel(self.X_, self.Y_,
-                                    self.constraint_subgraphs_)
-            r_stop = time.time()
-            r_time = r_stop - r_start
-            self.sig_trajs_ = np.sum(self.R_, 0) > 1e-10
-            
-            print "r: {}, w: {}, l: {}, v: {}, tot time (s): {}".\
-              format(100*r_time/(r_time + w_time + l_time + v_time),
-                    100*w_time/(r_time + w_time + l_time + v_time),
-                            100*l_time/(r_time + w_time + l_time + v_time),
-                            100*v_time/(r_time + w_time + l_time + v_time),
-                            r_time + w_time + v_time + l_time)
+            non_constraint_ids = np.ones(self.N_, dtype=bool)
+            if self.constraints_ is not None:
+                non_constraint_ids[self.constraints_.nodes()] = False
+            non_constraint_ids = np.where(non_constraint_ids)[0]
 
-            if verbose:
-                print("iter {},  {}".format(inc, sum(self.R_, 0)))
-              
-            if compute_lower_bound:                
-                curr = self.compute_lower_bound()
-                perc_change = 100.*((curr-prev)/np.abs(prev))
-                prev = curr
+            batch_subgraphs = []            
+            while inc < iters:
+                batch_ids = np.zeros(self.N_, dtype=bool)
+                del batch_subgraphs[:]
+                if self.constraints_ is not None:
+                    for gg in np.random.permutation(\
+                        np.arange(len(self.constraint_subgraphs_))):
+                        batch_ids[self.constraint_subgraphs_[gg].nodes()] = \
+                          True
+                        batch_subgraphs.append(self.constraint_subgraphs_[gg])
+                        if np.sum(batch_ids) >= minibatch_size:
+                            break
+                else:
+                    self.active_subgraphs_ = self.constraint_subgraphs_
+                      
+                if np.sum(batch_ids) < minibatch_size:
+                    batch_ids[np.random.permutation(non_constraint_ids)\
+                              [0:(minibatch_size-len(batch_ids))]] = True
+                
+                inc += 1
+                step = inc**(-kappa)
+
+                start = time.time()
+                self.update_v_stochastic(batch_ids, step)
+                v_time = time.time() - start
+                
+                start = time.time()
+                self.update_w_stochastic(batch_ids, step)
+                w_time = time.time() - start
+
+                start = time.time()
+                self.update_lambda_stochastic(batch_ids, step)
+                l_time = time.time() - start
+                
+                start = time.time()
+                self.update_z_stochastic(batch_ids, batch_subgraphs)
+                r_time = time.time() - start
+                    
+                self.sig_trajs_ = np.sum(self.R_, 0) > 1e-10
+                
+                #print "r: {}, w: {}, l: {}, v: {}, tot time (s): {}".\
+                #  format(100*r_time/(r_time + w_time + l_time + v_time),
+                #        100*w_time/(r_time + w_time + l_time + v_time),
+                #                100*l_time/(r_time + w_time + l_time + v_time),
+                #                100*v_time/(r_time + w_time + l_time + v_time),
+                #                r_time + w_time + v_time + l_time)                    
+                if verbose:
+                    print("iter {},  {}".format(inc, sum(self.R_, 0)))
+                if inc%100 == 0:
+                    pass
+                    #self.compute_waic2()
+        else:
+            prev = -sys.float_info.max
+            perc_change = sys.float_info.max
+            waics = []
+            while inc < iters or (perc_change > tol and tol is not None):
+                inc += 1
+                v_start = time.time()
+                self.update_v()
+                v_stop = time.time()
+                v_time = v_stop - v_start
+                
+                w_start = time.time()
+                self.update_w_accel()
+                w_stop = time.time()
+                w_time = w_stop - w_start
+                
+                l_start = time.time()
+                self.update_lambda_accel()
+                l_stop = time.time()
+                l_time = l_stop - l_start
+                
+                r_start = time.time()
+                self.R_ = self.update_z_accel(self.X_, self.Y_,
+                                        self.constraint_subgraphs_)
+                r_stop = time.time()
+                r_time = r_stop - r_start
+
+                self.sig_trajs_ = np.max(self.R_, 0) > self.prob_thresh_
+                
+                print "r: {}, w: {}, l: {}, v: {}, tot time (s): {}".\
+                  format(100*r_time/(r_time + w_time + l_time + v_time),
+                        100*w_time/(r_time + w_time + l_time + v_time),
+                                100*l_time/(r_time + w_time + l_time + v_time),
+                                100*v_time/(r_time + w_time + l_time + v_time),
+                                r_time + w_time + v_time + l_time)
+    
+                if verbose:
+                    print("iter {},  {}".format(inc, sum(self.R_, 0)))
+                if inc%100 == 0:
+                    pass
+                    #waics.append(self.compute_waic2())
+                    print waics
+                    
+                if compute_lower_bound:                
+                    curr = self.compute_lower_bound()
+                    perc_change = 100.*((curr-prev)/np.abs(prev))
+                    prev = curr
 
     def update_v(self):
         """Updates the parameters of the Beta distributions for latent
         variable 'v' in the variational approximation.        
-        """    
-        self.v_a_ = np.zeros(self.K_)
-        self.v_b_ = np.zeros(self.K_)
+        """
+        self.v_a_ = 1.0 + np.sum(self.R_, 0) 
+        
+        for k in np.arange(0, self.K_):    
+            self.v_b_[k] = self.alpha_ + np.sum(self.R_[:, k+1:])
+            
+    def update_v_stochastic(self, batch_ids, step):
+        """
+        """
+        # The scale factor multiples the natural gradient and accounts for the
+        # batch size        
+        scale_factor = self.N_/float(np.sum(batch_ids))
 
-        for k in np.arange(0, self.K_):
-            self.v_a_[k] = 1.0 + np.sum(self.R_[:, k]) 
-    
-            tmpSum = 0.0
-            for i in np.arange(k+1, self.K_):
-                tmpSum = tmpSum + np.sum(self.R_[:, i])
-    
-            self.v_b_[k] = self.alpha_ + tmpSum
-              
+        intermediate_v_a = 1.0 + scale_factor*np.sum(self.R_[batch_ids, :], 0)
+
+        self.v_a_ = (1-step)*self.v_a_ + step*intermediate_v_a
+         
+        for k in np.arange(0, self.K_):    
+            intermediate_v_b = self.alpha_ + scale_factor*np.sum(self.R_[batch_ids, k+1:])
+            self.v_b_[k] = (1-step)*self.v_b_[k] + step*intermediate_v_b
+        
     def update_z(self, X, Y, constraint_subgraphs):
         """Update the variational distribution over latent variable Z.
 
@@ -489,10 +578,56 @@ class MultDPRegression:
         rho_10 = ln_rho*np.log10(np.e)
         rho_10_shift = 10**((rho_10.T - max(rho_10, 1)).T + 300).clip(-300, 300)
         R = (rho_10_shift.T/sum(rho_10_shift, 1)).T
-
+        
         # Now apply constraints
         self.apply_constraints(self.constraint_subgraphs_, R)
+
+        # Any instance that has miniscule probability of belonging to a
+        # trajectory, set it's probability of belonging to that trajectory to 0
+        R[R <= self.prob_thresh_] = 0
+        
         return R
+
+    def update_z_stochastic(self, batch_ids, batch_subgraphs):
+        """
+        """
+        expec_ln_v = psi(self.v_a_) - psi(self.v_a_ + self.v_b_)
+        expec_ln_1_minus_v = psi(self.v_b_) - psi(self.v_a_ + self.v_b_)
+        
+        tmp = np.array(expec_ln_v)
+        for k in xrange(1, self.K_):
+            tmp[k] += np.sum(expec_ln_1_minus_v[0:k])
+
+        #ln_rho = np.ones([np.sum(batch_ids), self.K_])*tmp[newaxis, :]
+        ln_rho = np.ones([self.N_, self.K_])*tmp[newaxis, :]             
+        for d in xrange(0, self.D_):
+            ids = ~np.isnan(self.Y_[:, d]) & batch_ids
+            if np.sum(ids) > 0:
+                tmp = (dot(self.w_mu_[:, d, :].T, \
+                    self.X_[ids, :].T)**2).T + \
+                    np.sum((self.X_[ids, newaxis, :]**2)*\
+                    (self.w_var_[:, d, :].T)[newaxis, :, :], 2)
+
+                ln_rho[ids, :] += 0.5*(psi(self.lambda_a_[d, :]) - \
+                    log(self.lambda_b_[d, :]) - log(2*np.pi) - \
+                    (self.lambda_a_[d, :]/self.lambda_b_[d, :])*\
+                    (tmp - 2*self.Y_[ids, d, newaxis]*dot(self.X_[ids, :], \
+                    self.w_mu_[:, d, :]) + self.Y_[ids, d, newaxis]**2))
+
+        # The values of 'ln_rho' will in general have large magnitude, causing
+        # exponentiation to result in overflow. All we really care about is the
+        # normalization of each row. We can use the identity exp(a) = 
+        # 10**(a*log10(e)) to put things in base ten, and then subtract from 
+        # each row the max value and also clipping the resulting row vector to
+        # lie within -300, 300 to ensure that when we exponentiate we don't
+        # have any overflow issues.
+        rho_10 = ln_rho[batch_ids, :]*np.log10(np.e)
+        rho_10_shift = 10**((rho_10.T - \
+                             max(rho_10, 1)).T + 300).clip(-300, 300)
+        self.R_[batch_ids, :] = (rho_10_shift.T/sum(rho_10_shift, 1)).T
+
+        # Now apply constraints
+        self.apply_constraints(batch_subgraphs, self.R_)        
     
     def apply_constraints(self, constraint_subgraphs, R):
         """
@@ -566,7 +701,50 @@ class MultDPRegression:
                     (-(self.lambda_a_[d, self.sig_trajs_]/\
                        self.lambda_b_[d, self.sig_trajs_])*\
                     sum_term + mu0_DIV_var0[m, d])
+
+    def update_w_stochastic(self, batch_ids, step):
+        """
+        """
+        # The scale factor multiples the natural gradient and accounts for the
+        # batch size
+        scale_factor = self.N_/float(np.sum(batch_ids))
+        
+        tmp1 = (self.lambda_a_[:, self.sig_trajs_]/\
+                self.lambda_b_[:, self.sig_trajs_])[newaxis, :, :]*\
+            (np.sum(self.R_[:, self.sig_trajs_][batch_ids, :, newaxis]*\
+                    self.X_[batch_ids, newaxis, :]**2, 0).T)[:, newaxis, :]
+
+        intermediate_prec = \
+          scale_factor*tmp1 + (1.0/self.w_var0_)[:, :, newaxis]
+
+        self.w_var_[:, :, self.sig_trajs_] = \
+          ((1-step)/self.w_var_[:, :, self.sig_trajs_] + \
+           step*intermediate_prec)**-1
+
+        mu0_DIV_var0 = self.w_mu0_/self.w_var0_
+        for m in xrange(0, self.M_):
+            ids = np.ones(self.M_, dtype=bool)
+            ids[m] = False
+            for d in xrange(0, self.D_):
+                batch_non_nan_ids = ~np.isnan(self.Y_[:, d]) & batch_ids
+
+                sum_term = \
+                  sum(self.R_[batch_non_nan_ids, :][:, self.sig_trajs_]*\
+                    self.X_[batch_non_nan_ids, m, newaxis]*\
+                    (dot(self.X_[:, ids][batch_non_nan_ids, :], \
+                         self.w_mu_[ids, d, :][:, self.sig_trajs_]) - \
+                           self.Y_[batch_non_nan_ids, d][:, newaxis]), 0)
                         
+                intermediate_mu = \
+                  self.w_var_[m, d, self.sig_trajs_]*\
+                    (-(self.lambda_a_[d, self.sig_trajs_]/\
+                       self.lambda_b_[d, self.sig_trajs_])*\
+                    scale_factor*sum_term + mu0_DIV_var0[m, d])
+                    
+                self.w_mu_[m, d, self.sig_trajs_] = \
+                  (1-step)*self.w_mu_[m, d, self.sig_trajs_] + \
+                  step*intermediate_mu
+                    
     def update_lambda(self):
         """Update the variational distribution over latent variable lambda.
         """
@@ -618,7 +796,39 @@ class MultDPRegression:
                 np.dot(self.X_[non_nan_ids, :], \
                        self.w_mu_[:, d, self.sig_trajs_]) + \
                 self.Y_[non_nan_ids, d, newaxis]**2), 0)
-                     
+
+    def update_lambda_stochastic(self, batch_ids, step):
+        """
+        """
+        # The scale factor multiples the natural gradient and accounts for the
+        # batch size
+        scale_factor = self.N_/float(np.sum(batch_ids))
+        
+        intermediate_a = self.lambda_a0_[:, newaxis] + scale_factor*0.5*\
+          sum(self.R_[:, self.sig_trajs_][batch_ids, :], 0)[newaxis, :]
+                  
+        self.lambda_a_[:, self.sig_trajs_] = \
+          (1-step)*self.lambda_a_[:, self.sig_trajs_] + step*intermediate_a
+
+        for d in xrange(0, self.D_):
+            batch_non_nan_ids = ~np.isnan(self.Y_[:, d]) & batch_ids
+
+            tmp = (dot(self.w_mu_[:, d, self.sig_trajs_].T, \
+                       self.X_[batch_non_nan_ids, :].T)**2).T + \
+                np.sum((self.X_[batch_non_nan_ids, newaxis, :]**2)*\
+                    (self.w_var_[:, d, self.sig_trajs_].T)[newaxis, :, :], 2)
+
+            intermediate_b = self.lambda_b0_[d, newaxis] + \
+                scale_factor*0.5*\
+                sum(self.R_[batch_non_nan_ids, :][:, self.sig_trajs_]*\
+                (tmp - 2*self.Y_[batch_non_nan_ids, d, newaxis]*\
+                np.dot(self.X_[batch_non_nan_ids, :], \
+                       self.w_mu_[:, d, self.sig_trajs_]) + \
+                self.Y_[batch_non_nan_ids, d, newaxis]**2), 0)
+                
+            self.lambda_b_[d, self.sig_trajs_] = \
+              (1-step)*self.lambda_b_[d, self.sig_trajs_] + step*intermediate_b
+                
     def sample(self, index=None, x=None):
         """sample from the posterior distribution using the input data. 
 
@@ -752,8 +962,8 @@ class MultDPRegression:
         log_dens = np.sum(np.log(np.mean(accums, 1)))
 
         return log_dens
-    
-    def compute_waic2(self, S=20):
+
+    def compute_waic2(self, S=1000):
         """Computes the Watanabe-Akaike (aka widely available) information
         criterion, using the variance of individual terms in the log predictive
         density summed over the n data points.
@@ -780,7 +990,7 @@ class MultDPRegression:
         no_constraints_ids = np.ones(self.N_, dtype=bool)
         if self.constraints_ is not None:
             no_constraints_ids[self.constraints_.nodes()] = False
-
+    
             # Only if all the constraints within a subgraph are longitudinal
             # should they be considered as a block when computing WAIC2.
             for g in self.constraint_subgraphs_:
@@ -791,41 +1001,39 @@ class MultDPRegression:
                         break
                 if is_longitudinal:
                     node_groups.append(g.nodes())
-
+    
         for n in np.where(no_constraints_ids)[0]:
-            node_groups.append(n)
-
+            node_groups.append([n])
+    
         accum = np.zeros([self.N_, self.D_, S])
-        for s in xrange(0, S):
-            print s
-            for nodes in node_groups:                
-                z = np.random.multinomial(1, self.R_[nodes, :])
+        for k in np.where(self.sig_trajs_)[0]:
+            print k
+            for nodes in node_groups:
                 for d in xrange(0, self.D_):
-                    co = multivariate_normal(self.w_mu_[:, d, 
-                                                        z.astype(bool)][:, 0],
-                        diag(self.w_var_[:, d, z.astype(bool)][:, 0]), 1)
-                   
-                    mu = dot(co[0], self.X_[nodes, :].T)
-
+                    co = multivariate_normal(self.w_mu_[:, d, k],
+                        diag(self.w_var_[:, d, k]), S)
+                       
+                    mu = dot(co, self.X_[nodes, :].T)
+                    
                     # Draw a precision value from the gamma distribution. Note
                     # that numpy uses a slightly different parameterization
-                    scale = 1./self.lambda_b_[d, z.astype(bool)]
-                    shape = self.lambda_a_[d, z.astype(bool)]
+                    scale = 1./self.lambda_b_[d, k]
+                    shape = self.lambda_a_[d, k]
                     var = 1./gamma(shape, scale, size=1)
-
-                    accum[nodes, d, s] += \
-                      (1/sqrt(2*np.pi*var))*exp(-(1/(2*var))*\
-                                                (mu - self.Y_[nodes, d])**2)
+    
+                    prob = ((1/sqrt(2*np.pi*var))[:, newaxis]*\
+                      exp(-(1/(2*var))[:, newaxis]*(mu - self.Y_[nodes, d])**2)).T
+                        
+                    accum[nodes, d, :] += self.R_[nodes[0], k]*prob
 
         lppd = np.nansum(log(np.nanmean(accum, axis=2)))
-
         mean_ln_accum = np.nanmean(log(accum), axis=2)
         p_waic2 = np.nansum((1./(S-1.))*(log(accum) - \
-                                         mean_ln_accum[:, :, newaxis])**2)
+            mean_ln_accum[:, :, newaxis])**2)
         waic2 = -2.*(lppd - p_waic2)
 
         return waic2
-
+    
     def update_R_rows_(self, constraint_subgraph, prob_thresh, R):
         """Updates 'R' according to the constraints supplied in
         'constraint_subgraph'
