@@ -441,8 +441,7 @@ class MultDPRegression:
                 if verbose:
                     print("iter {},  {}".format(inc, sum(self.R_, 0)))
                 if inc%100 == 0:
-                    pass
-                    #waics.append(self.compute_waic2())
+                    waics.append(self.compute_waic2())
                     print waics
                     
                 if compute_lower_bound:                
