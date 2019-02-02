@@ -399,9 +399,6 @@ class MultDPRegression:
                 #                r_time + w_time + v_time + l_time)                    
                 if verbose:
                     print("iter {},  {}".format(inc, sum(self.R_, 0)))
-                if inc%100 == 0:
-                    pass
-                    #self.compute_waic2()
         else:
             prev = -sys.float_info.max
             perc_change = sys.float_info.max
@@ -440,9 +437,6 @@ class MultDPRegression:
     
                 if verbose:
                     print("iter {},  {}".format(inc, sum(self.R_, 0)))
-                if inc%100 == 0:
-                    waics.append(self.compute_waic2())
-                    print waics
                     
                 if compute_lower_bound:                
                     curr = self.compute_lower_bound()
@@ -982,48 +976,23 @@ class MultDPRegression:
         ----------
         Gelman et al, 'Bayesian Data Analysis, 3rd Edition'
         """
-        # Computation of WAIC2 needs to account for the dependence introduced
-        # by the constraints. Gather together the nodes between which there
-        # are constraints and the nodes that are not involved in a constraint.
-        node_groups = []
-        no_constraints_ids = np.ones(self.N_, dtype=bool)
-        if self.constraints_ is not None:
-            no_constraints_ids[self.constraints_.nodes()] = False
-    
-            # Only if all the constraints within a subgraph are longitudinal
-            # should they be considered as a block when computing WAIC2.
-            for g in self.constraint_subgraphs_:
-                is_longitudinal = True
-                for e in g.edges():
-                    if g[e[0]][e[1]]['constraint'] != 'longitudinal':
-                        is_longitudinal = False
-                        break
-                if is_longitudinal:
-                    node_groups.append(g.nodes())
-    
-        for n in np.where(no_constraints_ids)[0]:
-            node_groups.append([n])
-    
         accum = np.zeros([self.N_, self.D_, S])
         for k in np.where(self.sig_trajs_)[0]:
-            print k
-            for nodes in node_groups:
-                for d in xrange(0, self.D_):
-                    co = multivariate_normal(self.w_mu_[:, d, k],
-                        diag(self.w_var_[:, d, k]), S)
-                       
-                    mu = dot(co, self.X_[nodes, :].T)
+            for d in xrange(0, self.D_):
+                co = multivariate_normal(self.w_mu_[:, d, k],
+                    diag(self.w_var_[:, d, k]), S)                       
+                mu = dot(co, self.X_.T)
                     
-                    # Draw a precision value from the gamma distribution. Note
-                    # that numpy uses a slightly different parameterization
-                    scale = 1./self.lambda_b_[d, k]
-                    shape = self.lambda_a_[d, k]
-                    var = 1./gamma(shape, scale, size=1)
+                # Draw a precision value from the gamma distribution. Note
+                # that numpy uses a slightly different parameterization
+                scale = 1./self.lambda_b_[d, k]
+                shape = self.lambda_a_[d, k]
+                var = 1./gamma(shape, scale, size=1)
     
-                    prob = ((1/sqrt(2*np.pi*var))[:, newaxis]*\
-                      exp(-(1/(2*var))[:, newaxis]*(mu - self.Y_[nodes, d])**2)).T
+                prob = ((1/sqrt(2*np.pi*var))[:, newaxis]*\
+                    exp(-(1/(2*var))[:, newaxis]*(mu - self.Y_[:, d])**2)).T
                         
-                    accum[nodes, d, :] += self.R_[nodes[0], k]*prob
+                accum[:, d, :] += self.R_[:, k][:, newaxis]*prob
 
         lppd = np.nansum(log(np.nanmean(accum, axis=2)))
         mean_ln_accum = np.nanmean(log(accum), axis=2)
