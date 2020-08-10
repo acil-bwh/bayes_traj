@@ -34,6 +34,11 @@ parser.add_argument('--waic2_thresh', help='Model will only be written to \
     file provided that the WAIC2 value is below this threshold',
     dest='waic2_thresh', metavar='<float>', type=float,
     default=sys.float_info.max)
+parser.add_argument("--save_all", help="By default, only the model with the \
+    lowest WAIC score is saved to file. However, if this flag is set a model \
+    file is saved for each repeat. The specified output file name is used \
+    with a 'repeat[n]' appended, where [n] indicates the repeat number.",
+    action="store_true")
 
 op = parser.parse_args()
 iters = int(op.iters)
@@ -43,7 +48,7 @@ targets = op.targets.split(',')
 in_csv = op.in_csv
 prior_p = op.prior_p
 out_file = op.out_file
-
+pdb.set_trace()
 df = pd.read_csv(in_csv)
 
 X = df[preds].values
@@ -81,14 +86,22 @@ for r in np.arange(repeats):
            constraints=constraints_graph, data_names=data_names,
            target_names=targets, predictor_names=preds)
 
-    waic2 = mm.compute_waic2()
-    foo_waics.append(waic2)
-    if waic2 < best_waic2:
-        best_waic2 = waic2
-        best_mm = mm
-        pickle.dump({'MultDPRegression': mm}, open(out_file, 'wb'))
+    if op.save_all:
+        out_file_tmp = out_file.split('.')[0] + '_repeat{}.p'.format(r)
+        pickle.dump({'MultDPRegression': mm}, open(out_file_tmp, 'wb'))
 
         provenance_desc = """ """
-        write_provenance_data(out_file, generator_args=op,
+        write_provenance_data(out_file_tmp, generator_args=op,
                               desc=provenance_desc)
+    else:
+        waic2 = mm.compute_waic2()
+        foo_waics.append(waic2)
+        if waic2 < best_waic2:
+            best_waic2 = waic2
+            best_mm = mm
+            pickle.dump({'MultDPRegression': mm}, open(out_file, 'wb'))
+
+            provenance_desc = """ """
+            write_provenance_data(out_file, generator_args=op,
+                                  desc=provenance_desc)
 
