@@ -48,7 +48,7 @@ targets = op.targets.split(',')
 in_csv = op.in_csv
 prior_p = op.prior_p
 out_file = op.out_file
-pdb.set_trace()
+
 df = pd.read_csv(in_csv)
 
 X = df[preds].values
