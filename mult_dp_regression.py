@@ -1,5 +1,5 @@
 from argparse import ArgumentParser
-from acil_python.trajectories.get_longitudinal_constraints_graph \
+from bayes_traj.get_longitudinal_constraints_graph \
   import get_longitudinal_constraints_graph
 import numpy as np
 from numpy import abs, dot, mean, log, sum, exp, tile, max, sum, isnan, diag, \
