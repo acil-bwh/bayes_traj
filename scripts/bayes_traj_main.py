@@ -80,9 +80,11 @@ if op.alpha is not None:
 #------------------------------------------------------------------------------
 # Set up and run the traj alg
 #------------------------------------------------------------------------------
-foo_waics = []
+waics_tracker = []
+bics_tracker = []
 best_mm = None
 best_waic2 = op.waic2_thresh
+best_bics = (-sys.float_info.max, -sys.float_info.max)
 for r in np.arange(repeats):
     print "---------- Repeat {}, Best WAIC2: {} ----------".\
       format(r, best_waic2)
@@ -99,14 +101,25 @@ for r in np.arange(repeats):
         write_provenance_data(out_file_tmp, generator_args=op,
                               desc=provenance_desc)
     else:
-        waic2 = mm.compute_waic2()
-        foo_waics.append(waic2)
-        if waic2 < best_waic2:
-            best_waic2 = waic2
-            best_mm = mm
+        bics = mm.bic()
+        if bics[0] > best_bics[0] and bics[1] > best_bics[1]: 
+            best_bics[0] = bics[0]
+            best_bics[1] = bics[1]            
+
             pickle.dump({'MultDPRegression': mm}, open(out_file, 'wb'))
 
             provenance_desc = """ """
             write_provenance_data(out_file, generator_args=op,
                                   desc=provenance_desc)
+            
+        #waic2 = mm.compute_waic2()
+        #waics_tracker.append(waic2)
+        #if waic2 < best_waic2:
+        #    best_waic2 = waic2
+        #    best_mm = mm
+        #    pickle.dump({'MultDPRegression': mm}, open(out_file, 'wb'))
+        # 
+        #    provenance_desc = """ """
+        #    write_provenance_data(out_file, generator_args=op,
+        #                          desc=provenance_desc)
 
