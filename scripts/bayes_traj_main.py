@@ -102,9 +102,8 @@ for r in np.arange(repeats):
                               desc=provenance_desc)
     else:
         bics = mm.bic()
-        if bics[0] > best_bics[0] and bics[1] > best_bics[1]: 
-            best_bics[0] = bics[0]
-            best_bics[1] = bics[1]            
+        if bics[0] > best_bics[0] and bics[1] > best_bics[1]:
+            best_bics = bics
 
             pickle.dump({'MultDPRegression': mm}, open(out_file, 'wb'))
 
