@@ -18,6 +18,8 @@ parser.add_argument('--in_csv', help='Input csv file containing data on which \
   to run MultDPRegression', dest='in_csv', metavar='<string>', default=None)
 parser.add_argument('--prior_p', help='Input pickle file containing prior \
   settings', dest='prior_p', metavar='<string>', default=None)
+parser.add_argument('--alpha', help='If specified, over-rides the value in the \
+  prior file', dest='alpha', metavar=float, default=None)
 parser.add_argument('--preds', help='Comma-separated list of predictor names',
     dest='preds', metavar='<string>', default=None)
 parser.add_argument('--targets', help='Comma-separated list of target names',
@@ -72,6 +74,9 @@ with open(prior_p, 'r') as f:
     lambda_b0 = priors['lambda_b0']
     alpha = priors['alpha']
 
+if op.alpha is not None:
+    alpha = float(op.alpha)
+    
 #------------------------------------------------------------------------------
 # Set up and run the traj alg
 #------------------------------------------------------------------------------
