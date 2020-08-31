@@ -956,6 +956,79 @@ class MultDPRegression:
 
         return log_dens
 
+    def log_likelihood(self):
+        """Compute the log-likelihood given expected values of the latent 
+        variables.
+
+        Returns
+        -------
+        log_likelihood : float
+            The log-likelihood
+        """
+        traj_ids = np.where(np.sum(self.R_, 0) > 0.0)[0]
+
+        log_likelihood = 0.0
+        for k in traj_ids:
+            for d in range(self.D_):
+                mu = np.dot(self.X_, self.w_mu_[:, d, k])
+                v = self.lambda_b_[d, k]/self.lambda_a_[d, k]
+                co = 1/sqrt(2.*np.pi*v)
+                log_likelihood += np.sum(self.R_[:, k]*(np.log(co) - \
+                    ((self.Y_[:, d]-mu)**2)/(2.*v)))
+                
+        return log_likelihood
+
+    def bic(self):
+        """Computes the Bayesian Information Criterion according to formula 4.1 
+        in the reference. Assumes same number of parameters for each trajectory 
+        and for each target dimension.
+    
+        Returns
+        -------
+        bic_obs[, bic_groups] : float or tuple
+            The BIC values. It 'data_names' was specified during the fitting 
+            routine, these values will be used to determine the number of 
+            individuals in the data set. In this case, two BIC values will be 
+            computed: one in which N is taken to be the number of observations 
+            (underestimates true BIC) and one in which N is taken to be the 
+            number of subjects (overstates true BIC). If the number of 
+            subjects can not be ascertained, a single BIC value (where N is 
+            taken to be the number of observations) is returned.
+    
+        References
+        ----------
+        Nagin DS, Group-based modeling of development. Harvard University Press; 
+        2005.
+        """
+        ll = self.log_likelihood()
+        num_trajs = np.sum(np.sum(self.R_, 0) > 0.0)
+    
+        # The first term below tallies the number of predictors for each
+        # trajectory and for each target variable. Here we assume the same
+        # number of predictors for each trajectory and for each target variable.
+        # The second term tallies the number of parameters derived from the
+        # total number of trajectories (i.e. the trajectory weights). They must
+        # sum to one, that's why we subtract by one (the last parameter value is
+        # determined by the sum of the others).
+        num_params = (num_trajs*self.M_*self.D_) + (num_trajs - 1.)
+    
+    
+        # Per recommendation in the reference, two BICs are computed: one in
+        # which N is taken to be the number of observations (overstates true
+        # "N") and one in which N is taken to be the number of subjects
+        # (understates true "N"). The number of subjects is determined by
+        # 'data_names' (if it was provided during fitting)
+        bic_obs = ll - 0.5*num_params*np.log(self.N_)
+        
+        if self.data_names_ is not None:
+            sid = [n.split('_')[0] for n in self.data_names_]
+            num_subjects = len(set(sid))
+            bic_groups = ll - 0.5*num_params*np.log(num_subjects)
+    
+            return (bic_obs, bic_groups)
+        else:
+            return bic_obs
+    
     def compute_waic2(self, S=1000):
         """Computes the Watanabe-Akaike (aka widely available) information
         criterion, using the variance of individual terms in the log predictive
