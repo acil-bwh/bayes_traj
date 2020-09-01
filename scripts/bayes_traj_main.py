@@ -53,11 +53,14 @@ out_file = op.out_file
 
 df = pd.read_csv(in_csv)
 
-X = df[preds].values
-Y = df[targets].values
+ids = ~np.isnan(np.sum(df[preds].values, 1))
+print("Warning: identified NaNs in predictor set for {} individuals. \
+Proceeding with non-NaN data".format(np.sum(~ids)))
+X = df[preds].values[ids]
+Y = df[targets].values[ids]
 
-data_names = df.data_names.values
-constraints_graph = get_longitudinal_constraints_graph(df.sid.values)
+data_names = df.data_names.values[ids]
+constraints_graph = get_longitudinal_constraints_graph(df.sid.values[ids])
 
 D = len(targets)
 M = len(preds)
