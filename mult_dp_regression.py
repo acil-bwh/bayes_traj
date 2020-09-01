@@ -973,8 +973,12 @@ class MultDPRegression:
                 mu = np.dot(self.X_, self.w_mu_[:, d, k])
                 v = self.lambda_b_[d, k]/self.lambda_a_[d, k]
                 co = 1/sqrt(2.*np.pi*v)
-                log_likelihood += np.sum(self.R_[:, k]*(np.log(co) - \
-                    ((self.Y_[:, d]-mu)**2)/(2.*v)))
+
+                # Some of the target variables can be missing (NaNs). Exclude
+                # these from the computation.
+                ids = ~np.isnan(self.Y_[:, d])
+                log_likelihood += np.sum(self.R_[ids, k]*(np.log(co) - \
+                    ((self.Y_[ids, d]-mu[ids])**2)/(2.*v)))
                 
         return log_likelihood
 
@@ -1012,13 +1016,19 @@ class MultDPRegression:
         # determined by the sum of the others).
         num_params = (num_trajs*self.M_*self.D_) + (num_trajs - 1.)
     
-    
         # Per recommendation in the reference, two BICs are computed: one in
         # which N is taken to be the number of observations (overstates true
         # "N") and one in which N is taken to be the number of subjects
         # (understates true "N"). The number of subjects is determined by
-        # 'data_names' (if it was provided during fitting)
-        bic_obs = ll - 0.5*num_params*np.log(self.N_)
+        # 'data_names' (if it was provided during fitting). Note that when we
+        # compute the total number of observations, we sum across each of the
+        # target variable dimensions, and for each dimension, we only consider
+        # those instances with non-NaN values.
+        num_obs_tally = 0
+        for d in range(self.D_):
+            num_obs_tally += np.sum(~np.isnan(self.Y_[:, d]))
+        
+        bic_obs = ll - 0.5*num_params*np.log(num_obs_tally)
         
         if self.data_names_ is not None:
             sid = [n.split('_')[0] for n in self.data_names_]
