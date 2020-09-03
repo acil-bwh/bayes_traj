@@ -627,14 +627,15 @@ class MultDPRegression:
         num_subgraphs = len(constraint_subgraphs)
 
         for i in xrange(0, num_subgraphs):
-            is_longitudinal = True
+            is_must_link = True
             for e in constraint_subgraphs[i].edges():
                 if constraint_subgraphs[i][e[0]][e[1]]['constraint'] != \
-                  'longitudinal':
-                  is_longitudinal = False
+                  'longitudinal' and constraint_subgraphs[i][e[0]][e[1]]\
+                  ['constraint'] != 'must_link':                    
+                  is_must_link = False
                   break
-            if is_longitudinal:
-                self.update_R_rows_longitudinal_(constraint_subgraphs[i], R)
+            if is_must_link:
+                self.update_R_rows_must_link_(constraint_subgraphs[i], R)
             else:
                 self.update_R_rows_(constraint_subgraphs[i],
                                     self.prob_thresh_, R)
@@ -1207,7 +1208,7 @@ class MultDPRegression:
         for i in np.arange(0, num_nodes):
             R[node_ids[i], :] = normalized_mat[i, :]
 
-    def update_R_rows_longitudinal_(self, constraint_subgraph, R):
+    def update_R_rows_must_link_(self, constraint_subgraph, R):
         """Updates 'R_' by enforcing longitudinal points to have the same row
         probabilities.
 
@@ -1221,7 +1222,7 @@ class MultDPRegression:
             The constraints are encoded in a networkx graph, each node should
             indicate an instance index, and edges indicate constraints. Each
             edge should have a string attribute called 'constraint' which takes
-            a value of 'longitudinal'.
+            a value of 'longitudinal' or 'must_link'.
 
         R : array, shape ( N, K )
             Each element of this matrix represents the probability that
