@@ -1,6 +1,7 @@
 from argparse import ArgumentParser
 import pandas as pd
 import numpy as np
+import networkx as nx
 from bayes_traj.mult_dp_regression import MultDPRegression
 from bayes_traj.get_longitudinal_constraints_graph \
   import get_longitudinal_constraints_graph
