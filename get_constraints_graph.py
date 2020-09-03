@@ -1,5 +1,6 @@
 import numpy as np
 import networkx as nx
+from tqdm import tqdm
 
 import pdb
 
@@ -43,7 +44,7 @@ def get_constraints_graph(ids, pairs, constraint_type, graph=None):
     if graph is None:
         graph = nx.Graph()
 
-    for p in pairs:
+    for p in tqdm(pairs):
         ids_p1 = np.where(ids == p[0])[0]
         ids_p2 = np.where(ids == p[1])[0]
         if ids_p1.shape[0] > 0 and ids_p2.shape[0] > 0: 
