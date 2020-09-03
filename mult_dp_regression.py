@@ -205,12 +205,10 @@ class MultDPRegression:
             The constraints are encoded in a networkx graph, each node should
             indicate an instance index, and edges indicate constraints. Each
             edge should have a string attribute called 'constraint', which must
-            take a value of 'must_link', 'cannot_link', or 'longitudinal'. If
-            constraints are specified, the variation inference update equations
-            will take them into account. See
-            'ConstrainedNonparametricGaussianProcessRegression' in the
-            repositrory 'Documentation' folder for a description of how the
-            updates are incorporated.
+            take a value of 'weighted_must_link', 'weighted_cannot_link', or 
+            'must_link', 'cannot_link' or 'longitudinal'. If constraints are 
+            specified, the variation inference update equations will take them 
+            into account. 
 
         data_names : list of N strings, optional
             Stores a name for each data item represented in the X and Y
@@ -483,9 +481,10 @@ class MultDPRegression:
             The constraints are encoded in networkx graphs, each node should
             indicate an instance index, and edges indicate constraints. Each
             edge should have a string attribute called 'constraint', which must
-            take a value of 'must_link', 'cannot_link', or 'longitudinal'. Each
-            element of the list is a graph that corresponds to a collection
-            of linked data instances.
+            take a value of 'weighted_must_link', 'weighted_cannot_link', 
+            'must_link', 'cannot_link', or 'longitudinal'. Each element of the 
+            list is a graph that corresponds to a collection of linked data 
+            instances.
 
         Returns
         -------
@@ -1099,7 +1098,8 @@ class MultDPRegression:
             The constraints are encoded in a networkx graph, each node should
             indicate an instance index, and edges indicate constraints. Each
             edge should have a string attribute called 'constraint', which must
-            take a value of 'must_link', 'cannot_link', or 'longitudinal'.
+            take a value of 'weighted_must_link', 'weighted_cannot_link', 
+            'must_link', 'cannot_link', or 'longitudinal'.
 
         prob_thresh : float
             The probability threshold is a scalar value in the interval (0, 1).
@@ -1169,7 +1169,8 @@ class MultDPRegression:
         for e in constraint_subgraph.edges():
             if constraint_subgraph[e[0]][e[1]]['constraint'] == \
               'longitudinal' or constraint_subgraph[e[0]][e[1]]['constraint'] \
-              == 'must_link':
+              == 'weighted_must_link' or \
+              constraint_subgraph[e[0]][e[1]]['constraint'] == 'must_link':
               tmp = list(np.sort(list(set(sig_cols[node_to_index[e[0]]] + \
                                           sig_cols[node_to_index[e[1]]]))))
               sig_cols[node_to_index[e[0]]] = tmp
@@ -1252,7 +1253,8 @@ class MultDPRegression:
             The constraints are encoded in a networkx graph, each node should
             indicate an instance index, and edges indicate constraints. Each
             edge should have a string attribute called 'constraint', which must
-            either take a value of 'must_link' or 'cannot_link'.
+            take a value of 'weighted_must_link', 'weighted_cannot_link', 
+            'must_link', 'cannot_link', or 'longitudinal'.
 
         state_mat : array, shape ( num_rows, num_cols )
             A matrix in which each row has exactly one element equal to 1.0. The
@@ -1356,9 +1358,10 @@ class MultDPRegression:
             process.
 
         constraints : string
-            Takes on 'must_link' or 'cannot_link' to indicate the constraint
-            type between the two instances corresponding to 'state_mat_row1'
-            and 'state_mat_row2'
+            Takes on 'weighted_must_link', 'weighted_cannot_link', 'must_link',
+            'cannot_link', or 'longitudinal' to indicate the constraint type
+            between the two instances corresponding to 'state_mat_row1' and 
+            'state_mat_row2'
 
         Returns
         -------
@@ -1375,12 +1378,12 @@ class MultDPRegression:
 
         energy = 0.0
         if inner_product == 1.0:
-            if constraint == 'must_link':
+            if constraint == 'weighted_must_link':
                 energy = -weight
         else:
-            if constraint == 'cannot_link':
+            if constraint == 'weighted_cannot_link':
                 energy = -weight
-            elif constraint == 'longitudinal':
+            elif constraint == 'longitudinal' or constraint == 'must_link':
                 energy = np.inf
 
         return energy
@@ -1451,10 +1454,10 @@ class MultDPRegression:
             The constraints are encoded in a networkx graph, each node should
             indicate an instance index, and edges indicate constraints. Each
             edge should have a string attribute called 'constraint', which must
-            either take a value of 'must_link', 'cannot_link', or
-            'longitudinal'. Generally, the graph describing 'constraints' will
-            be composed of connected subgraphs. This routine isolates the
-            connected subgraphs.
+            either take a value of 'weighted_must_link', 'weighted_cannot_link', 
+            'must_link', 'cannot_link' or 'longitudinal'. Generally, the graph 
+            describing 'constraints' will be composed of connected subgraphs. 
+            This routine isolates the connected subgraphs.
 
         Returns
         -------
@@ -1492,7 +1495,8 @@ class MultDPRegression:
             The constraints are encoded in a networkx graph, each node should
             indicate an instance index, and edges indicate constraints. Each
             edge should have a string attribute called 'constraint', which must
-            take a value of 'must_link', 'cannot_link', or 'longitudinal'.
+            take a value of 'weighted_must_link', 'weighted_cannot_link', 
+            'must_link', 'cannot_link', or 'longitudinal'.
 
         Returns
         -------
