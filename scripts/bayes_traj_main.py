@@ -41,6 +41,9 @@ parser.add_argument("--save_all", help="By default, only the model with the \
     file is saved for each repeat. The specified output file name is used \
     with a 'repeat[n]' appended, where [n] indicates the repeat number.",
     action="store_true")
+parser.add_argument("--constraints", help="File name of pickled networkx \
+    pairwise constraints to impose during model fitting", dest='constraints',
+    default=None)
 
 op = parser.parse_args()
 iters = int(op.iters)
@@ -60,8 +63,13 @@ X = df[preds].values[ids]
 Y = df[targets].values[ids]
 
 data_names = df.data_names.values[ids]
-constraints_graph = get_longitudinal_constraints_graph(df.sid.values[ids])
-
+longitudinal_constraints = get_longitudinal_constraints_graph(df.sid.values[ids])
+if op.constraints is not None:
+    input_constraints = pickle.load(open(op.constraints, 'r'))['Graph']
+    constraints_graph = nx.compose(input_constraints, longitudinal_constraints)
+else:
+    constraints_graph = longitudinal_constraints
+    
 D = len(targets)
 M = len(preds)
 K = int(op.k)
