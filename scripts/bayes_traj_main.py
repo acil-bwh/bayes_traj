@@ -70,7 +70,7 @@ if op.constraints is not None:
     constraints_graph = nx.compose(input_constraints, longitudinal_constraints)
 else:
     constraints_graph = longitudinal_constraints
-    
+
 D = len(targets)
 M = len(preds)
 K = int(op.k)
