@@ -336,9 +336,17 @@ class MultDPRegression:
             iters = 1
 
         compute_lower_bound = True
+        perc_change = sys.float_info.max        
         if tol is None:
+            # Neither 'tol' nor 'perc_change' will be used to determine whether
+            # or not to continue. Set these both to 0 so that the
+            # 'perc_change > tol' evaluation below evaluates to False and only
+            # the number of iterations is used to determine whether or not to
+            # terminate.
             compute_lower_bound = False
-
+            tol = 0.0
+            perc_change = 0.0
+            
         inc = 0
         if minibatch_size is not None:
             kappa = 0.51 # tau is in (0.5, 1]
@@ -398,9 +406,8 @@ class MultDPRegression:
                     print("iter {},  {}".format(inc, sum(self.R_, 0)))
         else:
             prev = -sys.float_info.max
-            perc_change = sys.float_info.max
             waics = []
-            while inc < iters or (perc_change > tol and tol is not None):
+            while inc < iters or (perc_change > tol):
                 inc += 1
                 v_start = time.time()
                 self.update_v()
