@@ -7,8 +7,7 @@ from numpy import abs, dot, mean, log, sum, exp, tile, max, sum, isnan, diag, \
 from numpy.random import multivariate_normal, randn, gamma
 import networkx as nx
 from scipy.optimize import minimize_scalar
-from scipy.misc import logsumexp
-from scipy.special import psi, gammaln
+from scipy.special import psi, gammaln, logsumexp
 import pandas as pd
 import pdb, sys, pickle, time
 
