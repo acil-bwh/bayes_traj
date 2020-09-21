@@ -301,29 +301,29 @@ class MultDPRegression:
 
         if self.lambda_a_ is None:
             self.lambda_a_ = np.zeros([self.D_, self.K_])
-            for k in xrange(0, self.K_):
+            for k in range(0, self.K_):
                 self.lambda_a_[:, k] = self.lambda_a0_
 
         if self.lambda_b_ is None:
             self.lambda_b_ = np.zeros([self.D_, self.K_])
-            for k in xrange(0, self.K_):
+            for k in range(0, self.K_):
                 self.lambda_b_[:, k] = self.lambda_b0_
 
         if self.w_mu_ is None:
             self.w_mu_ = np.zeros([self.M_, self.D_, self.K_])
-            for k in xrange(0, self.K_):
+            for k in range(0, self.K_):
                 self.w_mu_[:, :, k] = self.w_mu0_
 
         #if self.w_mu_ is None:
         #    self.w_mu_ = np.zeros([self.M_, self.D_, self.K_])
-        #    for m in xrange(0, self.M_):
-        #        for d in xrange(0, self.D_):
+        #    for m in range(0, self.M_):
+        #        for d in range(0, self.D_):
         #            self.w_mu_[m, d, :] = np.sqrt(self.w_var0_[m, d])*\
         #              np.random.randn(self.K_) + self.w_mu0_[m, d]
 
         if self.w_var_ is None:
             self.w_var_ = np.zeros([self.M_, self.D_, self.K_])
-            for k in xrange(0, self.K_):
+            for k in range(0, self.K_):
                 self.w_var_[:, :, k] = self.w_var0_
 
         if self.v_a_ is None:
@@ -496,12 +496,12 @@ class MultDPRegression:
 
         N = X.shape[0]
         ln_rho = np.zeros([N, self.K_])
-        for k in xrange(0, self.K_):
+        for k in range(0, self.K_):
             ln_rho[:, k] += expec_ln_v[k]
-            for i in xrange(0, k):
+            for i in range(0, k):
                 ln_rho[:, k] += expec_ln_1_minus_v[i]
 
-            for d in xrange(0, self.D_):
+            for d in range(0, self.D_):
                 non_nan_ids = ~np.isnan(Y[:, d])
                 tmp = (dot(self.w_mu_[:, d, k].T, \
                     X[non_nan_ids, :].T)**2).T + \
@@ -536,12 +536,12 @@ class MultDPRegression:
         expec_ln_1_minus_v = psi(self.v_b_) - psi(self.v_a_ + self.v_b_)
 
         tmp = np.array(expec_ln_v)
-        for k in xrange(1, self.K_):
+        for k in range(1, self.K_):
             tmp[k] += np.sum(expec_ln_1_minus_v[0:k])
 
         ln_rho = np.ones([self.N_, self.K_])*tmp[newaxis, :]
 
-        for d in xrange(0, self.D_):
+        for d in range(0, self.D_):
             non_nan_ids = ~np.isnan(Y[:, d])
 
             tmp = (dot(self.w_mu_[:, d, :].T, \
@@ -586,12 +586,12 @@ class MultDPRegression:
         expec_ln_1_minus_v = psi(self.v_b_) - psi(self.v_a_ + self.v_b_)
 
         tmp = np.array(expec_ln_v)
-        for k in xrange(1, self.K_):
+        for k in range(1, self.K_):
             tmp[k] += np.sum(expec_ln_1_minus_v[0:k])
 
         #ln_rho = np.ones([np.sum(batch_ids), self.K_])*tmp[newaxis, :]
         ln_rho = np.ones([self.N_, self.K_])*tmp[newaxis, :]
-        for d in xrange(0, self.D_):
+        for d in range(0, self.D_):
             ids = ~np.isnan(self.Y_[:, d]) & batch_ids
             if np.sum(ids) > 0:
                 tmp = (dot(self.w_mu_[:, d, :].T, \
@@ -625,7 +625,7 @@ class MultDPRegression:
         """
         num_subgraphs = len(constraint_subgraphs)
 
-        for i in xrange(0, num_subgraphs):
+        for i in range(0, num_subgraphs):
             is_must_link = True
             for e in constraint_subgraphs[i].edges():
                 if constraint_subgraphs[i][e[0]][e[1]]['constraint'] != \
@@ -642,12 +642,12 @@ class MultDPRegression:
     def update_w(self):
         """Update the variational distribution over latent variable w.
         """
-        for m in xrange(0, self.M_):
+        for m in range(0, self.M_):
             ids = np.ones(self.M_, dtype=bool)
             ids[m] = False
-            for d in xrange(0, self.D_):
+            for d in range(0, self.D_):
                 non_nan_ids = ~np.isnan(self.Y_[:, d])
-                for k in xrange(0, self.K_):
+                for k in range(0, self.K_):
                     if sum(self.R_[:, k]) > 0.0:
                         self.w_var_[m, d, k] = ((self.lambda_a_[d, k]/\
                             self.lambda_b_[d, k])*\
@@ -676,10 +676,10 @@ class MultDPRegression:
           (tmp1 + (1.0/self.w_var0_)[:, :, newaxis])**-1
 
         mu0_DIV_var0 = self.w_mu0_/self.w_var0_
-        for m in xrange(0, self.M_):
+        for m in range(0, self.M_):
             ids = np.ones(self.M_, dtype=bool)
             ids[m] = False
-            for d in xrange(0, self.D_):
+            for d in range(0, self.D_):
                 non_nan_ids = ~np.isnan(self.Y_[:, d])
 
                 sum_term = sum(self.R_[non_nan_ids, :][:, self.sig_trajs_]*\
@@ -714,10 +714,10 @@ class MultDPRegression:
            step*intermediate_prec)**-1
 
         mu0_DIV_var0 = self.w_mu0_/self.w_var0_
-        for m in xrange(0, self.M_):
+        for m in range(0, self.M_):
             ids = np.ones(self.M_, dtype=bool)
             ids[m] = False
-            for d in xrange(0, self.D_):
+            for d in range(0, self.D_):
                 batch_non_nan_ids = ~np.isnan(self.Y_[:, d]) & batch_ids
 
                 sum_term = \
@@ -740,16 +740,16 @@ class MultDPRegression:
     def update_lambda(self):
         """Update the variational distribution over latent variable lambda.
         """
-        for d in xrange(0, self.D_):
+        for d in range(0, self.D_):
             non_nan_ids = ~np.isnan(self.Y_[:, d])
-            for k in xrange(0, self.K_):
+            for k in range(0, self.K_):
                 if sum(self.R_[:, k]) > 0.0:
                     self.lambda_a_[d, k] = self.lambda_a0_[d] + \
                       0.5*sum(self.R_[:, k])
 
                     tmp = 0.0
-                    for i in xrange(0, self.M_):
-                        for j in xrange(i, self.M_):
+                    for i in range(0, self.M_):
+                        for j in range(i, self.M_):
                             if i == j:
                                 tmp += (self.w_var_[i, d, k] + \
                                     self.w_mu_[i, d, k]**2)*\
@@ -773,7 +773,7 @@ class MultDPRegression:
         self.lambda_a_[:, self.sig_trajs_] = self.lambda_a0_[:, newaxis] + \
           0.5*sum(self.R_[:, self.sig_trajs_], 0)[newaxis, :]
 
-        for d in xrange(0, self.D_):
+        for d in range(0, self.D_):
             non_nan_ids = ~np.isnan(self.Y_[:, d])
 
             tmp = (dot(self.w_mu_[:, d, self.sig_trajs_].T, \
@@ -802,7 +802,7 @@ class MultDPRegression:
         self.lambda_a_[:, self.sig_trajs_] = \
           (1-step)*self.lambda_a_[:, self.sig_trajs_] + step*intermediate_a
 
-        for d in xrange(0, self.D_):
+        for d in range(0, self.D_):
             batch_non_nan_ids = ~np.isnan(self.Y_[:, d]) & batch_ids
 
             tmp = (dot(self.w_mu_[:, d, self.sig_trajs_].T, \
@@ -844,14 +844,14 @@ class MultDPRegression:
             The sample(s) randomly drawn from the posterior distribution
         """
         if index is None:
-            indices = xrange(0, self.N_)
+            indices = range(0, self.N_)
             y_rep = np.zeros([self.N_, self.D_])
             X = self.X_
         else:
             if not (type(index) == int or type(index) == np.int64):
                 raise ValueError('index must be an integer if specified')
 
-            indices = xrange(index, index+1)
+            indices = range(index, index+1)
             y_rep = np.zeros([1, self.D_])
 
             if x is not None:
@@ -863,7 +863,7 @@ class MultDPRegression:
 
         for n in indices:
             z = np.random.multinomial(1, self.R_[n, :])
-            for d in xrange(0, self.D_):
+            for d in range(0, self.D_):
                 co = multivariate_normal(self.w_mu_[:, d, z.astype(bool)][:, 0],
                     diag(self.w_var_[:, d, z.astype(bool)][:, 0]), 1)
                 if x is not None:
@@ -931,9 +931,9 @@ class MultDPRegression:
 
         log_dens = 0.0
         accums = np.zeros([self.D_, S])
-        for s in xrange(0, S):  
+        for s in range(0, S):  
             z = np.random.multinomial(1, self.R_[index, :])
-            for d in xrange(0, self.D_):
+            for d in range(0, self.D_):
                 co = multivariate_normal(self.w_mu_[:, d, z.astype(bool)][:, 0],
                     diag(self.w_var_[:, d, z.astype(bool)][:, 0]), 1)
                 if x is not None:
@@ -1060,7 +1060,7 @@ class MultDPRegression:
         """
         accum = np.zeros([self.N_, self.D_, S])
         for k in np.where(self.sig_trajs_)[0]:
-            for d in xrange(0, self.D_):
+            for d in range(0, self.D_):
                 co = multivariate_normal(self.w_mu_[:, d, k],
                     diag(self.w_var_[:, d, k]), S)
                 mu = dot(co, self.X_.T)
@@ -1150,7 +1150,7 @@ class MultDPRegression:
         # 'prob_thresh'. We do this for each of the instances in the subgraph
         # and only loop over those state configurations.
         sig_cols = []
-        for i in xrange(0, num_nodes):
+        for i in range(0, num_nodes):
             cols = \
               (np.nonzero(R[node_ids[i], :] > prob_thresh)[0]).tolist()
             sig_cols.append(cols)
@@ -1177,12 +1177,12 @@ class MultDPRegression:
               sig_cols[node_to_index[e[1]]] = tmp
 
         num_state_mats = 1.0
-        for i in xrange(0, num_nodes):
+        for i in range(0, num_nodes):
             num_state_mats *= len(sig_cols[i])
 
         # Initialize the state matrix
         state_mat = np.zeros([num_nodes, num_states])
-        for n in xrange(0, num_nodes):
+        for n in range(0, num_nodes):
             state_mat[n, sig_cols[n][0]] = 1.0
 
         state_mat_accum = np.zeros([num_nodes, num_states])
@@ -1328,7 +1328,7 @@ class MultDPRegression:
 
         num_subgraphs = len(self.constraint_subgraphs_)
 
-        for i in xrange(0, num_subgraphs):
+        for i in range(0, num_subgraphs):
             is_longitudinal = True
             for e in self.constraint_subgraphs_[i].edges():
                 if self.constraint_subgraphs_[i][e[0]][e[1]]['constraint'] != \
@@ -1526,9 +1526,9 @@ class MultDPRegression:
             log(self.lambda_b_), 0))
 
         term_3 = 0.
-        for d in xrange(0, self.D_):
+        for d in range(0, self.D_):
             non_nan_ids = ~np.isnan(self.Y_[:, d])
-            for k in xrange(0, self.K_):
+            for k in range(0, self.K_):
                 term_3 += (self.lambda_a_[d, k]/self.lambda_b_[d, k])*\
                   (dot(dot((self.X_[non_nan_ids, :]**2), self.w_var_[:, d, k]),
                          self.R_[non_nan_ids, k]) + \
@@ -1547,7 +1547,7 @@ class MultDPRegression:
                                psi(self.v_a_ + self.v_b_)))
 
         term_7 = 0.
-        for k in xrange(1, self.K_):
+        for k in range(1, self.K_):
             term_7 += \
               sum(self.R_[:, k]*sum(psi(self.v_b_[0:k]) - \
                                     psi(self.v_a_[0:k] + self.v_b_[0:k])))
@@ -1556,7 +1556,7 @@ class MultDPRegression:
                                         psi(self.v_a_ + self.v_b_))
 
         term_12 = 0.
-        for k in xrange(0, self.K_):
+        for k in range(0, self.K_):
             term_12 += sum(-(0.5/self.w_var0_)*(self.w_var_[:, :, k] + \
                 self.w_mu_[:, :, k]**2 - 2*self.w_mu0_*self.w_mu_[:, :, k]))
 
@@ -1570,7 +1570,7 @@ class MultDPRegression:
         term_17 = -np.sum(self.R_[ids]*log(self.R_[ids]))
 
         term_18 = 0.
-        for k in xrange(0, self.K_):
+        for k in range(0, self.K_):
             alpha = 1 + np.sum(self.R_, 0)[k]
             beta = self.alpha_ + np.sum(np.sum(self.R_, 0)[(k+1):self.K_])
             term_18 += -gammaln(alpha + beta) + gammaln(alpha) + \
@@ -1613,7 +1613,7 @@ class MultDPRegression:
                                                 index=df.index))
 
         traj = []
-        for i in xrange(0, self.R_.shape[0]):
+        for i in range(0, self.R_.shape[0]):
             traj.append(where(max(self.R_[i, :]) == self.R_[i, :])[0][0])
 
         df = df.assign(traj=pd.Series(traj, index=df.index))

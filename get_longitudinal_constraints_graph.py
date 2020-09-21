@@ -34,7 +34,7 @@ def get_longitudinal_constraints_graph(ids):
     for u in unique_ids:
         node_ids = np.where(ids == u)[0]
         if node_ids.shape[0] > 1:
-            for n in xrange(1, node_ids.shape[0]):
+            for n in range(1, node_ids.shape[0]):
                 graph.add_edge(node_ids[n-1], node_ids[n],
                                constraint='longitudinal')
         
