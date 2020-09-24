@@ -98,8 +98,8 @@ best_mm = None
 best_waic2 = op.waic2_thresh
 best_bics = (-sys.float_info.max, -sys.float_info.max)
 for r in np.arange(repeats):
-    print "---------- Repeat {}, Best BICs: {}, {} ----------".\
-      format(r, best_bics[0], best_bics[1])
+    print("---------- Repeat {}, Best BICs: {}, {} ----------".\
+      format(r, best_bics[0], best_bics[1]))
     mm = MultDPRegression(w_mu0, w_var0, lambda_a0, lambda_b0, alpha, K=K)
     mm.fit(X, Y, iters=iters, verbose=True,
            constraints=constraints_graph, data_names=data_names,
