@@ -78,7 +78,7 @@ K = int(op.k)
 #------------------------------------------------------------------------------
 # Get priors from file
 #------------------------------------------------------------------------------
-with open(prior_p, 'r') as f:
+with open(prior_p, 'rb') as f:
     priors = pickle.load(f)
     w_mu0 = priors['w_mu0']
     w_var0 = priors['w_var0']
