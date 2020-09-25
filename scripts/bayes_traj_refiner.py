@@ -27,7 +27,7 @@ iters = int(op.iters)
 in_p = op.in_p
 out_file = op.out_file
 
-mm = pickle.load(open(in_p, 'r'))['MultDPRegression']
+mm = pickle.load(open(in_p, 'rb'))['MultDPRegression']
 
 #------------------------------------------------------------------------------
 # Set up and run the traj alg
