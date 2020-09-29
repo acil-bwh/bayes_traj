@@ -378,30 +378,13 @@ class MultDPRegression:
                 inc += 1
                 step = inc**(-kappa)
 
-                start = time.time()
                 self.update_v_stochastic(batch_ids, step)
-                v_time = time.time() - start
-
-                start = time.time()
                 self.update_w_stochastic(batch_ids, step)
-                w_time = time.time() - start
-
-                start = time.time()
                 self.update_lambda_stochastic(batch_ids, step)
-                l_time = time.time() - start
-
-                start = time.time()
                 self.update_z_stochastic(batch_ids, batch_subgraphs)
-                r_time = time.time() - start
 
                 self.sig_trajs_ = np.sum(self.R_, 0) > 1e-10
 
-                #print "r: {}, w: {}, l: {}, v: {}, tot time (s): {}".\
-                #  format(100*r_time/(r_time + w_time + l_time + v_time),
-                #        100*w_time/(r_time + w_time + l_time + v_time),
-                #                100*l_time/(r_time + w_time + l_time + v_time),
-                #                100*v_time/(r_time + w_time + l_time + v_time),
-                #                r_time + w_time + v_time + l_time)
                 if verbose:
                     print("iter {},  {}".format(inc, sum(self.R_, 0)))
         else:
@@ -409,35 +392,14 @@ class MultDPRegression:
             waics = []
             while inc < iters or (perc_change > tol):
                 inc += 1
-                v_start = time.time()
+
                 self.update_v()
-                v_stop = time.time()
-                v_time = v_stop - v_start
-
-                w_start = time.time()
                 self.update_w_accel()
-                w_stop = time.time()
-                w_time = w_stop - w_start
-
-                l_start = time.time()
                 self.update_lambda_accel()
-                l_stop = time.time()
-                l_time = l_stop - l_start
-
-                r_start = time.time()
                 self.R_ = self.update_z_accel(self.X_, self.Y_,
                                         self.constraint_subgraphs_)
-                r_stop = time.time()
-                r_time = r_stop - r_start
 
                 self.sig_trajs_ = np.max(self.R_, 0) > self.prob_thresh_
-
-                #print "r: {}, w: {}, l: {}, v: {}, tot time (s): {}".\
-                #  format(100*r_time/(r_time + w_time + l_time + v_time),
-                #        100*w_time/(r_time + w_time + l_time + v_time),
-                #                100*l_time/(r_time + w_time + l_time + v_time),
-                #                100*v_time/(r_time + w_time + l_time + v_time),
-                #                r_time + w_time + v_time + l_time)
 
                 if verbose:
                     print("iter {},  {}".format(inc, sum(self.R_, 0)))
