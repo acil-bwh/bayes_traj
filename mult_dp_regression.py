@@ -608,60 +608,68 @@ class MultDPRegression:
                 self.update_R_rows_(constraint_subgraphs[i],
                                     self.prob_thresh_, R)
 
-    def update_w(self):
-        """Update the variational distribution over latent variable w.
-        """
-        for m in range(0, self.M_):
-            ids = np.ones(self.M_, dtype=bool)
-            ids[m] = False
-            for d in range(0, self.D_):
-                non_nan_ids = ~np.isnan(self.Y_[:, d])
-                for k in range(0, self.K_):
-                    if sum(self.R_[:, k]) > 0.0:
-                        self.w_var_[m, d, k] = ((self.lambda_a_[d, k]/\
-                            self.lambda_b_[d, k])*\
-                            sum(self.R_[:, k]*self.X_[:, m]**2) + \
-                            1.0/self.w_var0_[m, d])**-1
-                        self.w_mu_[m, d, k] = self.w_var_[m, d, k]*\
-                          (-(self.lambda_a_[d, k]/\
-                            self.lambda_b_[d, k])*sum(self.R_[non_nan_ids, k]*\
-                                self.X_[non_nan_ids, m]*\
-                                (dot(self.X_[:, ids][non_nan_ids, :], \
-                                                   self.w_mu_[ids, d, k]) - \
-                                 self.Y_[non_nan_ids, d])) + \
-                                 self.w_mu0_[m, d]/self.w_var0_[m, d])
-
     def update_w_accel(self):
-        """This function is an accelerated version of update_w that uses
-        vectorization. This function should produce the same updates as
-        update_w (but faster!).
-        """
-        tmp1 = (self.lambda_a_[:, self.sig_trajs_]/\
-                self.lambda_b_[:, self.sig_trajs_])[newaxis, :, :]*\
-            (np.sum(self.R_[:, self.sig_trajs_, newaxis]*\
-                    self.X_[:, newaxis, :]**2, 0).T)[:, newaxis, :]
-
-        self.w_var_[:, :, self.sig_trajs_] = \
-          (tmp1 + (1.0/self.w_var0_)[:, :, newaxis])**-1
-
+        """ Updates the variational distribution over latent variable w.
+        """    
         mu0_DIV_var0 = self.w_mu0_/self.w_var0_
         for m in range(0, self.M_):
             ids = np.ones(self.M_, dtype=bool)
             ids[m] = False
             for d in range(0, self.D_):
                 non_nan_ids = ~np.isnan(self.Y_[:, d])
-
+    
+                tmp1 = (self.lambda_a_[d, self.sig_trajs_]/\
+                        self.lambda_b_[d, self.sig_trajs_])*\
+                        (np.sum(self.R_[:, self.sig_trajs_, newaxis]\
+                                [non_nan_ids, :, :]*\
+                                self.X_[non_nan_ids, newaxis, :]**2, 0).T)\
+                                [:, newaxis, :]
+                
+                self.w_var_[:, :, self.sig_trajs_] = \
+                    (tmp1 + (1.0/self.w_var0_)[:, :, newaxis])**-1
+                
                 sum_term = sum(self.R_[non_nan_ids, :][:, self.sig_trajs_]*\
-                    self.X_[non_nan_ids, m, newaxis]*\
-                    (dot(self.X_[:, ids][non_nan_ids, :], \
-                         self.w_mu_[ids, d, :][:, self.sig_trajs_]) - \
-                           self.Y_[non_nan_ids, d][:, newaxis]), 0)
-
+                               self.X_[non_nan_ids, m, newaxis]*\
+                               (dot(self.X_[:, ids][non_nan_ids, :], \
+                                    self.w_mu_[ids, d, :]\
+                                    [:, self.sig_trajs_]) - \
+                                self.Y_[non_nan_ids, d][:, newaxis]), 0)
+    
                 self.w_mu_[m, d, self.sig_trajs_] = \
-                  self.w_var_[m, d, self.sig_trajs_]*\
+                    self.w_var_[m, d, self.sig_trajs_]*\
                     (-(self.lambda_a_[d, self.sig_trajs_]/\
                        self.lambda_b_[d, self.sig_trajs_])*\
-                    sum_term + mu0_DIV_var0[m, d])
+                     sum_term + mu0_DIV_var0[m, d])
+                
+#    def update_w_accel(self):
+#        """ Updates the variational distribution over latent variable w.
+#        """
+#        tmp1 = (self.lambda_a_[:, self.sig_trajs_]/\
+#                self.lambda_b_[:, self.sig_trajs_])[newaxis, :, :]*\
+#            (np.sum(self.R_[:, self.sig_trajs_, newaxis]*\
+#                    self.X_[:, newaxis, :]**2, 0).T)[:, newaxis, :]
+#
+#        self.w_var_[:, :, self.sig_trajs_] = \
+#          (tmp1 + (1.0/self.w_var0_)[:, :, newaxis])**-1
+#
+#        mu0_DIV_var0 = self.w_mu0_/self.w_var0_
+#        for m in range(0, self.M_):
+#            ids = np.ones(self.M_, dtype=bool)
+#            ids[m] = False
+#            for d in range(0, self.D_):
+#                non_nan_ids = ~np.isnan(self.Y_[:, d])
+#
+#                sum_term = sum(self.R_[non_nan_ids, :][:, self.sig_trajs_]*\
+#                    self.X_[non_nan_ids, m, newaxis]*\
+#                    (dot(self.X_[:, ids][non_nan_ids, :], \
+#                         self.w_mu_[ids, d, :][:, self.sig_trajs_]) - \
+#                           self.Y_[non_nan_ids, d][:, newaxis]), 0)
+#
+#                self.w_mu_[m, d, self.sig_trajs_] = \
+#                  self.w_var_[m, d, self.sig_trajs_]*\
+#                    (-(self.lambda_a_[d, self.sig_trajs_]/\
+#                       self.lambda_b_[d, self.sig_trajs_])*\
+#                    sum_term + mu0_DIV_var0[m, d])
 
     def update_w_stochastic(self, batch_ids, step):
         """
@@ -706,58 +714,30 @@ class MultDPRegression:
                   (1-step)*self.w_mu_[m, d, self.sig_trajs_] + \
                   step*intermediate_mu
 
-    def update_lambda(self):
-        """Update the variational distribution over latent variable lambda.
-        """
-        for d in range(0, self.D_):
-            non_nan_ids = ~np.isnan(self.Y_[:, d])
-            for k in range(0, self.K_):
-                if sum(self.R_[:, k]) > 0.0:
-                    self.lambda_a_[d, k] = self.lambda_a0_[d] + \
-                      0.5*sum(self.R_[:, k])
-
-                    tmp = 0.0
-                    for i in range(0, self.M_):
-                        for j in range(i, self.M_):
-                            if i == j:
-                                tmp += (self.w_var_[i, d, k] + \
-                                    self.w_mu_[i, d, k]**2)*\
-                                    self.X_[non_nan_ids, i]**2
-                            else:
-                                tmp += 2*self.w_mu_[i, d, k]*\
-                                  self.w_mu_[j, d, k]*self.X_[non_nan_ids, i]*\
-                                  self.X_[non_nan_ids, j]
-
-                    self.lambda_b_[d, k] = self.lambda_b0_[d] + \
-                      0.5*sum(self.R_[non_nan_ids, k]*(tmp[non_nan_ids] - \
-                        2*self.Y_[non_nan_ids, d]*\
-                        np.dot(self.X_[non_nan_ids, :], \
-                               self.w_mu_[:, d, k]) + \
-                        self.Y_[non_nan_ids, d]**2))
-
     def update_lambda_accel(self):
-        """Accelerated version of update_lamdba (uses vectorization and
-        broadcasting). Should provide the same updates as update_lambda.
-        """
-        self.lambda_a_[:, self.sig_trajs_] = self.lambda_a0_[:, newaxis] + \
-          0.5*sum(self.R_[:, self.sig_trajs_], 0)[newaxis, :]
-
-        for d in range(0, self.D_):
+        """Updates the variational distribution over latent variable lambda.
+        """    
+        for d in range(self.D_):
             non_nan_ids = ~np.isnan(self.Y_[:, d])
-
+    
+            self.lambda_a_[d, self.sig_trajs_] = self.lambda_a0_[d, newaxis] + \
+                0.5*sum(self.R_[:, self.sig_trajs_][non_nan_ids, :], 0)\
+                [newaxis, :]
+            
             tmp = (dot(self.w_mu_[:, d, self.sig_trajs_].T, \
                        self.X_[non_nan_ids, :].T)**2).T + \
-                np.sum((self.X_[non_nan_ids, newaxis, :]**2)*\
-                    (self.w_var_[:, d, self.sig_trajs_].T)[newaxis, :, :], 2)
-
+                       np.sum((self.X_[non_nan_ids, newaxis, :]**2)*\
+                              (self.w_var_[:, d, self.sig_trajs_].T)\
+                              [newaxis, :, :], 2)
+    
             self.lambda_b_[d, self.sig_trajs_] = \
-              self.lambda_b0_[d, newaxis] + \
-                    0.5*sum(self.R_[non_nan_ids, :][:, self.sig_trajs_]*\
-                (tmp - 2*self.Y_[non_nan_ids, d, newaxis]*\
-                np.dot(self.X_[non_nan_ids, :], \
-                       self.w_mu_[:, d, self.sig_trajs_]) + \
-                self.Y_[non_nan_ids, d, newaxis]**2), 0)
-
+                self.lambda_b0_[d, newaxis] + \
+                0.5*sum(self.R_[non_nan_ids, :][:, self.sig_trajs_]*\
+                        (tmp - 2*self.Y_[non_nan_ids, d, newaxis]*\
+                         np.dot(self.X_[non_nan_ids, :], \
+                                self.w_mu_[:, d, self.sig_trajs_]) + \
+                         self.Y_[non_nan_ids, d, newaxis]**2), 0)
+                    
     def update_lambda_stochastic(self, batch_ids, step):
         """
         """
