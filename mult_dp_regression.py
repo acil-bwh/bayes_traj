@@ -641,36 +641,6 @@ class MultDPRegression:
                        self.lambda_b_[d, self.sig_trajs_])*\
                      sum_term + mu0_DIV_var0[m, d])
                 
-#    def update_w_accel(self):
-#        """ Updates the variational distribution over latent variable w.
-#        """
-#        tmp1 = (self.lambda_a_[:, self.sig_trajs_]/\
-#                self.lambda_b_[:, self.sig_trajs_])[newaxis, :, :]*\
-#            (np.sum(self.R_[:, self.sig_trajs_, newaxis]*\
-#                    self.X_[:, newaxis, :]**2, 0).T)[:, newaxis, :]
-#
-#        self.w_var_[:, :, self.sig_trajs_] = \
-#          (tmp1 + (1.0/self.w_var0_)[:, :, newaxis])**-1
-#
-#        mu0_DIV_var0 = self.w_mu0_/self.w_var0_
-#        for m in range(0, self.M_):
-#            ids = np.ones(self.M_, dtype=bool)
-#            ids[m] = False
-#            for d in range(0, self.D_):
-#                non_nan_ids = ~np.isnan(self.Y_[:, d])
-#
-#                sum_term = sum(self.R_[non_nan_ids, :][:, self.sig_trajs_]*\
-#                    self.X_[non_nan_ids, m, newaxis]*\
-#                    (dot(self.X_[:, ids][non_nan_ids, :], \
-#                         self.w_mu_[ids, d, :][:, self.sig_trajs_]) - \
-#                           self.Y_[non_nan_ids, d][:, newaxis]), 0)
-#
-#                self.w_mu_[m, d, self.sig_trajs_] = \
-#                  self.w_var_[m, d, self.sig_trajs_]*\
-#                    (-(self.lambda_a_[d, self.sig_trajs_]/\
-#                       self.lambda_b_[d, self.sig_trajs_])*\
-#                    sum_term + mu0_DIV_var0[m, d])
-
     def update_w_stochastic(self, batch_ids, step):
         """
         """
