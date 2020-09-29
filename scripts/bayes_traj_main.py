@@ -58,8 +58,9 @@ out_file = op.out_file
 df = pd.read_csv(in_csv)
 
 ids = ~np.isnan(np.sum(df[preds].values, 1))
-print("Warning: identified NaNs in predictor set for {} individuals. \
-Proceeding with non-NaN data".format(np.sum(~ids)))
+if np.sum(ids) > 0:
+    print("Warning: identified NaNs in predictor set for {} individuals. \
+    Proceeding with non-NaN data".format(np.sum(~ids)))
 X = df[preds].values[ids]
 Y = df[targets].values[ids]
 
