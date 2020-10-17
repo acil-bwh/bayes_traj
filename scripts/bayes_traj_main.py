@@ -117,7 +117,7 @@ for r in np.arange(repeats):
     else:
         bics = mm.bic()
         
-        bics_tracker.append(bic)
+        bics_tracker.append(bics)
         waics_tracker.append(mm.compute_waic2())
         num_tracker.append(np.sum(mm.sig_trajs_))
         
