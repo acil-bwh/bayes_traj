@@ -1,3 +1,4 @@
+from numba import jit
 from argparse import ArgumentParser
 from bayes_traj.get_longitudinal_constraints_graph \
   import get_longitudinal_constraints_graph
@@ -10,6 +11,52 @@ from scipy.optimize import minimize_scalar
 from scipy.special import psi, gammaln, logsumexp
 import pandas as pd
 import pdb, sys, pickle, time
+
+@jit(nopython=True)
+def update_v_numba(R_, K_, alpha_, v_b_):
+    """Updates the parameters of the Beta distributions for latent
+    variable 'v' in the variational approximation.
+    """
+    v_a_ = 1.0 + np.sum(R_, 0)
+
+    for k in np.arange(0, K_):
+        v_b_[k] = alpha_ + np.sum(R_[:, k+1:])            
+
+    return v_a_, v_b_
+
+@jit(nopython=True)
+def update_w_numba(w_mu0_, w_var0_, M_, D_, X_, Y_, lambda_a_, lambda_b_,
+                   sig_trajs_, R_, w_mu_, w_var_):
+    """ Updates the variational distribution over latent variable w.
+    """
+    mu0_DIV_var0 = w_mu0_/w_var0_
+    for m in range(0, M_):
+        ids = np.array([True]*M_)
+        ids[m] = False
+        for d in range(0, D_):
+            non_nan_ids = ~np.isnan(Y_[:, d])
+
+            tmp1 = (lambda_a_[d, :][sig_trajs_]/\
+                    lambda_b_[d, :][sig_trajs_])*\
+                    (np.sum(np.expand_dims(R_[:, sig_trajs_], 2)\
+                            [non_nan_ids, :, :]*\
+                            np.expand_dims(X_[non_nan_ids, :], 1)**2, 0).T)
+
+            w_var_[:, :, sig_trajs_] = \
+                (np.expand_dims(tmp1, 1) + np.expand_dims(1.0/w_var0_, 2))**-1
+            
+            sum_term = sum(R_[non_nan_ids, :][:, sig_trajs_]*\
+                           np.expand_dims(X_[non_nan_ids, m], 1)*\
+                           (dot(X_[:, ids][non_nan_ids, :], \
+                                w_mu_[ids, d, :][:, sig_trajs_]) - \
+                            np.expand_dims(Y_[non_nan_ids, d], 1)), 0)
+
+            w_mu_[m, :, :][d, :][sig_trajs_] = \
+                w_var_[m, :, :][d, :][sig_trajs_]*\
+                (-(lambda_a_[d, :][sig_trajs_]/\
+                   lambda_b_[d, :][sig_trajs_])*\
+                 sum_term + mu0_DIV_var0[m, d])
+    return w_mu_, w_var_
 
 class MultDPRegression:
     """Uses Dirichlet process mixture modeling to identify mixtures of
@@ -392,13 +439,43 @@ class MultDPRegression:
             waics = []
             while inc < iters or (perc_change > tol):
                 inc += 1
-
+                
+                #self.v_a_, self.v_b_ = \
+                #    update_v_numba(self.R_, self.K_, self.alpha_, self.v_b_)
+                #tic_v = time.perf_counter()
                 self.update_v()
+                #toc_v = time.perf_counter()                
+                #time_v = toc_v - tic_v
+
+                #w_mu_, w_var_, numba_time = update_w_numba(self.w_mu0_,
+                #    self.w_var0_, self.M_, self.D_, self.X_, self.Y_,
+                #    self.lambda_a_, self.lambda_b_,
+                #    self.sig_trajs_, self.R_, self.w_mu_, self.w_var_)
+
+                #tic_w = time.perf_counter()
                 self.update_w_accel()
+                #toc_w = time.perf_counter()
+                #time_w = toc_w - tic_w
+
+                #print("{} times faster".format(accel_time/numba_time))
+                
+                #tic_l = time.perf_counter()
                 self.update_lambda_accel()
+                #toc_l = time.perf_counter()
+                #time_l = toc_l - tic_l
+                
+                #tic_z = time.perf_counter()                
                 self.R_ = self.update_z_accel(self.X_, self.Y_,
                                         self.constraint_subgraphs_)
+                #toc_z = time.perf_counter()
+                #time_z = toc_z - tic_z
 
+                #tot_time = time_v + time_w + time_l + time_z
+                #print("v: {:0.1f}, w: {:0.1f}, l: {:0.1f}, z: {:0.1f}".format(100*time_v/tot_time,
+                #                                          100*time_w/tot_time,
+                #                                          100*time_l/tot_time,
+                #                                          100*time_z/tot_time))
+                
                 self.sig_trajs_ = np.max(self.R_, 0) > self.prob_thresh_
 
                 if verbose:
@@ -610,7 +687,7 @@ class MultDPRegression:
 
     def update_w_accel(self):
         """ Updates the variational distribution over latent variable w.
-        """    
+        """
         mu0_DIV_var0 = self.w_mu0_/self.w_var0_
         for m in range(0, self.M_):
             ids = np.ones(self.M_, dtype=bool)
