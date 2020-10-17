@@ -95,6 +95,7 @@ if op.alpha is not None:
 #------------------------------------------------------------------------------
 waics_tracker = []
 bics_tracker = []
+num_tracker = []
 best_mm = None
 best_waic2 = op.waic2_thresh
 best_bics = (-sys.float_info.max, -sys.float_info.max)
@@ -115,6 +116,11 @@ for r in np.arange(repeats):
                               desc=provenance_desc)
     else:
         bics = mm.bic()
+        
+        bics_tracker.append(bic)
+        waics_tracker.append(mm.compute_waic2())
+        num_tracker.append(np.sum(mm.sig_trajs_))
+        
         if bics[0] > best_bics[0] and bics[1] > best_bics[1]:
             best_bics = bics
 
