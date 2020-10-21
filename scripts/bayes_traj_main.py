@@ -45,6 +45,23 @@ parser.add_argument("--save_all", help="By default, only the model with the \
 parser.add_argument("--constraints", help="File name of pickled networkx \
     pairwise constraints to impose during model fitting", dest='constraints',
     default=None)
+parser.add_argument("--in_model", help="File name of pickled MultDPRegression \
+    instance that has been fit to data. This model need not have been fit on \
+    the supplied data (indeed, the intent is to use this model to inform the \
+    current data fitting). It is assumed that the predictor and target names \
+    stored in this model and supplied here on the command line are identical. \
+    If a model is specified, a prior (using the prior_p flag) need not be \
+    specified. However, if a prior is specified with the prior_p flag, it \
+    will take precedence. Otherwise, a prior will be generated from the \
+    specified model. Additionally, the w_mu_, w_var_, lambda_a_, lambda_b_, \
+    v_a_, and v_b_ parameters will be initialized with the specified model: \
+    trajectories with non-zero probability will be initialized with the \
+    stored parameter settings; trajectories with zero probability will be \
+    initialized with the prior values. Additionally, the input data will be \
+    used to compute probability of membership for each trajectory in the \
+    model file. This probability matrix will be blended with a randomly \
+    generated probability matrix with the value specified using the z_blend \
+    flag.", dest='in_model', default=None)
 
 op = parser.parse_args()
 iters = int(op.iters)
