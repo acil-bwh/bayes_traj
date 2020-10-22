@@ -173,8 +173,8 @@ class MultDPRegression:
         assert self.w_mu0_.shape[1] == self.lambda_a0_.shape[0], \
           "Target dimension mismatch"
 
-    def fit(self, X, Y, iters=None, tol=None, R=None, v_a=None, v_b=None,
-            w_mu=None, w_var=None, lambda_a=None, lambda_b=None,
+    def fit(self, X, Y, iters=None, tol=None, R=None, R_blend=None, v_a=None,
+            v_b=None, w_mu=None, w_var=None, lambda_a=None, lambda_b=None,
             constraints=None, data_names=None, target_names=None,
             predictor_names=None, minibatch_size=None, verbose=False):
         """Run the DP proportion mixture model algorithm using predictors 'X'
@@ -207,7 +207,15 @@ class MultDPRegression:
             Each element of this matrix represents the posterior probability
             that instance 'n' belongs to cluster 'k'. If specified, the
             algorithm will be initialized with this matrix, otherwise a default
-            matrix (randomly generated) will be used.
+            matrix (randomly generated) will be used. If a R_blend value is also
+            specified, this matrix will be combined with a randomly generated 
+            matrix in a weighted fashion.
+
+        R_blend : float, optional
+            Value between 0 and 1 inclusive that controls how R is combined with
+            a randomly generated matrix: R_blend*R + (1-R_blend)*R_random. If 
+            R_blend is not specified, it will be assumed equal to 1. If R is not
+            specified, R_blend has no effect.
 
         v_a : array, shape ( K, 1 ), optional
             For each of the 'K' elements in the truncated DP, this is the first
@@ -280,6 +288,9 @@ class MultDPRegression:
         if tol is None and iters is None:
             raise ValueError('Neither tol nor iters has been set')
 
+        if R_blend is not None:
+            assert R_blend >= 0 and R_blend <=1, "Invalid R_blend value"
+        
         if len(np.array(X).shape) == 0:
             self.X_ = np.atleast_2d(X)
         elif len(np.array(X).shape) == 1:
@@ -327,7 +338,6 @@ class MultDPRegression:
         self.N_ = self.X_.shape[0]
         self.M_ = self.X_.shape[1]
         self.D_ = self.Y_.shape[1]
-        self.R_ = R 
         self.lambda_a_ = lambda_a
         self.lambda_b_ = lambda_b
         self.w_mu_ = w_mu
@@ -343,7 +353,13 @@ class MultDPRegression:
               self.get_constraint_subgraphs_(self.constraints_)
 
         # Initialize the latent variables if needed
-        if self.R_ is None:
+        if R is not None:
+            if R_blend is not None:
+                self.init_R_mat()
+                self.R_ = (1-R_blend)*self.R_ + R_blend*R
+            else:
+                self.R_ = R 
+        else:
             self.init_R_mat()
 
         if self.lambda_a_ is None:
