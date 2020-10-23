@@ -134,11 +134,11 @@ if in_model is not None:
         for t in mm_fit.target_names_:
             assert t in targets, \
                 "Target name mismatch with supplied model"
-        for p in predictors:
+        for p in preds:
             assert p in mm_fit.predictor_names_, \
                 "Predictor name mismatch with supplied model"
         for p in mm_fit.predictor_names_:
-            assert p in predictors, \
+            assert p in preds, \
                 "Predictor name mismatch with supplied model"            
 
         assert K == mm_fit.K_, "K mismatch with supplied model"
