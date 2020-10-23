@@ -38,6 +38,10 @@ parser.add_argument('--waic2_thresh', help='Model will only be written to \
     file provided that the WAIC2 value is below this threshold',
     dest='waic2_thresh', metavar='<float>', type=float,
     default=sys.float_info.max)
+parser.add_argument('--bic_thresh', help='Model will only be written to \
+    file provided that BIC values are above this threshold',
+    dest='bic_thresh', metavar='<float>', type=float,
+    default=-sys.float_info.max)
 parser.add_argument("--save_all", help="By default, only the model with the \
     lowest WAIC score is saved to file. However, if this flag is set a model \
     file is saved for each repeat. The specified output file name is used \
@@ -202,7 +206,7 @@ bics_tracker = []
 num_tracker = []
 best_mm = None
 best_waic2 = op.waic2_thresh
-best_bics = (-sys.float_info.max, -sys.float_info.max)
+best_bics = (op.bic_thresh, op.bic_thresh)
 for r in np.arange(repeats):    
     print("---------- Repeat {}, Best BICs: {}, {} ----------".\
       format(r, best_bics[0], best_bics[1]))
