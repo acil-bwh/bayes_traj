@@ -1,4 +1,5 @@
 import pickle
+import numpy as np
 from bayes_traj.mult_dp_regression import MultDPRegression
 from argparse import ArgumentParser
 
