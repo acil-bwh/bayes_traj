@@ -162,6 +162,7 @@ if in_model is not None:
         lambda_a = np.zeros([D, K])
         lambda_b = np.zeros([D, K])
         w_mu = np.zeros([M, D, K])
+        w_var = np.zeros([M, D, K])        
         v_a = np.ones(K)
         v_b = mm_fit.alpha_*np.ones(K)
         for k in range(0, K):
