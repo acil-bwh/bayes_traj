@@ -57,8 +57,8 @@ def prior_from_model(mm):
         for t in traj_ids:
             scale_tmp = 1./mm.lambda_b_[d, t]
             shape_tmp = mm.lambda_a_[d, t]
-            samples.append(numpy.random.gamma(shape_tmp, scale_tmp,
-                                              num_traj_samples[t]))
+            samples.append(np.random.gamma(shape_tmp, scale_tmp,
+                                           num_traj_samples[t]))
     
         lambda_a0_post[d] = np.mean(np.hstack(samples))**2/\
             np.var(np.hstack(samples))
