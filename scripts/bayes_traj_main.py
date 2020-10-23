@@ -163,7 +163,7 @@ if in_model is not None:
         lambda_b = np.zeros([D, K])
         w_mu = np.zeros([M, D, K])
         v_a = np.ones(K)
-        v_b = alpha_*np.ones(K)
+        v_b = mm_fit.alpha_*np.ones(K)
         for k in range(0, K):
             if k in np.where(mm_fit.sig_trajs_)[0]:
                 lambda_a[:, k] = mm_fit.lambda_a_[:, k]
