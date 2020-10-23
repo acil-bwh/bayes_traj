@@ -9,8 +9,8 @@ from bayes_traj.get_longitudinal_constraints_graph \
 from provenance_tools.provenance_tracker import write_provenance_data
 import pdb, pickle, sys
 
-np.set_printoptions(precision = 3, suppress = True, threshold=1e6,
-                    linewidth=200)
+np.set_printoptions(precision = 1, suppress = True, threshold=1e6,
+                    linewidth=300)
 
 desc = """Runs MultDPRegression on the specified data file with the specified
 predictors and target variables"""
