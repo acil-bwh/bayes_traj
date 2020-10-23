@@ -88,6 +88,8 @@ if z_blend is not None:
     assert z_blend >=0 and z_blend <= 1, "Invalide z_blend value"
 
 df = pd.read_csv(in_csv)
+if 'sid' not in df.columns:
+    df['sid'] = [n.split('_')[0] for n in df.data_names.values]
 
 ids = ~np.isnan(np.sum(df[preds].values, 1))
 if np.sum(~ids) > 0:
@@ -97,7 +99,8 @@ X = df[preds].values[ids]
 Y = df[targets].values[ids]
 
 data_names = df.data_names.values[ids]
-longitudinal_constraints = get_longitudinal_constraints_graph(df.sid.values[ids])
+longitudinal_constraints = \
+    get_longitudinal_constraints_graph(df.sid.values[ids])
 if op.constraints is not None:
     input_constraints = pickle.load(open(op.constraints, 'r'))['Graph']
     constraints_graph = nx.compose(input_constraints, longitudinal_constraints)
