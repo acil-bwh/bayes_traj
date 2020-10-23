@@ -124,7 +124,7 @@ R_blend = None
 #------------------------------------------------------------------------------
 if in_model is not None:
     with open(in_model, 'rb') as f:
-        mm_fit = pickle.load(f)
+        mm_fit = pickle.load(f)['MultDPRegression']
         
         # First check that stored predictor names and target names match with
         # those supplied at command line
