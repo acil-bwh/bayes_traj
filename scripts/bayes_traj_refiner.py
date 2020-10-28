@@ -7,8 +7,8 @@ from bayes_traj.get_longitudinal_constraints_graph \
 from provenance_tools.provenance_tracker import write_provenance_data
 import pdb, pickle, sys, git, os
 
-np.set_printoptions(precision = 3, suppress = True, threshold=1e6,
-                    linewidth=200)
+np.set_printoptions(precision = 1, suppress = True, threshold=1e6,
+                    linewidth=300)
 
 desc = """Reads an instance of MultDPRegression and performs additional \
 iterations in order to refine the model"""
