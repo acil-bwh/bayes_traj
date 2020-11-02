@@ -7,10 +7,12 @@ from numpy import abs, dot, mean, log, sum, exp, tile, max, sum, isnan, diag, \
      sqrt, pi, newaxis, outer, genfromtxt, where
 from numpy.random import multivariate_normal, randn, gamma
 import networkx as nx
+from bayes_traj.utils import sample_cos
 from scipy.optimize import minimize_scalar
 from scipy.special import psi, gammaln, logsumexp
+from scipy.stats import norm
 import pandas as pd
-import pdb, sys, pickle, time
+import pdb, sys, pickle, time, warnings
 
 @jit(nopython=True)
 def update_v_numba(R_, K_, alpha_, v_b_):
@@ -173,10 +175,11 @@ class MultDPRegression:
         assert self.w_mu0_.shape[1] == self.lambda_a0_.shape[0], \
           "Target dimension mismatch"
 
-    def fit(self, X, Y, iters=None, tol=None, R=None, R_blend=None, v_a=None,
-            v_b=None, w_mu=None, w_var=None, lambda_a=None, lambda_b=None,
-            constraints=None, data_names=None, target_names=None,
-            predictor_names=None, minibatch_size=None, verbose=False):
+    def fit(self, X, Y, iters=None, tol=None, R=None, traj_probs=None,
+            traj_probs_weight=None, v_a=None, v_b=None, w_mu=None, w_var=None,
+            lambda_a=None, lambda_b=None, constraints=None, data_names=None,
+            target_names=None, predictor_names=None, minibatch_size=None,
+            verbose=False):
         """Run the DP proportion mixture model algorithm using predictors 'X'
         and proportion data 'Y'.
 
@@ -207,15 +210,20 @@ class MultDPRegression:
             Each element of this matrix represents the posterior probability
             that instance 'n' belongs to cluster 'k'. If specified, the
             algorithm will be initialized with this matrix, otherwise a default
-            matrix (randomly generated) will be used. If a R_blend value is also
-            specified, this matrix will be combined with a randomly generated 
-            matrix in a weighted fashion.
+            matrix (randomly generated) will be used. If a traj_probs_weightd 
+            value is also specified, this matrix will be combined with a 
+            randomly generated matrix in a weighted fashion.
 
-        R_blend : float, optional
+        traj_probs : array, shape ( K ), optional
+            A priori probabilitiey of each of the K trajectories. Each element 
+            must be >=0 and <= 1, and all elements must sum to one.
+
+        traj_probs_weight : float, optional
             Value between 0 and 1 inclusive that controls how R is combined with
-            a randomly generated matrix: R_blend*R + (1-R_blend)*R_random. If 
-            R_blend is not specified, it will be assumed equal to 1. If R is not
-            specified, R_blend has no effect.
+            a randomly generated matrix: traj_probs_weightd*R + 
+            (1-traj_probs_weightd)*R_random. If traj_probs_weightd is not 
+            specified, it will be assumed equal to 1. If R is not specified, 
+            traj_probs_weightd has no effect.
 
         v_a : array, shape ( K, 1 ), optional
             For each of the 'K' elements in the truncated DP, this is the first
@@ -288,8 +296,9 @@ class MultDPRegression:
         if tol is None and iters is None:
             raise ValueError('Neither tol nor iters has been set')
 
-        if R_blend is not None:
-            assert R_blend >= 0 and R_blend <=1, "Invalid R_blend value"
+        if traj_probs_weightd is not None:
+            assert traj_probs_weightd >= 0 and traj_probs_weightd <=1, \
+                "Invalid traj_probs_weightd value"
         
         if len(np.array(X).shape) == 0:
             self.X_ = np.atleast_2d(X)
@@ -344,6 +353,7 @@ class MultDPRegression:
         self.w_var_ = w_var
         self.v_a_ = v_a
         self.v_b_ = v_b
+        self.R_ = R
         self.constraints_ = constraints
 
         # If constraints have been specified, get the connected subgraphs
@@ -353,14 +363,9 @@ class MultDPRegression:
               self.get_constraint_subgraphs_(self.constraints_)
 
         # Initialize the latent variables if needed
-        if R is not None:
-            if R_blend is not None:
-                self.init_R_mat()
-                self.R_ = (1-R_blend)*self.R_ + R_blend*R
-            else:
-                self.R_ = R 
-        else:
-            self.init_R_mat()
+        if self.R_ is None:
+            self.init_R_mat(traj_probs, traj_probs_weights,
+                            self.constraint_subgraphs_)
 
         if self.lambda_a_ is None:
             self.lambda_a_ = np.zeros([self.D_, self.K_])
@@ -375,15 +380,8 @@ class MultDPRegression:
         if self.w_mu_ is None:
             self.w_mu_ = np.zeros([self.M_, self.D_, self.K_])
             for k in range(0, self.K_):
-                self.w_mu_[:, :, k] = self.w_mu0_
-
-        #if self.w_mu_ is None:
-        #    self.w_mu_ = np.zeros([self.M_, self.D_, self.K_])
-        #    for m in range(0, self.M_):
-        #        for d in range(0, self.D_):
-        #            self.w_mu_[m, d, :] = np.sqrt(self.w_var0_[m, d])*\
-        #              np.random.randn(self.K_) + self.w_mu0_[m, d]
-
+                self.w_mu_[:, :, k] = sample_cos(self.w_mu0_, self.w_var0_)
+            
         if self.w_var_ is None:
             self.w_var_ = np.zeros([self.M_, self.D_, self.K_])
             for k in range(0, self.K_):
@@ -1326,31 +1324,73 @@ class MultDPRegression:
 
         return unnormalized_term
 
-    def init_R_mat(self):
+    def init_R_mat(self, constraint_subgraphs, traj_probs=None,
+                   traj_probs_weight=None):
         """Initializes 'R_', using the stick-breaking construction. Also
         enforces any longitudinal constraints.
+
+        Parameters
+        ----------
+        constraint_subgraphs : list of networkx graphs
+            The constraints are encoded in networkx graphs, each node should
+            indicate an instance index, and edges indicate constraints. Each
+            edge should have a string attribute called 'constraint', which must
+            take a value of 'weighted_must_link', 'weighted_cannot_link', 
+            'must_link', 'cannot_link', or 'longitudinal'. Each element of the 
+            list is a graph that corresponds to a collection of linked data 
+            instances.
+
+        traj_probs : array, shape ( K ), optional
+            A priori probabilitiey of each of the K trajectories. Each element 
+            must be >=0 and <= 1, and all elements must sum to one.
+
+        traj_probs_weight : float, optional
+            Value between 0 and 1 inclusive that controls how traj_probs are 
+            combined with randomly generated trajectory probabilities using 
+            stick-breaking: 
+            traj_probs_weight*traj_probs + (1-traj_probs_weight)*random_probs.
         """
-        tmp = np.random.beta(1, self.alpha_, (self.N_, self.K_))
+        tmp = np.random.beta(1, self.alpha_, self.K_)
         one_tmp = 1. - tmp
+        vec = np.array([np.prod(one_tmp[0:k])*tmp[k] for k in range(self.K_)])
 
-        self.R_ = np.array([np.prod(one_tmp[:, 0:k], 1)*tmp[:, k] \
-            for k in np.arange(0, self.K_)]).T
+        if (traj_probs is None and traj_probs_weight is not None) or \
+           (traj_probs_weight is None and traj_probs is not None):
+            warnings.warn('Both traj_probs and traj_probs_weight \
+            should be None or non-None')
+        
+        if traj_probs is not None and traj_probs_weight is not None:
+            assert traj_probs_weight >= 0 and traj_probs_weight <= 1, \
+                "Invalid traj_probs_weight"
+            assert np.isclose(np.sum(traj_probs), 1), \
+                "Invalid traj_probs"
+            init_traj_probs = traj_probs_weight*traj_probs + \
+                (1-traj_probs_weight)*vec
+        else:
+            init_traj_probs = vec
 
-        #self.R_[:, self.K_-1] = 1-np.sum(self.R_[:, 0:self.K_-1], 1)
+        if np.sum(init_traj_probs) < 0.95:
+            warnings.warn("Initial trajectory probabilities sum to {}. \
+            Alpha may be too high.".format(np.sum(init_traj_probs)))
+            
+        R_tmp = np.zeros([self.N_, self.K_])
+        for k in range(self.K_):
+            for d in range(self.D_):
+                ids = ~np.isnan(self.Y_[:, d])
+                scale_tmp = 1/self.lambda_b_[d, k]
+                shape_tmp = self.lambda_a_[d, k]
+                std_tmp = 1/np.sqrt(np.random.gamma(shape_tmp, scale_tmp, 1))
+                mu_tmp = np.dot(self.X_, self.w_mu_[:, d, k])
+                R_tmp[ids, k] += norm.logpdf(self.Y_[ids, d] ,
+                                             mu_tmp[ids], std_tmp)
+            R_tmp[:, k] += np.log(init_traj_probs[k])
 
-        num_subgraphs = len(self.constraint_subgraphs_)
+        R_tmp = np.exp(R_tmp)
+        self.R_ = np.array((R_tmp.T/np.sum(R_tmp, 1)).T)
 
-        for i in range(0, num_subgraphs):
-            is_longitudinal = True
-            for e in self.constraint_subgraphs_[i].edges():
-                if self.constraint_subgraphs_[i][e[0]][e[1]]['constraint'] != \
-                  'longitudinal':
-                  is_longitudinal = False
-                  break
-            if is_longitudinal:
-                node_ids = [n for n in self.constraint_subgraphs_[i].nodes()]
-                self.R_[node_ids, :] = self.R_[node_ids[0], :]
-
+        # Apply the contraints
+        self.apply_constraints(constraint_subgraphs, self.R_)
+        
     def compute_energy_(self, state_mat_row1, state_mat_row2, constraint):
         """Computes the energy function value represented by 'H' in Eq. 20 of
         'ConstrainedNonparametricGaussianProcessRegression'
