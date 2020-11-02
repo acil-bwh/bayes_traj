@@ -3,11 +3,11 @@ import pandas as pd
 import numpy as np
 import networkx as nx
 from bayes_traj.mult_dp_regression import MultDPRegression
-from bayes_traj.prior_from_model import prior_from_model
+from bayes_traj.utils import prior_from_model, sample_cos
 from bayes_traj.get_longitudinal_constraints_graph \
   import get_longitudinal_constraints_graph
 from provenance_tools.provenance_tracker import write_provenance_data
-import pdb, pickle, sys
+import pdb, pickle, sys, warnings
 
 np.set_printoptions(precision = 1, suppress = True, threshold=1e6,
                     linewidth=300)
@@ -88,6 +88,10 @@ out_file = op.out_file
 in_model = op.in_model
 z_blend = op.z_blend
 
+if op.in_model is not None and op.prior_p is not None:
+    warnings.warn('in_model and prior_p have both been specified, \
+    which is ambiguous')
+
 if z_blend is not None:
     assert z_blend >=0 and z_blend <= 1, "Invalide z_blend value"
 
@@ -122,6 +126,7 @@ w_var = None
 lambda_a = None
 lambda_b = None
 R_blend = None
+traj_probs = None
 
 #------------------------------------------------------------------------------
 # Read input model if specified
@@ -154,34 +159,20 @@ if in_model is not None:
         lambda_a0 = prior['lambda_a0']
         lambda_b0 = prior['lambda_b0']
         alpha = prior['alpha']
+        traj_probs = prior['traj_probs']
 
-        # Use the fit model to predict trajectory membership probabilities for
-        # the input data. These predictions will be blended with a randomly
-        # generated initialization matrix according to user-specified blending
-        # term.
-        X_tmp = df[mm_fit.predictor_names_].values[ids]
-        Y_tmp = df[mm_fit.target_names_].values[ids]
-        R_pred = mm_fit.predict_proba(X_tmp, Y_tmp, constraints_graph)
-
-        lambda_a = np.zeros([D, K])
-        lambda_b = np.zeros([D, K])
-        w_mu = np.zeros([M, D, K])
-        w_var = np.zeros([M, D, K])        
-        v_a = np.ones(K)
-        v_b = mm_fit.alpha_*np.ones(K)
+        lambda_a = np.array(mm_fit.lambda_a_)
+        lambda_b = np.array(mm_fit.lambda_b_)
+        w_mu = np.array(mm_fit.w_mu_)
+        w_var = np.array(mm_fit.w_var_)
+        v_a = np.array(mm_fit.v_a_)
+        v_b = np.array(mm_fit.v_b_)
         for k in range(0, K):
-            if k in np.where(mm_fit.sig_trajs_)[0]:
-                lambda_a[:, k] = mm_fit.lambda_a_[:, k]
-                lambda_b[:, k] = mm_fit.lambda_b_[:, k]
-                w_mu[:, :, k] = mm_fit.w_mu_[:, :, k]
-                w_var[:, :, k] = mm_fit.w_var_[:, :, k]
-                v_a[k] = mm_fit.v_a_[k]
-                v_b[k] = mm_fit.v_b_[k]
-            else:
-                lambda_a[:, k] = lambda_a0
-                lambda_b[:, k] = lambda_b0   
-                w_mu[:, :, k] = w_mu0
-                w_var[:, :, k] = w_var0
+            if k not in np.where(mm_fit.sig_trajs_)[0]:
+                lambda_a[:, k] = np.array(lambda_a0)
+                lambda_b[:, k] = np.array(lambda_b0)   
+                w_mu[:, :, k] = sample_cos(w_mu0, w_var0)
+                w_var[:, :, k] = np.array(w_var0)
 
 #------------------------------------------------------------------------------
 # Get priors from file
@@ -207,14 +198,25 @@ num_tracker = []
 best_mm = None
 best_waic2 = op.waic2_thresh
 best_bics = (op.bic_thresh, op.bic_thresh)
-for r in np.arange(repeats):    
+for r in np.arange(repeats):
+
+    # traj_probs will only be non-None if we have read in a previously fit.
+    # model. If that's the case, we want to preserve the coefficients describing
+    # the trajectories that were discovered in that model (set above), but we'll
+    # want to randomly sample from the prior for the other trajectory bins.
+    if traj_probs is not None:
+        for k in range(0, K):
+            if k in np.where(traj_probs == 0)[0]:
+                w_mu[:, :, k] = sample_cos(w_mu0, w_var0)
+    
     print("---------- Repeat {}, Best BICs: {}, {} ----------".\
       format(r, best_bics[0], best_bics[1]))
     mm = MultDPRegression(w_mu0, w_var0, lambda_a0, lambda_b0, alpha, K=K)
     mm.fit(X, Y, iters=iters, verbose=op.verbose,
            constraints=constraints_graph, data_names=data_names,
            target_names=targets, predictor_names=preds, R=R_pred,
-           R_blend=z_blend, v_a=v_a, v_b=v_b, w_mu=w_mu, w_var=w_var,
+           traj_probs=traj_probs, R_blend=z_blend, v_a=v_a, v_b=v_b,
+           w_mu=w_mu, w_var=w_var,
            lambda_a=lambda_a, lambda_b=lambda_b)
 
     if op.save_all:
