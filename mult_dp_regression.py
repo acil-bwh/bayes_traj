@@ -375,7 +375,8 @@ class MultDPRegression:
         if self.w_mu_ is None:
             self.w_mu_ = np.zeros([self.M_, self.D_, self.K_])
             for k in range(0, self.K_):
-                self.w_mu_[:, :, k] = sample_cos(self.w_mu0_, self.w_var0_)
+                self.w_mu_[:, :, k] = sample_cos(self.w_mu0_,
+                                                 self.w_var0_)[:, :, 0]
             
         if self.w_var_ is None:
             self.w_var_ = np.zeros([self.M_, self.D_, self.K_])
