@@ -68,15 +68,15 @@ parser.add_argument("--in_model", help="File name of pickled MultDPRegression \
     initialized with the prior values. Additionally, the input data will be \
     used to compute probability of membership for each trajectory in the \
     model file. This probability matrix will be blended with a randomly \
-    generated probability matrix with the value specified using the z_blend \
-    flag.", dest='in_model', default=None)
-parser.add_argument('--z_blend', help='Value between 0 and 1 that controls \
-    how much weight to assign to the per-individual trajectory assignment \
-    probabilities derived from the input model (specified with the --in_model \
-    flag), as opposed to random initialization. Higher values place more \
-    weight on the model-derived probabilities and reflect a stronger belief \
-    in those assignment probabilities.', dest='z_blend', metavar='<float>',
-    type=float, default=0.5)
+    generated probability matrix with the value specified using the \
+   probs_weight flag.", dest='in_model', default=None)
+parser.add_argument('--probs_weight', help='Value between 0 and 1 that 
+    controls how much weight to assign to the per-individual trajectory \
+    assignment probabilities derived from the input model (specified with \
+    the --in_model flag), as opposed to random initialization. Higher values \
+    place more weight on the model-derived probabilities and reflect a \
+    stronger belief in those assignment probabilities.', dest='probs_weight', \
+    metavar='<float>', type=float, default=0.5)
 
 op = parser.parse_args()
 iters = int(op.iters)
@@ -87,14 +87,15 @@ in_csv = op.in_csv
 prior_p = op.prior_p
 out_file = op.out_file
 in_model = op.in_model
-z_blend = op.z_blend
+probs_weight = op.probs_weight
 
 if op.in_model is not None and op.prior_p is not None:
     warnings.warn('in_model and prior_p have both been specified, \
     which is ambiguous')
 
-if z_blend is not None:
-    assert z_blend >=0 and z_blend <= 1, "Invalide z_blend value"
+if probs_weight is not None:
+    assert probs_weight >=0 and probs_weight <= 1, \
+        "Invalide probs_weight value"
 
 df = pd.read_csv(in_csv)
 if 'sid' not in df.columns:
@@ -172,7 +173,7 @@ if in_model is not None:
             if k not in np.where(mm_fit.sig_trajs_)[0]:
                 lambda_a[:, k] = np.array(lambda_a0)
                 lambda_b[:, k] = np.array(lambda_b0)   
-                w_mu[:, :, k] = sample_cos(w_mu0, w_var0)
+                w_mu[:, :, k] = sample_cos(w_mu0, w_var0)[:, :, 0]
                 w_var[:, :, k] = np.array(w_var0)
 
 #------------------------------------------------------------------------------
@@ -208,16 +209,16 @@ for r in np.arange(repeats):
     if traj_probs is not None:
         for k in range(0, K):
             if k in np.where(traj_probs == 0)[0]:
-                w_mu[:, :, k] = sample_cos(w_mu0, w_var0)
+                w_mu[:, :, k] = sample_cos(w_mu0, w_var0)[:, :, 0]
     
     print("---------- Repeat {}, Best BICs: {}, {} ----------".\
       format(r, best_bics[0], best_bics[1]))
     mm = MultDPRegression(w_mu0, w_var0, lambda_a0, lambda_b0, alpha, K=K)
     mm.fit(X, Y, iters=iters, verbose=op.verbose,
            constraints=constraints_graph, data_names=data_names,
-           target_names=targets, predictor_names=preds, R=R_pred,
-           traj_probs=traj_probs, R_blend=z_blend, v_a=v_a, v_b=v_b,
-           w_mu=w_mu, w_var=w_var,
+           target_names=targets, predictor_names=preds,
+           traj_probs=traj_probs, traj_probs_weight=probs_weight,
+           v_a=v_a, v_b=v_b, w_mu=w_mu, w_var=w_var,
            lambda_a=lambda_a, lambda_b=lambda_b)
 
     if op.save_all:
