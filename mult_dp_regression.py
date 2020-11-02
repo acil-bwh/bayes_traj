@@ -296,8 +296,8 @@ class MultDPRegression:
         if tol is None and iters is None:
             raise ValueError('Neither tol nor iters has been set')
 
-        if traj_probs_weightd is not None:
-            assert traj_probs_weightd >= 0 and traj_probs_weightd <=1, \
+        if traj_probs_weight is not None:
+            assert traj_probs_weight >= 0 and traj_probs_weight <=1, \
                 "Invalid traj_probs_weightd value"
         
         if len(np.array(X).shape) == 0:
@@ -364,8 +364,8 @@ class MultDPRegression:
 
         # Initialize the latent variables if needed
         if self.R_ is None:
-            self.init_R_mat(traj_probs, traj_probs_weights,
-                            self.constraint_subgraphs_)
+            self.init_R_mat(self.constraint_subgraphs_, traj_probs,
+                            traj_probs_weight)
 
         if self.lambda_a_ is None:
             self.lambda_a_ = np.zeros([self.D_, self.K_])
