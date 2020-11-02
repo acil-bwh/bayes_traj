@@ -4,8 +4,8 @@ from bayes_traj.mult_dp_regression import MultDPRegression
 from argparse import ArgumentParser
 
 def prior_from_model(mm):
-    """Generates a MultDPRegression prior given an input model by considering
-    samples from non-zero trajectory posteriors.
+    """Computes and returns a MultDPRegression prior given an input model by 
+    considering samples from non-zero trajectory posteriors.
 
     Parameters
     ----------
@@ -15,7 +15,7 @@ def prior_from_model(mm):
     Returns
     -------
     prior : dict
-        Prior with keys w_mu0, w_var0, lambda_a0, lambda_b0, alpha.
+        Prior with keys w_mu0, w_var0, lambda_a0, lambda_b0, traj_probs, alpha.
     """
     traj_ids = np.where(mm.sig_trajs_)[0]
 
@@ -25,6 +25,9 @@ def prior_from_model(mm):
     w_mu0_post = np.zeros([M, D])
     w_var0_post = np.ones([M, D])
 
+    # Compute the weights of each trajectory by marginalizing over individuals
+    traj_probs = np.sum(mm.R_, 0)/np.sum(mm.R_)        
+    
     # Each trajectory regression coefficient is a draw from the corresponding
     # prior. That prior is characterized by a mean (held in mm.w_mu0_) and
     # a variance (held in mm.w_var0_). We can examine the actual regression
@@ -34,7 +37,6 @@ def prior_from_model(mm):
     # the posterior estimate w_var_ and marginalized over the probability
     # of each trajectory. The mean and variance of the resulting sample
     # provides an update for prior over coefficients.
-    traj_probs = (np.sum(mm.R_, 0)/np.sum(mm.R_))
     num_traj_samples = np.random.multinomial(10000, traj_probs)
 
     for m in range(M):
@@ -64,13 +66,13 @@ def prior_from_model(mm):
             np.var(np.hstack(samples))
         lambda_b0_post[d] = np.mean(np.hstack(samples))/\
             np.var(np.hstack(samples))
-
+        
     prior = {'w_mu0': w_mu0_post, 'w_var0': w_var0_post,
              'lambda_a0': lambda_a0_post, 'lambda_b0': lambda_b0_post,
-             'alpha': mm.alpha_}
+             'traj_probs': traj_probs, 'alpha': mm.alpha_}
 
     return prior
-        
+
 if __name__ == "__main__":
     desc = """This script generates a prior based on a fit input model"""
     args = ArgumentParser()
