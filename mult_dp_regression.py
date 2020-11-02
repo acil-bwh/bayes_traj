@@ -362,11 +362,6 @@ class MultDPRegression:
             self.constraint_subgraphs_ = \
               self.get_constraint_subgraphs_(self.constraints_)
 
-        # Initialize the latent variables if needed
-        if self.R_ is None:
-            self.init_R_mat(self.constraint_subgraphs_, traj_probs,
-                            traj_probs_weight)
-
         if self.lambda_a_ is None:
             self.lambda_a_ = np.zeros([self.D_, self.K_])
             for k in range(0, self.K_):
@@ -393,6 +388,11 @@ class MultDPRegression:
         if self.v_b_ is None:
             self.v_b_ = self.alpha_*np.ones(self.K_)
 
+        # Initialize the latent variables if needed
+        if self.R_ is None:
+            self.init_R_mat(self.constraint_subgraphs_, traj_probs,
+                            traj_probs_weight)
+            
         if iters is None:
             iters = 1
 
