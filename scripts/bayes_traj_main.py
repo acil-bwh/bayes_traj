@@ -3,7 +3,8 @@ import pandas as pd
 import numpy as np
 import networkx as nx
 from bayes_traj.mult_dp_regression import MultDPRegression
-from bayes_traj.utils import prior_from_model, sample_cos
+from bayes_traj.prior_from_model import prior_from_model
+from bayes_traj.utils import sample_cos
 from bayes_traj.get_longitudinal_constraints_graph \
   import get_longitudinal_constraints_graph
 from provenance_tools.provenance_tracker import write_provenance_data
