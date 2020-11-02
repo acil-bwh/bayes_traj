@@ -70,7 +70,7 @@ parser.add_argument("--in_model", help="File name of pickled MultDPRegression \
     model file. This probability matrix will be blended with a randomly \
     generated probability matrix with the value specified using the \
    probs_weight flag.", dest='in_model', default=None)
-parser.add_argument('--probs_weight', help='Value between 0 and 1 that 
+parser.add_argument('--probs_weight', help='Value between 0 and 1 that \
     controls how much weight to assign to the per-individual trajectory \
     assignment probabilities derived from the input model (specified with \
     the --in_model flag), as opposed to random initialization. Higher values \
