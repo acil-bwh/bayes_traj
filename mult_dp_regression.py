@@ -455,41 +455,11 @@ class MultDPRegression:
             while inc < iters or (perc_change > tol):
                 inc += 1
                 
-                #self.v_a_, self.v_b_ = \
-                #    update_v_numba(self.R_, self.K_, self.alpha_, self.v_b_)
-                #tic_v = time.perf_counter()
                 self.update_v()
-                #toc_v = time.perf_counter()                
-                #time_v = toc_v - tic_v
-
-                #w_mu_, w_var_, numba_time = update_w_numba(self.w_mu0_,
-                #    self.w_var0_, self.M_, self.D_, self.X_, self.Y_,
-                #    self.lambda_a_, self.lambda_b_,
-                #    self.sig_trajs_, self.R_, self.w_mu_, self.w_var_)
-
-                #tic_w = time.perf_counter()
-                self.update_w_accel()
-                #toc_w = time.perf_counter()
-                #time_w = toc_w - tic_w
-
-                #print("{} times faster".format(accel_time/numba_time))
-                
-                #tic_l = time.perf_counter()
+                self.update_w_accel()                
                 self.update_lambda_accel()
-                #toc_l = time.perf_counter()
-                #time_l = toc_l - tic_l
-                
-                #tic_z = time.perf_counter()                
                 self.R_ = self.update_z_accel(self.X_, self.Y_,
                                         self.constraint_subgraphs_)
-                #toc_z = time.perf_counter()
-                #time_z = toc_z - tic_z
-
-                #tot_time = time_v + time_w + time_l + time_z
-                #print("v: {:0.1f}, w: {:0.1f}, l: {:0.1f}, z: {:0.1f}".format(100*time_v/tot_time,
-                #                                          100*time_w/tot_time,
-                #                                          100*time_l/tot_time,
-                #                                          100*time_z/tot_time))
                 
                 self.sig_trajs_ = np.max(self.R_, 0) > self.prob_thresh_
 
