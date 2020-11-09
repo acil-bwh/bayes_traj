@@ -76,7 +76,7 @@ parser.add_argument('--probs_weight', help='Value between 0 and 1 that \
     the --in_model flag), as opposed to random initialization. Higher values \
     place more weight on the model-derived probabilities and reflect a \
     stronger belief in those assignment probabilities.', dest='probs_weight', \
-    metavar='<float>', type=float, default=0.5)
+    metavar='<float>', type=float, default=None)
 
 op = parser.parse_args()
 iters = int(op.iters)
