@@ -1,4 +1,6 @@
 from bayes_traj.mult_dp_regression import MultDPRegression
+from bayes_traj.get_longitudinal_constraints_graph \
+    import get_longitudinal_constraints_graph
 import numpy as np
 import pdb
 
@@ -56,14 +58,14 @@ def test_init_R_mat():
     mm.N_ = N
     mm.X_ = X_mat
     mm.Y_ = Y_mat
-    constraints_subgraphs = []
+    constraints = None
     traj_probs = np.zeros(K)
     traj_probs[0] = .25
     traj_probs[1] = .25
     traj_probs[2] = .25
     traj_probs[3] = .25    
 
-    mm.init_R_mat(constraints_subgraphs, traj_probs, traj_probs_weight=1)
+    mm.init_R_mat(constraints, traj_probs, traj_probs_weight=1)
     assert np.sum(np.isclose(np.ones(K), np.sum(mm.R_, 1))) == K, \
         "Unexpected R_ sum"
 
@@ -72,3 +74,40 @@ def test_init_R_mat():
     assert np.sum(traj_assignments == \
                   np.array([0]*10 + [1]*10 + [2]*10)) == 30, \
                   "Unexpected trajectory assignments"
+
+def test_predict_proba():
+    """
+    """
+    D = 1
+    M = 2
+    K = 2    
+    w_mu0 = np.zeros([M, D])
+    w_var0 = np.ones([M, D])
+    lambda_a0 = np.ones(D)
+    lambda_b0 = np.ones(D)
+    alpha = 5
+    mm = MultDPRegression(w_mu0, w_var0, lambda_a0, lambda_b0, alpha, K)
+
+    mm.w_mu_ = np.zeros([M, D, K])
+    mm.w_mu_[:, 0, 0] = np.array([2, 1])
+    mm.w_mu_[:, 0, 1] = np.array([-2, -1])    
+    mm.R_ = np.array([[.5, .5]])
+    mm.lambda_b_ = np.ones([D, K])
+    mm.lambda_a_ = np.ones([D, K])
+
+    X = np.array([[1, 2], [1, 2], [1, 2]])
+    Y = np.array([[3], [0], [-3]])
+    
+    R = mm.predict_proba(X, Y)
+    R_ref = np.array([[1.00000000e+00, 3.77513454e-11],
+                      [5.00000000e-01, 5.00000000e-01],
+                      [3.77513454e-11, 1.00000000e+00]])
+    assert np.sum(np.isclose(R, R_ref)) == 6, "Unexpected R value"
+
+    constraints = get_longitudinal_constraints_graph(np.array([0, 2, 0]))
+    R = mm.predict_proba(X, Y, constraints)
+    R_ref = np.array([[0.5, 0.5],
+                      [0.5, 0.5],
+                      [0.5, 0.5]])
+    assert np.sum(np.isclose(R, R_ref)) == 6, "Unexpected R value"
+
