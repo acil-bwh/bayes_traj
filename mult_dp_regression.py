@@ -391,7 +391,7 @@ class MultDPRegression:
 
         # Initialize the latent variables if needed
         if self.R_ is None:
-            self.init_R_mat(self.constraint_subgraphs_, traj_probs,
+            self.init_R_mat(self.constraints_, traj_probs,
                             traj_probs_weight)
             
         if iters is None:
@@ -945,10 +945,9 @@ class MultDPRegression:
         log_likelihood : float
             The log-likelihood
         """
-        traj_ids = np.where(np.sum(self.R_, 0) > 0.0)[0]
-
-        log_likelihood = 0.0
-        for k in traj_ids:
+        tmp_k = np.zeros(self.N_)
+        for k in range(self.K_):
+            tmp_d = np.ones(self.N_)
             for d in range(self.D_):
                 mu = np.dot(self.X_, self.w_mu_[:, d, k])
                 v = self.lambda_b_[d, k]/self.lambda_a_[d, k]
@@ -957,8 +956,10 @@ class MultDPRegression:
                 # Some of the target variables can be missing (NaNs). Exclude
                 # these from the computation.
                 ids = ~np.isnan(self.Y_[:, d])
-                log_likelihood += np.sum(self.R_[ids, k]*(np.log(co) - \
-                    ((self.Y_[ids, d]-mu[ids])**2)/(2.*v)))
+                tmp_d[ids] *= co*np.exp(-((self.Y_[ids, d]-mu[ids])**2)/(2.*v))
+            
+            tmp_k += self.R_[:, k]*tmp_d
+        log_likelihood = np.sum(np.log(tmp_k))
                 
         return log_likelihood
 
@@ -1222,7 +1223,7 @@ class MultDPRegression:
 
         # Now update the rows of 'normalized_mat'.
         R[node_ids, :] = vec
-
+        
     def compute_subgraph_unnormalized_(self, constraint_subgraph, state_mat):
         """Computes the quantity inside the brackets in Eq. 20 in
         'ConstrainedNonparametricGaussianProcessRegression' (without the
@@ -1295,21 +1296,21 @@ class MultDPRegression:
 
         return unnormalized_term
 
-    def init_R_mat(self, constraint_subgraphs, traj_probs=None,
+    def init_R_mat(self, constraints, traj_probs=None,
                    traj_probs_weight=None):
         """Initializes 'R_', using the stick-breaking construction. Also
         enforces any longitudinal constraints.
 
         Parameters
         ----------
-        constraint_subgraphs : list of networkx graphs
-            The constraints are encoded in networkx graphs, each node should
+        constraints : networkx graph, optional
+            The constraints are encoded in a networkx graph, each node should
             indicate an instance index, and edges indicate constraints. Each
             edge should have a string attribute called 'constraint', which must
-            take a value of 'weighted_must_link', 'weighted_cannot_link', 
-            'must_link', 'cannot_link', or 'longitudinal'. Each element of the 
-            list is a graph that corresponds to a collection of linked data 
-            instances.
+            take a value of 'weighted_must_link', 'weighted_cannot_link', or 
+            'must_link', 'cannot_link' or 'longitudinal'. If constraints are 
+            specified, the variation inference update equations will take them 
+            into account. 
 
         traj_probs : array, shape ( K ), optional
             A priori probabilitiey of each of the K trajectories. Each element 
@@ -1343,24 +1344,9 @@ class MultDPRegression:
         if np.sum(init_traj_probs) < 0.95:
             warnings.warn("Initial trajectory probabilities sum to {}. \
             Alpha may be too high.".format(np.sum(init_traj_probs)))
-            
-        R_tmp = np.zeros([self.N_, self.K_])
-        for k in range(self.K_):
-            for d in range(self.D_):
-                ids = ~np.isnan(self.Y_[:, d])
-                scale_tmp = 1/self.lambda_b_[d, k]
-                shape_tmp = self.lambda_a_[d, k]
-                std_tmp = 1/np.sqrt(np.random.gamma(shape_tmp, scale_tmp, 1))
-                mu_tmp = np.dot(self.X_, self.w_mu_[:, d, k])
-                R_tmp[ids, k] += norm.logpdf(self.Y_[ids, d] ,
-                                             mu_tmp[ids], std_tmp)
-            R_tmp[:, k] += np.log(init_traj_probs[k])
 
-        R_tmp = np.exp(R_tmp)
-        self.R_ = np.array((R_tmp.T/np.sum(R_tmp, 1)).T)
-
-        # Apply the contraints
-        self.apply_constraints(constraint_subgraphs, self.R_)
+        self.R_ = self.predict_proba(self.X_, self.Y_, constraints,
+                                     init_traj_probs)
         
     def compute_energy_(self, state_mat_row1, state_mat_row2, constraint):
         """Computes the energy function value represented by 'H' in Eq. 20 of
@@ -1497,7 +1483,7 @@ class MultDPRegression:
 
         return constraint_subgraphs
 
-    def predict_proba(self, X, Y, constraints=None):
+    def predict_proba(self, X, Y, constraints=None, traj_probs=None):
         """Compute the probability that each data instance belongs to each of
         the 'k' clusters. Note that 'X' and 'Y' can be "new" data; that is,
         data that was not necessarily used to train the model.
@@ -1521,19 +1507,42 @@ class MultDPRegression:
             take a value of 'weighted_must_link', 'weighted_cannot_link', 
             'must_link', 'cannot_link', or 'longitudinal'.
 
+        traj_probs : array, shape ( K ), optional
+            A priori probabilitiey of each of the K trajectories. Each element 
+            must be >=0 and <= 1, and all elements must sum to one. For general
+            usage, this should be not set (non-None settings for internal 
+            usage).
+
         Returns
         -------
         R : array, shape ( N, K )
             Each element of this matrix represents the probability that
             instance 'n' belongs to cluster 'k'.
         """
+        N = X.shape[0]
+        D = Y.shape[1]
+
+        if traj_probs is None:
+            traj_probs = np.sum(self.R_, 0)/np.sum(self.R_)
+            
+        R_tmp = np.ones([N, self.K_])
+        for k in range(self.K_):
+            for d in range(D):
+                ids = ~np.isnan(Y[:, d])
+                var_tmp = self.lambda_b_[d, k]/self.lambda_a_[d, k]
+                mu_tmp = np.dot(X, self.w_mu_[:, d, k])
+
+                R_tmp[ids, k] *= (1/(np.sqrt(2*np.pi*var_tmp)))*\
+                    np.exp(-((Y[ids, d] - mu_tmp[ids])**2)/(2*var_tmp))
+            R_tmp[:, k] *= traj_probs[k]
+
+        R = np.array((R_tmp.T/np.sum(R_tmp, 1)).T)
+        
         # If constraints have been specified, get the connected subgraphs
         constraint_subgraphs = []
         if constraints is not None:
-            constraint_subgraphs = \
-              self.get_constraint_subgraphs_(constraints)
-
-        R = self.update_z(X, Y, constraint_subgraphs)
+            constraint_subgraphs = self.get_constraint_subgraphs_(constraints)
+            self.apply_constraints(constraint_subgraphs, R)
 
         return R
 
