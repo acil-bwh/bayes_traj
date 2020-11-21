@@ -153,7 +153,11 @@ if in_model is not None:
                 "Predictor name mismatch with supplied model"            
 
         assert K == mm_fit.K_, "K mismatch with supplied model"
-            
+
+        # Set the prior using fit model trajectories ordered from most probable
+        # to least probable
+        ordered_indices = np.flip(np.argsort(np.sum(mm_fit.R_, 0)))
+        
         # The prior will be generated from the posterior in the model
         prior = prior_from_model(mm_fit)
         w_mu0 = prior['w_mu0']
@@ -161,20 +165,23 @@ if in_model is not None:
         lambda_a0 = prior['lambda_a0']
         lambda_b0 = prior['lambda_b0']
         alpha = prior['alpha']
-        traj_probs = prior['traj_probs']
+        traj_probs = prior['traj_probs'][ordered_indices]
 
-        lambda_a = np.array(mm_fit.lambda_a_)
-        lambda_b = np.array(mm_fit.lambda_b_)
-        w_mu = np.array(mm_fit.w_mu_)
-        w_var = np.array(mm_fit.w_var_)
-        v_a = np.array(mm_fit.v_a_)
-        v_b = np.array(mm_fit.v_b_)
-        for k in range(0, K):
-            if k not in np.where(mm_fit.sig_trajs_)[0]:
-                lambda_a[:, k] = np.array(lambda_a0)
-                lambda_b[:, k] = np.array(lambda_b0)   
-                w_mu[:, :, k] = sample_cos(w_mu0, w_var0)[:, :, 0]
-                w_var[:, :, k] = np.array(w_var0)
+        lambda_a = np.array(mm_fit.lambda_a_[:, ordered_indices])
+        lambda_b = np.array(mm_fit.lambda_b_[:, ordered_indices])
+        w_mu = np.array(mm_fit.w_mu_[:, :, ordered_indices])
+        w_var = np.array(mm_fit.w_var_[:, :, ordered_indices])
+        v_a = np.array(mm_fit.v_a_[ordered_indices])
+        v_b = np.array(mm_fit.v_b_[ordered_indices])
+
+        # The trajectories with zero probability are meaningless, so just set
+        # these to the prior values. Note that we're assuming a re-ordering of
+        # trajectories that puts all the non-zero trajectories first
+        for k in range(np.sum(mm_fit.sig_trajs_), K):
+            lambda_a[:, k] = np.array(lambda_a0)
+            lambda_b[:, k] = np.array(lambda_b0)   
+            w_mu[:, :, k] = sample_cos(w_mu0, w_var0)[:, :, 0]
+            w_var[:, :, k] = np.array(w_var0)
                 
 #------------------------------------------------------------------------------
 # Get priors from file
