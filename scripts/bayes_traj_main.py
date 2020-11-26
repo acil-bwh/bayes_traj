@@ -56,20 +56,20 @@ parser.add_argument("--constraints", help="File name of pickled networkx \
 parser.add_argument("--in_model", help="File name of pickled MultDPRegression \
     instance that has been fit to data. This model need not have been fit on \
     the supplied data (indeed, the intent is to use this model to inform the \
-    current data fitting). It is assumed that the predictor and target names \
-    stored in this model and supplied here on the command line are identical. \
-    If a model is specified, a prior (using the prior_p flag) need not be \
-    specified. However, if a prior is specified with the prior_p flag, it \
-    will take precedence. Otherwise, a prior will be generated from the \
-    specified model. Additionally, the w_mu_, w_var_, lambda_a_, lambda_b_, \
-    v_a_, and v_b_ parameters will be initialized with the specified model: \
-    trajectories with non-zero probability will be initialized with the \
-    stored parameter settings; trajectories with zero probability will be \
-    initialized with the prior values. Additionally, the input data will be \
-    used to compute probability of membership for each trajectory in the \
-    model file. This probability matrix will be blended with a randomly \
-    generated probability matrix with the value specified using the \
-   probs_weight flag.", dest='in_model', default=None)
+    current data fitting). It is assumed that the predictor names stored in \
+    this model and supplied here on the command line are identical. \
+    If a prior is specified with the prior_p flag, it will be used to set \
+    prior params. If a model is additionally specified, relevent info the 
+    model will override corresponding values already set by the prior. \
+    Additionally, the w_mu_, w_var_, lambda_a_, lambda_b_, v_a_, and v_b_ \
+    parameters will be initialized with the specified model: trajectories with \
+    non-zero probability will be initialized with the stored parameter \
+    settings; trajectories with zero probability will be initialized with the \
+    prior values. Additionally, the input data will be used to compute \
+    probability of membership for each trajectory in the model file. This \
+    probability matrix will be blended with a randomly generated probability \
+    matrix with the value specified using the probs_weight flag.",
+    dest='in_model', default=None)
 parser.add_argument('--probs_weight', help='Value between 0 and 1 that \
     controls how much weight to assign to the per-individual trajectory \
     assignment probabilities derived from the input model (specified with \
