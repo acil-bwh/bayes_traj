@@ -59,7 +59,7 @@ parser.add_argument("--in_model", help="File name of pickled MultDPRegression \
     current data fitting). It is assumed that the predictor names stored in \
     this model and supplied here on the command line are identical. \
     If a prior is specified with the prior_p flag, it will be used to set \
-    prior params. If a model is additionally specified, relevent info the 
+    prior params. If a model is additionally specified, relevent info the \
     model will override corresponding values already set by the prior. \
     Additionally, the w_mu_, w_var_, lambda_a_, lambda_b_, v_a_, and v_b_ \
     parameters will be initialized with the specified model: trajectories with \
