@@ -110,11 +110,11 @@ def sample_traj(w_mu0, var_covar0, lambda_a0, lambda_b0, num_samples):
     w : array, shape ( M, D, num_samples )
         The randomly generated trajectory coefficients    
 
-    prec : array, shape ( D, num_samples )
+    precs : array, shape ( D, num_samples )
         The randomly generated trajectory precisions
     """
 
     w = sample_cos(w_mu0, var_covar0, num_samples)
     precs = sample_precs(lambda_a0, lambda_b0, num_samples)
 
-    return w, prec
+    return w, precs
