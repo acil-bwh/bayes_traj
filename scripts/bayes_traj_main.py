@@ -53,30 +53,13 @@ parser.add_argument("--verbose", help="Display per-trajectory counts during \
 parser.add_argument("--constraints", help="File name of pickled networkx \
     pairwise constraints to impose during model fitting", dest='constraints',
     default=None)
-parser.add_argument("--in_model", help="File name of pickled MultDPRegression \
-    instance that has been fit to data. This model need not have been fit on \
-    the supplied data (indeed, the intent is to use this model to inform the \
-    current data fitting). It is assumed that the predictor names stored in \
-    this model and supplied here on the command line are identical. \
-    If a prior is specified with the prior_p flag, it will be used to set \
-    prior params. If a model is additionally specified, relevent info the 
-    model will override corresponding values already set by the prior. \
-    Additionally, the w_mu_, w_var_, lambda_a_, lambda_b_, v_a_, and v_b_ \
-    parameters will be initialized with the specified model: trajectories with \
-    non-zero probability will be initialized with the stored parameter \
-    settings; trajectories with zero probability will be initialized with the \
-    prior values. Additionally, the input data will be used to compute \
-    probability of membership for each trajectory in the model file. This \
-    probability matrix will be blended with a randomly generated probability \
-    matrix with the value specified using the probs_weight flag.",
-    dest='in_model', default=None)
 parser.add_argument('--probs_weight', help='Value between 0 and 1 that \
-    controls how much weight to assign to the per-individual trajectory \
-    assignment probabilities derived from the input model (specified with \
-    the --in_model flag), as opposed to random initialization. Higher values \
-    place more weight on the model-derived probabilities and reflect a \
-    stronger belief in those assignment probabilities.', dest='probs_weight', \
-    metavar='<float>', type=float, default=None)
+    controls how much weight to assign to traj_probs, the marginal \
+    probability of observing each trajectory. This value is only meaningful \
+    if traj_probs has been set in the input prior file. Otherwise, it has no \
+    effect. Higher values place more weight on the model-derived probabilities \
+    and reflect a stronger belief in those assignment probabilities.',
+    dest='probs_weight', metavar='<float>', type=float, default=None)
 
 op = parser.parse_args()
 iters = int(op.iters)
@@ -86,7 +69,6 @@ targets = op.targets.split(',')
 in_csv = op.in_csv
 prior_p = op.prior_p
 out_file = op.out_file
-in_model = op.in_model
 probs_weight = op.probs_weight
 
 if probs_weight is not None:
@@ -117,118 +99,35 @@ D = len(targets)
 M = len(preds)
 K = int(op.k)
                 
-v_a = None
-v_b = None
-w_mu = None
-w_var = None
-lambda_a = None
-lambda_b = None
-R_blend = None
-traj_probs = None
+prior_info = {}
+for i in ['v_a', 'v_b', 'w_mu', 'w_var', 'lambda_a', 'lambda_b', 'traj_probs',
+          'probs_weight', 'w_mu0', 'w_var0', 'lambda_a0', 'lambda_b0',
+          'alpha']:
+    prior_info[i] = None
 
 #------------------------------------------------------------------------------
 # Get priors from file
 #------------------------------------------------------------------------------
 if prior_p is not None:
     with open(prior_p, 'rb') as f:
-        priors = pickle.load(f)
-        w_mu0 = priors['w_mu0']
-        w_var0 = priors['w_var0']
-        lambda_a0 = priors['lambda_a0']
-        lambda_b0 = priors['lambda_b0']
-        alpha = priors['alpha']
+        file_data = pickle.load(f)
 
-        lambda_a = np.zeros([D, K])
-        for k in range(0, K):
-            lambda_a[:, k] = lambda_a0
+        for key in file_data.keys():
+            prior_info[key] = file_data[key]
 
-        lambda_b = np.zeros([D, K])
-        for k in range(0, K):
-            lambda_b[:, k] = lambda_b0
-
-        w_mu = np.zeros([M, D, K])
-        for k in range(0, K):
-            w_mu[:, :, k] = sample_cos(w_mu0, w_var0)[:, :, 0]
-                
-        w_var = np.zeros([M, D, K])
-        for k in range(0, K):
-            w_var[:, :, k] = w_var0
-        
 #------------------------------------------------------------------------------
-# Read input model if specified
-#------------------------------------------------------------------------------
-if in_model is not None:
-    if lambda_a is None:
-        lambda_a = np.zeros([D, K])
-
-    if lambda_b is None:
-        lambda_b = np.zeros([D, K])
-
-    if w_mu is None:
-        w_mu = np.zeros([M, D, K])
-
-    if w_var is None:
-        w_var = np.zeros([M, D, K])
-    
-    with open(in_model, 'rb') as f:
-        mm_fit = pickle.load(f)['MultDPRegression']
-
-        # First check that stored predictor names match with those supplied at
-        # command line
-        for p in preds:
-            assert p in mm_fit.predictor_names_, \
-                "Predictor name mismatch with supplied model"
-        for p in mm_fit.predictor_names_:
-            assert p in preds, \
-                "Predictor name mismatch with supplied model"            
-
-        assert K == mm_fit.K_, "K mismatch with supplied model"
-
-        # Set the prior using fit model trajectories ordered from most probable
-        # to least probable
-        ordered_indices = np.flip(np.argsort(np.sum(mm_fit.R_, 0)))
-
-        # The prior will be generated from the posterior in the model
-        prior = prior_from_model(mm_fit)
-        alpha = prior['alpha']
-        traj_probs = prior['traj_probs'][ordered_indices]
-
-        v_a = np.array(mm_fit.v_a_[ordered_indices])
-        v_b = np.array(mm_fit.v_b_[ordered_indices])
-        
-        for inc, target in enumerate(targets):
-            if target not in mm_fit.target_names_:
-                continue
-            
-            target_index = np.where(np.array(mm_fit.target_names_) == \
-                                    target)[0][0]
-            
-            w_mu0[:, inc] = prior['w_mu0'][:, target_index]
-            w_var0[:, inc] = prior['w_var0'][:, target_index]
-            lambda_a0[inc] = prior['lambda_a0'][target_index]
-            lambda_b0[inc] = prior['lambda_b0'][target_index]
-    
-            lambda_a[inc, :] = \
-                np.array(mm_fit.lambda_a_[:, ordered_indices])[target_index, :]
-            lambda_b[inc, :] = \
-                np.array(mm_fit.lambda_b_[:, ordered_indices])[target_index, :]
-            
-            w_mu[:, inc, :] = np.array(mm_fit.w_mu_[:, :, ordered_indices])\
-                [:, target_index, :]
-            w_var[:, inc, :] = np.array(mm_fit.w_var_[:, :, ordered_indices])\
-                [:, target_index, :]
-    
-        # The trajectories with zero probability are meaningless, so just set
-        # these to the prior values. Note that we're assuming a re-ordering of
-        # trajectories that puts all the non-zero trajectories first
-        for k in range(np.sum(mm_fit.sig_trajs_), K):
-            lambda_a[:, k] = np.array(lambda_a0)
-            lambda_b[:, k] = np.array(lambda_b0)   
-            w_mu[:, :, k] = sample_cos(w_mu0, w_var0)[:, :, 0]
-            w_var[:, :, k] = np.array(w_var0)
-                    
+# Randomly sample trajectory coefficients if they are not already set in the
+# prior
+#------------------------------------------------------------------------------            
+for k in range(K):
+    for d in range(D):
+        if np.isnan(np.sum(prior_info['w_mu'][:, d, k])):
+            prior_info['w_mu'][:, d, k] = \
+                sample_cos(file_data['w_mu0'],
+                           file_data['w_var0'])[:, d, 0]
+                            
 if op.alpha is not None:
-    alpha = float(op.alpha)
+    prior_info['alpha'] = float(op.alpha)
     
 #------------------------------------------------------------------------------
 # Set up and run the traj alg
@@ -239,26 +138,19 @@ num_tracker = []
 best_mm = None
 best_waic2 = op.waic2_thresh
 best_bics = (op.bic_thresh, op.bic_thresh)
-for r in np.arange(repeats):
-
-    # traj_probs will only be non-None if we have read in a previously fit.
-    # model. If that's the case, we want to preserve the coefficients describing
-    # the trajectories that were discovered in that model (set above), but we'll
-    # want to randomly sample from the prior for the other trajectory bins.
-    if traj_probs is not None:
-        for k in range(0, K):
-            if k in np.where(traj_probs == 0)[0]:
-                w_mu[:, :, k] = sample_cos(w_mu0, w_var0)[:, :, 0]
-    
+for r in np.arange(repeats):    
     print("---------- Repeat {}, Best BICs: {}, {} ----------".\
       format(r, best_bics[0], best_bics[1]))
-    mm = MultDPRegression(w_mu0, w_var0, lambda_a0, lambda_b0, alpha, K=K)
+    mm = MultDPRegression(prior_info['w_mu0'], prior_info['w_var0'],
+                          prior_info['lambda_a0'], prior_info['lambda_b0'],
+                          prior_info['alpha'], K=K)
     mm.fit(X, Y, iters=iters, verbose=op.verbose,
            constraints=constraints_graph, data_names=data_names,
            target_names=targets, predictor_names=preds,
-           traj_probs=traj_probs, traj_probs_weight=probs_weight,
-           v_a=v_a, v_b=v_b, w_mu=w_mu, w_var=w_var,
-           lambda_a=lambda_a, lambda_b=lambda_b)
+           traj_probs=prior_info['traj_probs'], traj_probs_weight=probs_weight,
+           v_a=prior_info['v_a'], v_b=prior_info['v_b'], w_mu=prior_info['w_mu'],
+           w_var=prior_info['w_var'], lambda_a=prior_info['lambda_a'],
+           lambda_b=prior_info['lambda_b'])
 
     if op.save_all:
         out_file_tmp = out_file.split('.')[0] + '_repeat{}.p'.format(r)
