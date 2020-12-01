@@ -121,14 +121,28 @@ D = len(targets)
 M = len(preds)
 K = int(op.k)
                 
-v_a = None
-v_b = None
-w_mu = None
-w_var = None
-lambda_a = None
-lambda_b = None
-R_blend = None
-traj_probs = None
+prior_info = {}
+for i in ['v_a', 'v_b', 'w_mu', 'w_var', 'lambda_a', 'lambda_b', 'traj_probs',
+          'probs_weight', 'w_mu0', 'w_var0', 'lambda_a0', 'lambda_b0',
+          'alpha']:
+    prior_info[i] = None
+
+#------------------------------------------------------------------------------
+# Get priors from file
+#------------------------------------------------------------------------------
+if prior_p is not None:
+    with open(prior_p, 'rb') as f:
+        file_data = pickle.load(f)
+
+        for key in file_data.keys():
+            prior_info[key] = file_data[key]
+
+for k in range(K):
+    for d in range(D):
+        if np.isnan(np.sum(prior_info['w_mu'][:, d, k])):
+            prior_info['w_mu'][:, d, k] = \
+                sample_cos(file_data['w_mu0'],
+                           file_data['w_var0'])[:, d, 0]
 
 #------------------------------------------------------------------------------
 # Read input model if specified
@@ -160,43 +174,32 @@ if in_model is not None:
         
         # The prior will be generated from the posterior in the model
         prior = prior_from_model(mm_fit)
-        w_mu0 = prior['w_mu0']
-        w_var0 = prior['w_var0']
-        lambda_a0 = prior['lambda_a0']
-        lambda_b0 = prior['lambda_b0']
-        alpha = prior['alpha']
-        traj_probs = prior['traj_probs'][ordered_indices]
+        prior_info['w_mu0'] = prior['w_mu0']
+        prior_info['w_var0'] = prior['w_var0']
+        prior_info['lambda_a0'] = prior['lambda_a0']
+        prior_info['lambda_b0'] = prior['lambda_b0']
+        prior_info['alpha'] = prior['alpha']
+        prior_info['traj_probs'] = prior['traj_probs'][ordered_indices]
 
-        lambda_a = np.array(mm_fit.lambda_a_[:, ordered_indices])
-        lambda_b = np.array(mm_fit.lambda_b_[:, ordered_indices])
-        w_mu = np.array(mm_fit.w_mu_[:, :, ordered_indices])
-        w_var = np.array(mm_fit.w_var_[:, :, ordered_indices])
-        v_a = np.array(mm_fit.v_a_[ordered_indices])
-        v_b = np.array(mm_fit.v_b_[ordered_indices])
+        prior_info['lambda_a'] = np.array(mm_fit.lambda_a_[:, ordered_indices])
+        prior_info['lambda_b'] = np.array(mm_fit.lambda_b_[:, ordered_indices])
+        prior_info['w_mu'] = np.array(mm_fit.w_mu_[:, :, ordered_indices])
+        prior_info['w_var'] = np.array(mm_fit.w_var_[:, :, ordered_indices])
+        prior_info['v_a'] = np.array(mm_fit.v_a_[ordered_indices])
+        prior_info['v_b'] = np.array(mm_fit.v_b_[ordered_indices])
 
         # The trajectories with zero probability are meaningless, so just set
         # these to the prior values. Note that we're assuming a re-ordering of
         # trajectories that puts all the non-zero trajectories first
         for k in range(np.sum(mm_fit.sig_trajs_), K):
-            lambda_a[:, k] = np.array(lambda_a0)
-            lambda_b[:, k] = np.array(lambda_b0)   
-            w_mu[:, :, k] = sample_cos(w_mu0, w_var0)[:, :, 0]
-            w_var[:, :, k] = np.array(w_var0)
-                
-#------------------------------------------------------------------------------
-# Get priors from file
-#------------------------------------------------------------------------------
-if prior_p is not None:
-    with open(prior_p, 'rb') as f:
-        priors = pickle.load(f)
-        w_mu0 = priors['w_mu0']
-        w_var0 = priors['w_var0']
-        lambda_a0 = priors['lambda_a0']
-        lambda_b0 = priors['lambda_b0']
-        alpha = priors['alpha']
-    
+            prior_info['lambda_a'][:, k] = np.array(prior_info['lambda_a0'])
+            prior_info['lambda_b'][:, k] = np.array(prior_info['lambda_b0'])   
+            prior_info['w_mu'][:, :, k] = \
+                sample_cos(prior_info['w_mu0'], prior_info['w_var0'])[:, :, 0]
+            prior_info['w_var'][:, :, k] = np.array(prior_info['w_var0'])
+                    
 if op.alpha is not None:
-    alpha = float(op.alpha)
+    prior_info['alpha'] = float(op.alpha)
     
 #------------------------------------------------------------------------------
 # Set up and run the traj alg
@@ -213,20 +216,24 @@ for r in np.arange(repeats):
     # model. If that's the case, we want to preserve the coefficients describing
     # the trajectories that were discovered in that model (set above), but we'll
     # want to randomly sample from the prior for the other trajectory bins.
-    if traj_probs is not None:
-        for k in range(0, K):
-            if k in np.where(traj_probs == 0)[0]:
-                w_mu[:, :, k] = sample_cos(w_mu0, w_var0)[:, :, 0]
+    #if traj_probs is not None:
+    #    for k in range(0, K):
+    #        if k in np.where(traj_probs == 0)[0]:
+    #            prior_info['w_mu'][:, :, k] = \
+    #                sample_cos(w_mu0, w_var0)[:, :, 0]
     
     print("---------- Repeat {}, Best BICs: {}, {} ----------".\
       format(r, best_bics[0], best_bics[1]))
-    mm = MultDPRegression(w_mu0, w_var0, lambda_a0, lambda_b0, alpha, K=K)
+    mm = MultDPRegression(prior_info['w_mu0'], prior_info['w_var0'],
+                          prior_info['lambda_a0'], prior_info['lambda_b0'],
+                          prior_info['alpha'], K=K)
     mm.fit(X, Y, iters=iters, verbose=op.verbose,
            constraints=constraints_graph, data_names=data_names,
            target_names=targets, predictor_names=preds,
-           traj_probs=traj_probs, traj_probs_weight=probs_weight,
-           v_a=v_a, v_b=v_b, w_mu=w_mu, w_var=w_var,
-           lambda_a=lambda_a, lambda_b=lambda_b)
+           traj_probs=prior_info['traj_probs'], traj_probs_weight=probs_weight,
+           v_a=prior_info['v_a'], v_b=prior_info['v_b'], w_mu=prior_info['w_mu'],
+           w_var=prior_info['w_var'], lambda_a=prior_info['lambda_a'],
+           lambda_b=prior_info['lambda_b'])
 
     if op.save_all:
         out_file_tmp = out_file.split('.')[0] + '_repeat{}.p'.format(r)
