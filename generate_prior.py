@@ -75,4 +75,4 @@ if op.coef is not None:
 if op.out_file is not None:                    
     pickle.dump(prior_info, open(op.out_file, 'wb'))
     desc = """ """
-    write_provenance_data(op.prior, generator_args=op, desc=desc)
+    write_provenance_data(op.out_file, generator_args=op, desc=desc)
