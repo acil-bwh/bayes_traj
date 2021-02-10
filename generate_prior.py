@@ -99,7 +99,7 @@ if op.in_data is not None:
             # 3 standard deviations around the parameter point estimate, and
             # squaring all that gives the variance.
             prior_info['w_var0'][tt][pp] = \
-                (3*res.bse[pp]*np.sqrt(df.shape[0]))**2
+                (3*res_tmp.bse[pp]*np.sqrt(df.shape[0]))**2
             
 if op.out_file is not None:                    
     pickle.dump(prior_info, open(op.out_file, 'wb'))
