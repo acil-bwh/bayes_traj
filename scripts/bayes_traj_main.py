@@ -99,21 +99,40 @@ D = len(targets)
 M = len(preds)
 K = int(op.k)
                 
-prior_info = {}
+prior_data = {}
 for i in ['v_a', 'v_b', 'w_mu', 'w_var', 'lambda_a', 'lambda_b', 'traj_probs',
           'probs_weight', 'w_mu0', 'w_var0', 'lambda_a0', 'lambda_b0',
           'alpha']:
-    prior_info[i] = None
+    prior_data[i] = None
+
+prior_data['probs_weight'] = 0
+prior_data['w_mu0'] = np.zeros([M, D])
+prior_data['w_var0'] = np.ones([M, D])
+prior_data['lambda_a0'] = np.ones([D])
+prior_data['lambda_b0'] = np.ones([D])
+prior_data['v_a'] = None
+prior_data['v_b'] = None
+prior_data['w_mu'] = np.nan*np.ones([M, D, K])
+prior_data['w_var'] = None
+prior_data['lambda_a'] = None
+prior_data['lambda_b'] = None
+prior_data['traj_probs'] = None#np.ones(K)/K
 
 #------------------------------------------------------------------------------
 # Get priors from file
 #------------------------------------------------------------------------------
 if prior_p is not None:
     with open(prior_p, 'rb') as f:
-        file_data = pickle.load(f)
+        prior_file_info = pickle.load(f)
 
-        for key in file_data.keys():
-            prior_info[key] = file_data[key]
+        prior_data['alpha'] = prior_file_info['alpha']
+        for (d, target) in enumerate(op.targets.split(',')):
+            prior_data['lambda_a0'][d] = prior_file_info['lambda_a0'][target]
+            prior_data['lambda_b0'][d] = prior_file_info['lambda_b0'][target]            
+            
+            for (m, pred) in enumerate(op.preds.split(',')):
+                prior_data['w_mu0'][m, d] = prior_file_info['w_mu0'][target][pred]
+                prior_data['w_var0'][m, d] = prior_file_info['w_var0'][target][pred]                
 
 #------------------------------------------------------------------------------
 # Randomly sample trajectory coefficients if they are not already set in the
@@ -121,13 +140,13 @@ if prior_p is not None:
 #------------------------------------------------------------------------------            
 for k in range(K):
     for d in range(D):
-        if np.isnan(np.sum(prior_info['w_mu'][:, d, k])):
-            prior_info['w_mu'][:, d, k] = \
-                sample_cos(file_data['w_mu0'],
-                           file_data['w_var0'])[:, d, 0]
-                            
+        if np.isnan(np.sum(prior_data['w_mu'][:, d, k])):
+            prior_data['w_mu'][:, d, k] = \
+                sample_cos(prior_data['w_mu0'],
+                           prior_data['w_var0'])[:, d, 0]
+
 if op.alpha is not None:
-    prior_info['alpha'] = float(op.alpha)
+    prior_data['alpha'] = float(op.alpha)
     
 #------------------------------------------------------------------------------
 # Set up and run the traj alg
@@ -141,16 +160,19 @@ best_bics = (op.bic_thresh, op.bic_thresh)
 for r in np.arange(repeats):    
     print("---------- Repeat {}, Best BICs: {}, {} ----------".\
       format(r, best_bics[0], best_bics[1]))
-    mm = MultDPRegression(prior_info['w_mu0'], prior_info['w_var0'],
-                          prior_info['lambda_a0'], prior_info['lambda_b0'],
-                          prior_info['alpha'], K=K)
+    mm = MultDPRegression(prior_data['w_mu0'], prior_data['w_var0'],
+                          prior_data['lambda_a0'], prior_data['lambda_b0'],
+                          prior_data['alpha'], K=K)
+
     mm.fit(X, Y, iters=iters, verbose=op.verbose,
-           constraints=constraints_graph, data_names=data_names,
+           #constraints=constraints_graph, data_names=data_names,
+           constraints=None, data_names=data_names,           
            target_names=targets, predictor_names=preds,
-           traj_probs=prior_info['traj_probs'], traj_probs_weight=probs_weight,
-           v_a=prior_info['v_a'], v_b=prior_info['v_b'], w_mu=prior_info['w_mu'],
-           w_var=prior_info['w_var'], lambda_a=prior_info['lambda_a'],
-           lambda_b=prior_info['lambda_b'])
+           traj_probs=prior_data['traj_probs'],
+           traj_probs_weight=prior_data['probs_weight'],
+           v_a=prior_data['v_a'], v_b=prior_data['v_b'], w_mu=prior_data['w_mu'],
+           w_var=prior_data['w_var'], lambda_a=prior_data['lambda_a'],
+           lambda_b=prior_data['lambda_b'])
 
     if op.save_all:
         out_file_tmp = out_file.split('.')[0] + '_repeat{}.p'.format(r)
@@ -169,11 +191,12 @@ for r in np.arange(repeats):
         if bics[0] > best_bics[0] and bics[1] > best_bics[1]:
             best_bics = bics
 
-            pickle.dump({'MultDPRegression': mm}, open(out_file, 'wb'))
+            if out_file is not None:
+                pickle.dump({'MultDPRegression': mm}, open(out_file, 'wb'))
 
-            provenance_desc = """ """
-            write_provenance_data(out_file, generator_args=op,
-                                  desc=provenance_desc)
+                provenance_desc = """ """
+                write_provenance_data(out_file, generator_args=op,
+                                      desc=provenance_desc)
             
         #waic2 = mm.compute_waic2()
         #waics_tracker.append(waic2)
