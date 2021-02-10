@@ -2,6 +2,7 @@ from argparse import ArgumentParser
 import pickle
 import pandas as pd
 import statsmodels.api as sm
+import numpy as np
 from provenance_tools.provenance_tracker import write_provenance_data
 
 desc = """ """
