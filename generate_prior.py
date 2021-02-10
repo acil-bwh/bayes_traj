@@ -85,7 +85,7 @@ if op.in_data is not None:
     for tt in targets:
         res_tmp = sm.OLS(df[tt], df[preds], missing='drop').fit()
 
-        gamma_mean = 1./np.nanvar(res.resid)
+        gamma_mean = 1./np.nanvar(res_tmp.resid)
         gamma_var = 1e-5 # Might want to expose this to user
         prior_info['lambda_b0'][tt] = gamma_mean/gamma_var
         prior_info['lambda_a0'][tt] = gamma_mean**2/gamma_var        
