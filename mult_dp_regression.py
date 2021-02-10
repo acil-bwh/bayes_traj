@@ -343,7 +343,7 @@ class MultDPRegression:
         if self.R_ is None:
             self.init_R_mat(self.constraints_, traj_probs,
                             traj_probs_weight)
-            
+
         if iters is None:
             iters = 1
 
@@ -1251,6 +1251,8 @@ class MultDPRegression:
                     np.exp(-((Y[ids, d] - mu_tmp[ids])**2)/(2*var_tmp))
             R_tmp[:, k] *= traj_probs[k]
 
+        zero_ids = np.sum(R_tmp, 1) == 0
+        R_tmp[zero_ids] = np.ones([np.sum(zero_ids), self.K_])/self.K_
         R = np.array((R_tmp.T/np.sum(R_tmp, 1)).T)
         
         # If constraints have been specified, get the connected subgraphs
