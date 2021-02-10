@@ -165,8 +165,7 @@ for r in np.arange(repeats):
                           prior_data['alpha'], K=K)
 
     mm.fit(X, Y, iters=iters, verbose=op.verbose,
-           #constraints=constraints_graph, data_names=data_names,
-           constraints=None, data_names=data_names,           
+           constraints=constraints_graph, data_names=data_names,
            target_names=targets, predictor_names=preds,
            traj_probs=prior_data['traj_probs'],
            traj_probs_weight=prior_data['probs_weight'],
