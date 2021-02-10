@@ -90,7 +90,7 @@ if op.in_data is not None:
         prior_info['lambda_b0'][tt] = gamma_mean/gamma_var
         prior_info['lambda_a0'][tt] = gamma_mean**2/gamma_var        
         for pp in preds:
-            prior_info['w_mu0'][tt][pp] = res_tmp[pp]
+            prior_info['w_mu0'][tt][pp] = res_tmp.params[pp]
 
             # The greater the sample size, the smaller the SE. We want to use
             # the SE as a surrogate for our confidence in the coefficient
