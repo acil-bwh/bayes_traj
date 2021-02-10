@@ -56,6 +56,27 @@ for tt in targets:
         prior_info['w_mu0'][tt][pp] = 0
         prior_info['w_var0'][tt][pp] = 5
 
+if op.in_data is not None:
+    df = pd.read_csv(op.in_data)
+    for tt in targets:
+        res_tmp = sm.OLS(df[tt], df[preds], missing='drop').fit()
+
+        gamma_mean = 1./np.nanvar(res_tmp.resid)
+        gamma_var = 1e-5 # Might want to expose this to user
+        prior_info['lambda_b0'][tt] = gamma_mean/gamma_var
+        prior_info['lambda_a0'][tt] = gamma_mean**2/gamma_var        
+        for pp in preds:
+            prior_info['w_mu0'][tt][pp] = res_tmp.params[pp]
+
+            # The greater the sample size, the smaller the SE. We want to use
+            # the SE as a surrogate for our confidence in the coefficient
+            # values, but we want to "undo" the effect of the sample size, so
+            # we multiple by the square root of N. Multiplying by 3 gives
+            # 3 standard deviations around the parameter point estimate, and
+            # squaring all that gives the variance.
+            prior_info['w_var0'][tt][pp] = \
+                (3*res_tmp.bse[pp]*np.sqrt(df.shape[0]))**2
+        
 if op.resid_var is not None:
     for i in range(len(op.resid_var)):
         tt = op.resid_var[i][0].split(',')[0]
@@ -79,27 +100,6 @@ if op.coef is not None:
 
         prior_info['w_mu0'][tt][pp] = m
         prior_info['w_var0'][tt][pp] = s**2        
-
-if op.in_data is not None:
-    df = pd.read_csv(op.in_data)
-    for tt in targets:
-        res_tmp = sm.OLS(df[tt], df[preds], missing='drop').fit()
-
-        gamma_mean = 1./np.nanvar(res_tmp.resid)
-        gamma_var = 1e-5 # Might want to expose this to user
-        prior_info['lambda_b0'][tt] = gamma_mean/gamma_var
-        prior_info['lambda_a0'][tt] = gamma_mean**2/gamma_var        
-        for pp in preds:
-            prior_info['w_mu0'][tt][pp] = res_tmp.params[pp]
-
-            # The greater the sample size, the smaller the SE. We want to use
-            # the SE as a surrogate for our confidence in the coefficient
-            # values, but we want to "undo" the effect of the sample size, so
-            # we multiple by the square root of N. Multiplying by 3 gives
-            # 3 standard deviations around the parameter point estimate, and
-            # squaring all that gives the variance.
-            prior_info['w_var0'][tt][pp] = \
-                (3*res_tmp.bse[pp]*np.sqrt(df.shape[0]))**2
             
 if op.out_file is not None:                    
     pickle.dump(prior_info, open(op.out_file, 'wb'))
