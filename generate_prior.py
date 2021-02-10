@@ -28,6 +28,8 @@ parser.add_argument('--in_data', help='If a data file is specified, it will be \
     is assumed that the file contains data columns with names corresponding \
     to the predictor and target names specified on the command line.',
     type=str, default=None)
+parser.add_argument('--num_trajs', help='Rough estimate of the number of \
+    trajectories expected in the data set.', type=int, default=2)
 
 op = parser.parse_args()
 
@@ -44,7 +46,6 @@ prior_info['w_mu0'] = {}
 prior_info['w_var0'] = {}
 prior_info['lambda_a0'] = {}
 prior_info['lambda_b0'] = {}
-prior_info['alpha'] = 1
 
 for tt in targets:
     prior_info['w_mu0'][tt] = {}
@@ -56,8 +57,13 @@ for tt in targets:
         prior_info['w_mu0'][tt][pp] = 0
         prior_info['w_var0'][tt][pp] = 5
 
+# Guesstimate of how big a data sample. Will be used to generate an estimate of
+# alpha. Will be overwritten if a data file has been specified.
+N = 10000
+
 if op.in_data is not None:
     df = pd.read_csv(op.in_data)
+    N = df.shape[0]
     for tt in targets:
         res_tmp = sm.OLS(df[tt], df[preds], missing='drop').fit()
 
@@ -76,14 +82,17 @@ if op.in_data is not None:
             # squaring all that gives the variance.
             prior_info['w_var0'][tt][pp] = \
                 (3*res_tmp.bse[pp]*np.sqrt(df.shape[0]))**2
-        
+
+# Generate a rough estimate of alpha
+prior_info['alpha'] = op.num_trajs/np.log10(N)
+            
 if op.resid_var is not None:
     for i in range(len(op.resid_var)):
         tt = op.resid_var[i][0].split(',')[0]
         resid_var_tmp = float(op.resid_var[i][0].split(',')[1])
         assert tt in targets, "{} not among specified targets".format(tt)
                 
-        gamma_mean = 1./resid_var_tmp
+        gamma_mean = 1./(resid_var_tmp/op.num_trajs)
         gamma_var = 1e-5 # Might want to expose this to user
         prior_info['lambda_b0'][tt] = gamma_mean/gamma_var
         prior_info['lambda_a0'][tt] = gamma_mean**2/gamma_var
