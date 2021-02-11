@@ -17,9 +17,10 @@ parser.add_argument('--out_file', help='Output (pickle) file that will \
     contain the prior', dest='out_file', type=str, default=None)
 parser.add_argument('-k', help='Number of columns in the truncated assignment \
     matrix', metavar='<int>', default=20)
-parser.add_argument('--resid_var', help='Residual variance prior value for \
-    specified target. Specify as a comman-separated tuple: target_name,value',
-    type=str, dest='resid_var', default=None, action='append', nargs='+')
+parser.add_argument('--resid_std', help='Residual standard deviation prior \
+    value for specified target. Specify as a comman-separated tuple:  \
+    target_name,value', type=str, dest='resid_std', default=None,
+    action='append', nargs='+')
 parser.add_argument('--coef', help='Coefficient prior for a specified \
     target and predictor. Specify as a comman-separated tuple: \
     target_name,predictor_name,mean,std', type=str,
@@ -87,13 +88,13 @@ if op.in_data is not None:
 # Generate a rough estimate of alpha
 prior_info['alpha'] = op.num_trajs/np.log10(N)
             
-if op.resid_var is not None:
-    for i in range(len(op.resid_var)):
-        tt = op.resid_var[i][0].split(',')[0]
-        resid_var_tmp = float(op.resid_var[i][0].split(',')[1])
+if op.resid_std is not None:
+    for i in range(len(op.resid_std)):
+        tt = op.resid_std[i][0].split(',')[0]
+        resid_std_tmp = float(op.resid_std[i][0].split(',')[1])
         assert tt in targets, "{} not among specified targets".format(tt)
                 
-        gamma_mean = 1./resid_var_tmp
+        gamma_mean = 1./(resid_std_tmp**2)
         gamma_var = 1e-5 # Might want to expose this to user
         prior_info['lambda_b0'][tt] = gamma_mean/gamma_var
         prior_info['lambda_a0'][tt] = gamma_mean**2/gamma_var
