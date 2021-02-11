@@ -3,6 +3,7 @@ import pickle
 import pandas as pd
 import statsmodels.api as sm
 import numpy as np
+import pdb
 from provenance_tools.provenance_tracker import write_provenance_data
 
 desc = """ """
@@ -67,7 +68,7 @@ if op.in_data is not None:
     for tt in targets:
         res_tmp = sm.OLS(df[tt], df[preds], missing='drop').fit()
 
-        gamma_mean = 1./np.nanvar(res_tmp.resid)
+        gamma_mean = 1./(np.nanvar(res_tmp.resid)/op.num_trajs)
         gamma_var = 1e-5 # Might want to expose this to user
         prior_info['lambda_b0'][tt] = gamma_mean/gamma_var
         prior_info['lambda_a0'][tt] = gamma_mean**2/gamma_var        
@@ -82,7 +83,7 @@ if op.in_data is not None:
             # squaring all that gives the variance.
             prior_info['w_var0'][tt][pp] = \
                 (3*res_tmp.bse[pp]*np.sqrt(df.shape[0]))**2
-
+            
 # Generate a rough estimate of alpha
 prior_info['alpha'] = op.num_trajs/np.log10(N)
             
@@ -92,7 +93,7 @@ if op.resid_var is not None:
         resid_var_tmp = float(op.resid_var[i][0].split(',')[1])
         assert tt in targets, "{} not among specified targets".format(tt)
                 
-        gamma_mean = 1./(resid_var_tmp/op.num_trajs)
+        gamma_mean = 1./resid_var_tmp
         gamma_var = 1e-5 # Might want to expose this to user
         prior_info['lambda_b0'][tt] = gamma_mean/gamma_var
         prior_info['lambda_a0'][tt] = gamma_mean**2/gamma_var
