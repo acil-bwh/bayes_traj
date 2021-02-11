@@ -76,15 +76,14 @@ if op.in_data is not None:
         for pp in preds:
             prior_info['w_mu0'][tt][pp] = res_tmp.params[pp]
 
-            # The greater the sample size, the smaller the SE. We want to use
-            # the SE as a surrogate for our confidence in the coefficient
-            # values, but we want to "undo" the effect of the sample size, so
-            # we multiple by the square root of N. Multiplying by 3 gives
-            # 3 standard deviations around the parameter point estimate, and
-            # squaring all that gives the variance.
-            prior_info['w_var0'][tt][pp] = \
-                (3*res_tmp.bse[pp]*np.sqrt(df.shape[0]))**2
-            
+            # The following defaults result in a reasonable spread of
+            # trajectories in synthetic experiments
+            tmp = pp.split('^')
+            if len(tmp) > 1:
+                prior_info['w_var0'][tt][pp] = 10**(-int(tmp[-1])*5)
+            else:
+                prior_info['w_var0'][tt][pp] = 1e-5
+                
 # Generate a rough estimate of alpha
 prior_info['alpha'] = op.num_trajs/np.log10(N)
             
@@ -110,7 +109,7 @@ if op.coef is not None:
         assert pp in preds, "{} not among specified predictors".format(pp)        
 
         prior_info['w_mu0'][tt][pp] = m
-        prior_info['w_var0'][tt][pp] = s**2        
+        prior_info['w_var0'][tt][pp] = s**2
             
 if op.out_file is not None:                    
     pickle.dump(prior_info, open(op.out_file, 'wb'))
