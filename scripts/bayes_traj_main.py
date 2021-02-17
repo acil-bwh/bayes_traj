@@ -19,6 +19,15 @@ predictors and target variables"""
 parser = ArgumentParser(description=desc)
 parser.add_argument('--in_csv', help='Input csv file containing data on which \
   to run MultDPRegression', dest='in_csv', metavar='<string>', default=None)
+parser.add_argument('--out_csv', help='If specified, an output csv file will \
+  be generated that contains the contents of the input csv file, but with \
+  additional columns indicating trajectory assignment information for each \
+  data instance. There will be a column called traj with and integer value \
+  indicating the most probable trajectory assignment. There will also be \
+  columns prefixed with traj_ and then an trajectory-identifying integer. The \
+  values of these columns indicate the probability that the data instance \
+  belongs to each of the corresponding trajectories.', dest='out_csv',
+  metavar='<string>', type=str, efault=None)
 parser.add_argument('--prior_p', help='Input pickle file containing prior \
   settings', dest='prior_p', metavar='<string>', default=None)
 parser.add_argument('--alpha', help='If specified, over-rides the value in the \
@@ -196,7 +205,13 @@ for r in np.arange(repeats):
                 provenance_desc = """ """
                 write_provenance_data(out_file, generator_args=op,
                                       desc=provenance_desc)
-            
+
+            # TODO: need to indicate column that will be used for merge. This
+            # will be done when moving to DF groupby paradigm
+            #if op.out_csv is not None:
+            #    df_traj = mm.to_df()
+            #    df_out = pd.merge()
+                
         #waic2 = mm.compute_waic2()
         #waics_tracker.append(waic2)
         #if waic2 < best_waic2:
