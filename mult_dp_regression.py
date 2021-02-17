@@ -1,4 +1,5 @@
 from argparse import ArgumentParser
+import matplotlib.pyplot as plt
 from bayes_traj.get_longitudinal_constraints_graph \
   import get_longitudinal_constraints_graph
 import numpy as np
@@ -517,6 +518,9 @@ class MultDPRegression:
                                 self.w_mu_[:, d, self.sig_trajs_]) + \
                          self.Y_[non_nan_ids, d, newaxis]**2), 0)                    
 
+        print('{}'.format(np.sqrt(self.lambda_b_[0, self.sig_trajs_]/\
+                                  self.lambda_a_[0, self.sig_trajs_])))
+            
     def sample(self, index=None, x=None):
         """sample from the posterior distribution using the input data.
 
@@ -1376,6 +1380,95 @@ class MultDPRegression:
 
         return df
 
+    def plot(self, x_axis, y_axis, which_trajs=None):
+        """Generates a 2D plot of trajectory results. The original data will be
+        shown as a scatter plot, color-coded according to trajectory membership.
+        Trajectories will be plotted with line plots indicating the expected 
+        target value given predictor values. The user has control over what
+        variables will appear on the x- and y-axes. This plotting function
+        expects that predictors raised to a power use the ^ character. E.g.
+        predictors might be: 'age' and 'age^2'. In this case, if the user
+        wants to plot 'age' on the x-axis, he/she need only specify 'age' (the
+        plotting routine will take care of the higher order terms). Predictor
+        variables not specified to be on the x-axis will be set to their mean
+        values for plotting.     
+        
+        Parameters
+        ----------
+        x_axis : str
+            Predictor name corresponding to x-axis.
+
+        y_axis : str
+            Target variable name corresponding to y-axis.
+
+        which_trajs : int or array, optional
+            If specified, only these trajectories will be plotted. If not 
+            specified, all trajectories will be plotted.
+        """
+        df_traj = self.to_df()
+            
+        num_dom_locs = 100
+        x_dom = np.linspace(np.min(df_traj[x_axis].values),
+                            np.max(df_traj[x_axis].values),
+                            num_dom_locs)
+    
+        target_index = np.where(np.array(self.target_names_) == y_axis)[0][0]
+    
+        X_tmp = np.ones([num_dom_locs, self.M_])
+        for (inc, pp) in enumerate(self.predictor_names_):
+            if pp == 'intercept':
+                pass
+            else:
+                tmp = pp.split('^')
+                
+                if len(tmp) > 1:
+                    if x_axis in tmp:                
+                        X_tmp[:, inc] = x_dom**(int(tmp[-1]))
+                    else:                
+                        X_tmp[:, inc] = np.mean(df_traj[tmp[0]].values)**\
+                            (int(tmp[-1]))
+                elif pp == x_axis:
+                    X_tmp[:, inc] = x_dom
+                else:
+                    X_tmp[:, inc] = np.nanmean(df_traj[tmp[0]].values)
+    
+        if which_trajs is not None:
+            if type(which_trajs) == int:
+                traj_ids = np.array([which_trajs])
+            else:
+                traj_ids = which_trajs
+        else:
+            traj_ids = np.where(self.sig_trajs_)[0]
+    
+        if traj_ids.shape[0] <= 10:
+            cmap = plt.cm.get_cmap('tab10')
+        else:
+            cmap = plt.cm.get_cmap('tab20')
+    
+        plt.figure(figsize=(6, 6))        
+        for (traj_inc, tt) in enumerate(traj_ids):
+            ids_tmp = df_traj.traj.values == tt
+            plt.scatter(df_traj[ids_tmp][x_axis].values,
+                        df_traj[ids_tmp][y_axis].values,
+                        edgecolor='k', color=cmap(traj_inc), alpha=0.5)
+
+            std = np.sqrt(self.lambda_b_[target_index][tt]/\
+                          self.lambda_a_[target_index][tt])
+            
+            co = self.w_mu_[:, target_index, tt]
+            y_tmp = np.dot(co, X_tmp.T)
+    
+            plt.plot(x_dom, y_tmp, color=cmap(traj_inc), linewidth=3,
+                     label='Traj {}'.format(tt))
+            plt.fill_between(x_dom, y_tmp-2*std, y_tmp+2*std,
+                             color=cmap(traj_inc), alpha=0.3)
+    
+        plt.xlabel(x_axis, fontsize=16)
+        plt.ylabel(y_axis, fontsize=16)    
+        plt.tight_layout()
+        plt.legend()
+        plt.show()
+    
 if __name__ == "__main__":
     desc = """Run the multiple Dirichlet Process regression algorithm"""
 
