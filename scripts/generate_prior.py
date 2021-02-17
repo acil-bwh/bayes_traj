@@ -17,14 +17,20 @@ parser.add_argument('--out_file', help='Output (pickle) file that will \
     contain the prior', dest='out_file', type=str, default=None)
 parser.add_argument('-k', help='Number of columns in the truncated assignment \
     matrix', metavar='<int>', default=20)
-parser.add_argument('--resid_std', help='Residual standard deviation prior \
+parser.add_argument('--tar_resid', help='Residual standard deviation prior \
     value for specified target. Specify as a comman-separated tuple:  \
-    target_name,value', type=str, dest='resid_std', default=None,
-    action='append', nargs='+')
+    target_name,mean,std. Here, mean is the expected value of the residual \
+    standard deviation, and std reflects the strength of the prior (lower \
+    values indicate more confidence in the mean value)', type=str,
+    default=None, action='append', nargs='+')
 parser.add_argument('--coef', help='Coefficient prior for a specified \
     target and predictor. Specify as a comman-separated tuple: \
     target_name,predictor_name,mean,std', type=str,
     default=None, action='append', nargs='+')
+parser.add_argument('--coef_std', help='Coefficient prior standard deviation \
+    for a specified target and predictor. Specify as a comman-separated tuple: \
+    target_name,predictor_name,std', type=str, default=None,
+    action='append', nargs='+')
 parser.add_argument('--in_data', help='If a data file is specified, it will be \
     read in and used to set reasonable prior values using OLS regression. It \
     is assumed that the file contains data columns with names corresponding \
@@ -82,19 +88,20 @@ if op.in_data is not None:
             if len(tmp) > 1:
                 prior_info['w_var0'][tt][pp] = 10**(-int(tmp[-1])*5)
             else:
-                prior_info['w_var0'][tt][pp] = 1e-5
+                prior_info['w_var0'][tt][pp] = 5e-4
                 
 # Generate a rough estimate of alpha
 prior_info['alpha'] = op.num_trajs/np.log10(N)
             
-if op.resid_std is not None:
-    for i in range(len(op.resid_std)):
-        tt = op.resid_std[i][0].split(',')[0]
-        resid_std_tmp = float(op.resid_std[i][0].split(',')[1])
+if op.tar_resid is not None:
+    for i in range(len(op.tar_resid)):
+        tt = op.tar_resid[i][0].split(',')[0]
+        mean_tmp = float(op.tar_resid[i][0].split(',')[1])
+        std_tmp = float(op.tar_resid[i][0].split(',')[2])        
         assert tt in targets, "{} not among specified targets".format(tt)
                 
-        gamma_mean = 1./(resid_std_tmp**2)
-        gamma_var = 1e-5 # Might want to expose this to user
+        gamma_mean = 1./(mean_tmp**2)
+        gamma_var = std_tmp**2
         prior_info['lambda_b0'][tt] = gamma_mean/gamma_var
         prior_info['lambda_a0'][tt] = gamma_mean**2/gamma_var
 
@@ -110,7 +117,30 @@ if op.coef is not None:
 
         prior_info['w_mu0'][tt][pp] = m
         prior_info['w_var0'][tt][pp] = s**2
-            
+
+if op.coef_std is not None:
+    for i in range(len(op.coef)):
+        tt = op.coef[i][0].split(',')[0]
+        pp = op.coef[i][0].split(',')[1]
+        s = float(op.coef[i][0].split(',')[2])
+
+        assert tt in targets, "{} not among specified targets".format(tt)
+        assert pp in preds, "{} not among specified predictors".format(pp)        
+
+        prior_info['w_var0'][tt][pp] = s**2
+
+print('---------- Prior Info ----------')
+print('alpha: {}'.format(prior_info['alpha']))        
+for tt in targets:
+    tar_mean = prior_info['lambda_b0'][tt]/prior_info['lambda_a0'][tt]
+    tar_std = np.sqrt(prior_info['lambda_a0'][tt]/\
+                      (prior_info['lambda_b0'][tt]**2))
+    print("{} residual (mean, std): ({}, {})".format(tt, tar_mean, tar_std))
+    for pp in preds:
+        tmp_mean = prior_info['w_mu0'][tt][pp]
+        tmp_std = np.sqrt(prior_info['w_var0'][tt][pp])
+        print("{} {} (mean, std): ({}, {})".format(tt, pp, tmp_mean, tmp_std))
+        
 if op.out_file is not None:                    
     pickle.dump(prior_info, open(op.out_file, 'wb'))
     desc = """ """
