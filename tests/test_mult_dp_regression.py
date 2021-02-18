@@ -2,7 +2,34 @@ from bayes_traj.mult_dp_regression import MultDPRegression
 from bayes_traj.get_longitudinal_constraints_graph \
     import get_longitudinal_constraints_graph
 import numpy as np
-import pdb
+import pandas as pd
+import pdb, os
+
+def test_MultDPRegression():
+    # Read data from resources dir
+    data_file_name = os.path.split(os.path.realpath(__file__))[0] + \
+        '/../resources/data/trajectory_data_1.csv'
+    df = pd.read_csv(data_file_name)
+    
+
+    prior_file_name = os.path.split(os.path.realpath(__file__))[0] + \
+        '/../resources/priors/trajectory_prior_1.p'
+    
+    # Read prior from resources dir
+    
+    
+    #mm = MultDPRegression(prior_data['w_mu0'], prior_data['w_var0'],
+    #                      prior_data['lambda_a0'], prior_data['lambda_b0'],
+    #                      prior_data['alpha'], K=K)
+
+    #mm.fit(X, Y, iters=iters, verbose=op.verbose,
+    #       constraints=constraints_graph, data_names=data_names,
+    #       target_names=targets, predictor_names=preds,
+    #       traj_probs=prior_data['traj_probs'],
+    #       traj_probs_weight=prior_data['probs_weight'],
+    #       v_a=prior_data['v_a'], v_b=prior_data['v_b'], w_mu=prior_data['w_mu'],
+    #       w_var=prior_data['w_var'], lambda_a=prior_data['lambda_a'],
+    #       lambda_b=prior_data['lambda_b'])
 
 def test_init_R_mat():
     """
