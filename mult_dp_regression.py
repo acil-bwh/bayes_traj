@@ -517,9 +517,6 @@ class MultDPRegression:
                          np.dot(self.X_[non_nan_ids, :], \
                                 self.w_mu_[:, d, self.sig_trajs_]) + \
                          self.Y_[non_nan_ids, d, newaxis]**2), 0)                    
-
-        print('{}'.format(np.sqrt(self.lambda_b_[0, self.sig_trajs_]/\
-                                  self.lambda_a_[0, self.sig_trajs_])))
             
     def sample(self, index=None, x=None):
         """sample from the posterior distribution using the input data.
