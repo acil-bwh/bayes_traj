@@ -3,6 +3,7 @@ from bayes_traj.get_longitudinal_constraints_graph \
     import get_longitudinal_constraints_graph
 import numpy as np
 import pandas as pd
+from bayes_traj.utils import *
 import pdb, os
 
 def test_MultDPRegression():
@@ -10,26 +11,54 @@ def test_MultDPRegression():
     data_file_name = os.path.split(os.path.realpath(__file__))[0] + \
         '/../resources/data/trajectory_data_1.csv'
     df = pd.read_csv(data_file_name)
-    
 
+    longitudinal_constraints = \
+        get_longitudinal_constraints_graph(df['id'].values)
+    
     prior_file_name = os.path.split(os.path.realpath(__file__))[0] + \
         '/../resources/priors/trajectory_prior_1.p'
     
     # Read prior from resources dir
-    
-    
-    #mm = MultDPRegression(prior_data['w_mu0'], prior_data['w_var0'],
-    #                      prior_data['lambda_a0'], prior_data['lambda_b0'],
-    #                      prior_data['alpha'], K=K)
+    with open(prior_file_name, 'rb') as f:
+        prior_file_info = pickle.load(f)
+        
+    preds = get_pred_names_from_prior_info(prior_file_info)
+    targets = get_target_names_from_prior_info(prior_file_info)        
 
-    #mm.fit(X, Y, iters=iters, verbose=op.verbose,
-    #       constraints=constraints_graph, data_names=data_names,
-    #       target_names=targets, predictor_names=preds,
-    #       traj_probs=prior_data['traj_probs'],
-    #       traj_probs_weight=prior_data['probs_weight'],
-    #       v_a=prior_data['v_a'], v_b=prior_data['v_b'], w_mu=prior_data['w_mu'],
-    #       w_var=prior_data['w_var'], lambda_a=prior_data['lambda_a'],
-    #       lambda_b=prior_data['lambda_b'])
+    D = len(targets)
+    M = len(preds)
+    K = 20
+
+    prior_data = {}
+    prior_data['w_mu0'] = np.zeros([M, D])
+    prior_data['w_var0'] = np.ones([M, D])
+    prior_data['lambda_a0'] = np.ones([D])
+    prior_data['lambda_b0'] = np.ones([D])
+    prior_data['alpha'] = prior_file_info['alpha']
+    for (d, target) in enumerate(targets):
+        prior_data['lambda_a0'][d] = prior_file_info['lambda_a0'][target]
+        prior_data['lambda_b0'][d] = prior_file_info['lambda_b0'][target]            
+            
+        for (m, pred) in enumerate(preds):
+            prior_data['w_mu0'][m, d] = prior_file_info['w_mu0'][target][pred]
+            prior_data['w_var0'][m, d] = prior_file_info['w_var0'][target][pred]            
+    
+    mm = MultDPRegression(prior_data['w_mu0'], prior_data['w_var0'],
+                          prior_data['lambda_a0'], prior_data['lambda_b0'],
+                          prior_data['alpha'], K=K)
+
+    mm.fit(df[preds].values, df[targets].values, iters=10, verbose=False,
+           constraints=longitudinal_constraints,
+           data_names=df['data_names'].values,
+           target_names=targets, predictor_names=preds)
+
+    df_traj = mm.to_df()
+
+    num_trajs_found = np.sum(np.where(pd.crosstab(df_traj.traj.values,
+                                    df.traj.values).values == 250))
+
+    assert num_trajs_found == 2, "Trajectory assignment error"
+
 
 def test_init_R_mat():
     """
