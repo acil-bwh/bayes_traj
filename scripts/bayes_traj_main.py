@@ -27,7 +27,7 @@ parser.add_argument('--out_csv', help='If specified, an output csv file will \
   columns prefixed with traj_ and then an trajectory-identifying integer. The \
   values of these columns indicate the probability that the data instance \
   belongs to each of the corresponding trajectories.', dest='out_csv',
-  metavar='<string>', type=str, efault=None)
+  metavar='<string>', type=str, default=None)
 parser.add_argument('--prior_p', help='Input pickle file containing prior \
   settings', dest='prior_p', metavar='<string>', default=None)
 parser.add_argument('--alpha', help='If specified, over-rides the value in the \
