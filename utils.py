@@ -2,6 +2,43 @@ import pickle
 import numpy as np
 from argparse import ArgumentParser
 
+def get_pred_names_from_prior_info(prior_info):
+    """Gets the list of predictor names used to construct a prior info 
+    dictionary.
+
+    Parameters
+    ----------
+    prior_info : dict
+        Dictionary containing prior information. The dictionary structure is 
+        equivalent to that produced by the generate_prior.py utility.
+
+    Returns
+    -------
+    preds : list of strings
+        List of predictor names
+    
+    """
+    return list(list(prior_info['w_mu0'].values())[0].keys())
+
+
+def get_target_names_from_prior_info(prior_info):
+    """Gets the list of target names used to construct a prior info dictionary.
+
+    Parameters
+    ----------
+    prior_info : dict
+        Dictionary containing prior information. The dictionary structure is 
+        equivalent to that produced by the generate_prior.py utility.
+
+    Returns
+    -------
+    target : list of strings
+        List of target names
+    
+    """
+    return list(prior_info['w_mu0'].keys())
+
+
 def sample_precs(lambda_a0, lambda_b0, num_samples):
     """Samples trajectory precision values given parameters describing the 
     distribution over precisions.
@@ -36,6 +73,7 @@ def sample_precs(lambda_a0, lambda_b0, num_samples):
         prec[dd, :] = np.random.gamma(shape_tmp, scale_tmp, num_samples)
 
     return prec
+
 
 def sample_cos(w_mu0, w_var0, num_samples=1):
     """Samples trajectory coefficients given parameters describing the 
@@ -75,6 +113,7 @@ def sample_cos(w_mu0, w_var0, num_samples=1):
                 np.sqrt(w_var0[mm, dd])*np.random.randn(num_samples)
 
     return w
+
 
 def sample_traj(w_mu0, var_covar0, lambda_a0, lambda_b0, num_samples):
     """Samples a trajectory given an input description of the distribution over
