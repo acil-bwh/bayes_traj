@@ -90,6 +90,8 @@ for tp in op.traj_params:
                 format(traj_inc, num_in_traj))
 
 plt.legend()
+plt.xlabel('Age')
+plt.ylabel('y')
 plt.show()
 
 if op.out_file is not None:
