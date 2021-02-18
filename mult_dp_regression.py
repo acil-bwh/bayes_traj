@@ -457,9 +457,6 @@ class MultDPRegression:
                   break
             if is_must_link:
                 self.update_R_rows_must_link_(constraint_subgraphs[i], R)
-            else:
-                self.update_R_rows_(constraint_subgraphs[i],
-                                    self.prob_thresh_, R)
 
     def update_w_accel(self):
         """ Updates the variational distribution over latent variable w.
@@ -781,129 +778,6 @@ class MultDPRegression:
         waic2 = -2.*(lppd - p_waic2)
 
         return waic2
-
-    def update_R_rows_(self, constraint_subgraph, prob_thresh, R):
-        """Updates 'R' according to the constraints supplied in
-        'constraint_subgraph'
-
-        The nodes in the subgraph designate which rows (variables) to update in
-        'R', the matrix that encodes the expected values of each indicator
-        variable, z.
-
-        Parameters
-        ----------
-        constraint_subgraph : networkx graph
-            The constraints are encoded in a networkx graph, each node should
-            indicate an instance index, and edges indicate constraints. Each
-            edge should have a string attribute called 'constraint', which must
-            take a value of 'weighted_must_link', 'weighted_cannot_link', 
-            'must_link', 'cannot_link', or 'longitudinal'.
-
-        prob_thresh : float
-            The probability threshold is a scalar value in the interval (0, 1).
-            It indicates the minimum value of component 'k' of the latent
-            variable, 'z', that a given point needs to have to be considered a
-            possible member of regression curve 'k'. Any state configuration
-            having an individual instance with a probability less than this
-            threshold will be considered an impossible configuration. This
-            greatly increase computational efficiency
-
-        R : array, shape ( N, K )
-            Each element of this matrix represents the probability that
-            instance 'n' belongs to cluster 'k'.
-        """
-        # Collect information about the instance IDs represented by the nodes in
-        # the 'constraint_subgraph'. Note that the 'nodes()' operation on the
-        # graph produces a sorted list by default. We sort again for security,
-        # esp. given that we don't expect a large number of nodes in any one
-        # subgraph, so the sort operation introduces minimal overhead.
-        num_nodes = len(constraint_subgraph.nodes())
-        constraint_subgraph.nodes().sort()
-        node_ids = constraint_subgraph.nodes()
-
-        node_to_index = {}
-        inc = 0
-        for n in node_ids:
-            node_to_index[n] = inc
-            inc += 1
-
-        # We will need to consider all possible 'state' configurations. Each of
-        # variables can be in one of K states, for a total of K^(num_nodes)
-        # possibilities. We will represent the state of the collection of
-        # variables with the matrix 'state_mat'
-        num_states = R.shape[1]
-
-        # Now loop over all possible state matrices. For each state matrix,
-        # compute the unnormalized probability (this is the quantity in Eq. 20
-        # in the 'ConstraintedNonparametricGaussianProcessRegression' document,
-        # without the partition function). Each computed probability is
-        # multiplied by the corresponding state matrix and added to
-        # 'state_mat_accum'. The total unnormalized probability is accumulated
-        # in 'prob_accum'. We take advantage of the fact that if a given
-        # instance has a probability lower than 'prob_thresh' for a given
-        # state, we can effectively consider any configuration including that
-        # state to be "impossible". This greatly reduces the computational
-        # burden required: for each instance in the subgraph, we need only
-        # record the columns in 'R' for which its probability is >=
-        # 'prob_thresh'. We do this for each of the instances in the subgraph
-        # and only loop over those state configurations.
-        sig_cols = []
-        for i in range(0, num_nodes):
-            cols = \
-              (np.nonzero(R[node_ids[i], :] > prob_thresh)[0]).tolist()
-            sig_cols.append(cols)
-
-        # The above initialization of 'sig_cols' does not take into
-        # consideration the relationship between the rows (nodes).
-        # For example, suppose there were 2 nodes that were longitudinally
-        # linked and only two states for each node. Then if 'sig_cols' wound
-        # up being [[0], [1]], the code below would generate an error because
-        # the only configuration tested would be [[1, 0], [0, 1]], which would
-        # given a probability of zero (an impossible configuration, given that
-        # the data points are longitudinally linked). Therefore, we need to
-        # look at all the edges of this subgraph and augment 'sig_cols' such
-        # each pair of nodes that are longitudinally linked or must-linked
-        # correspond to the same set of columns (cluster assignments)
-        for e in constraint_subgraph.edges():
-            if constraint_subgraph[e[0]][e[1]]['constraint'] == \
-              'longitudinal' or constraint_subgraph[e[0]][e[1]]['constraint'] \
-              == 'weighted_must_link' or \
-              constraint_subgraph[e[0]][e[1]]['constraint'] == 'must_link':
-              tmp = list(np.sort(list(set(sig_cols[node_to_index[e[0]]] + \
-                                          sig_cols[node_to_index[e[1]]]))))
-              sig_cols[node_to_index[e[0]]] = tmp
-              sig_cols[node_to_index[e[1]]] = tmp
-
-        num_state_mats = 1.0
-        for i in range(0, num_nodes):
-            num_state_mats *= len(sig_cols[i])
-
-        # Initialize the state matrix
-        state_mat = np.zeros([num_nodes, num_states])
-        for n in range(0, num_nodes):
-            state_mat[n, sig_cols[n][0]] = 1.0
-
-        state_mat_accum = np.zeros([num_nodes, num_states])
-        prob_accum = 0.0
-
-        for i in np.arange(0, num_state_mats):
-            prob = self.compute_subgraph_unnormalized_(constraint_subgraph,
-                state_mat)
-            state_mat_accum += prob*state_mat
-            prob_accum += prob
-            self.inc_state_mat_(state_mat, sig_cols)
-
-        # Now create the normalized matrix
-        assert prob_accum > 0.0, 'prob_accum is 0'
-        normalized_mat = (1.0/prob_accum)*state_mat_accum
-
-        # Lastly, we have to insert the rows of 'normalized_mat' properly into
-        # 'R_'. Each row of 'normalized_mat' corresponds to an instance, and
-        # the rows are ordered so that the first row corresponds to the smallest
-        # instance ID, the second row corresponds to the next smallest instance
-        # ID, etc.
-        for i in np.arange(0, num_nodes):
-            R[node_ids[i], :] = normalized_mat[i, :]
 
     def update_R_rows_must_link_(self, constraint_subgraph, R):
         """Updates 'R_' by enforcing longitudinal points to have the same row
