@@ -1,12 +1,9 @@
 from argparse import ArgumentParser
 import matplotlib.pyplot as plt
-from bayes_traj.get_longitudinal_constraints_graph \
-  import get_longitudinal_constraints_graph
 import numpy as np
 from numpy import abs, dot, mean, log, sum, exp, tile, max, sum, isnan, diag, \
      sqrt, pi, newaxis, outer, genfromtxt, where
 from numpy.random import multivariate_normal, randn, gamma
-import networkx as nx
 from bayes_traj.utils import sample_cos
 from scipy.optimize import minimize_scalar
 from scipy.special import psi, gammaln, logsumexp
@@ -114,7 +111,6 @@ class MultDPRegression:
         # X_ and Y_ will become defined when 'fit' is called
         self.X_ = None
         self.Y_ = None
-        self.data_names_ = None
         self.target_names_ = None
         self.predictor_names_ = None
 
@@ -130,22 +126,29 @@ class MultDPRegression:
         assert self.w_mu0_.shape[1] == self.lambda_a0_.shape[0], \
           "Target dimension mismatch"
 
-    def fit(self, X, Y, iters=None, tol=None, R=None, traj_probs=None,
-            traj_probs_weight=None, v_a=None, v_b=None, w_mu=None, w_var=None,
-            lambda_a=None, lambda_b=None, constraints=None, data_names=None,
-            target_names=None, predictor_names=None, minibatch_size=None,
-            verbose=False):
+    def fit(self, target_names, predictor_names, df, groupby=None, iters=None,
+            tol=None, R=None, traj_probs=None, traj_probs_weight=None, v_a=None,
+            v_b=None, w_mu=None, w_var=None, lambda_a=None, lambda_b=None,
+            minibatch_size=None, verbose=False):
         """Run the DP proportion mixture model algorithm using predictors 'X'
         and proportion data 'Y'.
 
         Parameters
         ----------
-        X : array, shape ( N, M )
-            Each row is an M-dimensional predictor vector for the nth data
-            sample.
+        target_names : list of strings
+            Data frame column names of the target variables.
 
-        Y : array, shape ( N, D )
-            Each row is a D-dimensional target vector for the nth data sample.
+        predictor_names : list of strings
+            Data frame column names of the predictors
+
+        df : pandas dataframe
+            Data frame containing predictor, target, and group information.
+
+        groupby : str, optional
+            Data frame column name used to group data instances. All data 
+            instances within a group will be forced into the same trajectory.
+            This is generally desired when multiple data instances correspond
+            to the same individual. 
 
         iters : int, optional
             Number of variational inference iterations to run. Note that if both
@@ -218,26 +221,6 @@ class MultDPRegression:
             precision of the target variable. If specified, the algorithm will
             be initialized with this matrix.
 
-        constraints : networkx graph, optional
-            The constraints are encoded in a networkx graph, each node should
-            indicate an instance index, and edges indicate constraints. Each
-            edge should have a string attribute called 'constraint', which must
-            take a value of 'weighted_must_link', 'weighted_cannot_link', or 
-            'must_link', 'cannot_link' or 'longitudinal'. If constraints are 
-            specified, the variation inference update equations will take them 
-            into account. 
-
-        data_names : list of N strings, optional
-            Stores a name for each data item represented in the X and Y
-            matrices. E.g. ['Joe_baseline', 'Jane_baseline',
-            'Joe_followup', ...].
-
-        target_names : list of D strings, optional
-            Stores the names of the D target variables.
-
-        predictor_names : list of M strings, optional
-            Stores the names of the M predictors
-
         minibatch_size : int, optional
             The size of the minibatch to use for stochastic variational
             inference. It must be less than the total number of data points.
@@ -255,40 +238,20 @@ class MultDPRegression:
             assert traj_probs_weight >= 0 and traj_probs_weight <=1, \
                 "Invalid traj_probs_weightd value"
         
-        if len(np.array(X).shape) == 0:
-            self.X_ = np.atleast_2d(X)
-        elif len(np.array(X).shape) == 1:
-            self.X_ = np.atleast_2d(X).T
-        else:
-            self.X_ = np.atleast_2d(X)
+        self.X_ = df[list(predictor_names)].values
+        self.Y_ = df[list(target_names)].values        
 
-        if len(np.array(Y).shape) == 0:
-            self.Y_ = np.atleast_2d(Y)
-        elif len(np.array(Y).shape) == 1:
-            self.Y_ = np.atleast_2d(Y).T
-        else:
-            self.Y_ = np.atleast_2d(Y)
+        self.gb_ = None
+        if groupby is not None:
+            self.gb_ = df.groupby(groupby)
+        
+        assert len(set(target_names)) == len(target_names), \
+            "Duplicate target name found"
+        self.target_names_ = target_names
 
-        if data_names is not None:
-            assert len(data_names) == self.X_.shape[0], \
-              "Number of data names and number of data points does not match"
-            assert len(set(data_names)) == len(data_names), \
-              "Duplicate data name found"
-            self.data_names_ = data_names
-
-        if target_names is not None:
-            assert len(target_names) == self.Y_.shape[1], \
-              "Number of target names does not match target dimension"
-            assert len(set(target_names)) == len(target_names), \
-              "Duplicate target name found"
-            self.target_names_ = target_names
-
-        if predictor_names is not None:
-            assert len(predictor_names) == self.X_.shape[1], \
-              "Number of predictor names does not match predictor dimension"
-            assert len(set(predictor_names)) == len(predictor_names), \
-              "Duplicate predictor name found"
-            self.predictor_names_ = predictor_names
+        assert len(set(predictor_names)) == len(predictor_names), \
+            "Duplicate predictor name found"
+        self.predictor_names_ = predictor_names
 
         assert self.w_mu0_.shape[0] == self.X_.shape[1], \
           "Dimension mismatch between mu_ and X_"
@@ -305,13 +268,6 @@ class MultDPRegression:
         self.v_a_ = v_a
         self.v_b_ = v_b
         self.R_ = R
-        self.constraints_ = constraints
-
-        # If constraints have been specified, get the connected subgraphs
-        self.constraint_subgraphs_ = []
-        if self.constraints_ is not None:
-            self.constraint_subgraphs_ = \
-              self.get_constraint_subgraphs_(self.constraints_)
 
         if self.lambda_a_ is None:
             self.lambda_a_ = np.zeros([self.D_, self.K_])
@@ -342,8 +298,7 @@ class MultDPRegression:
 
         # Initialize the latent variables if needed
         if self.R_ is None:
-            self.init_R_mat(self.constraints_, traj_probs,
-                            traj_probs_weight)
+            self.init_R_mat(traj_probs, traj_probs_weight)
 
         if iters is None:
             iters = 1
@@ -370,8 +325,7 @@ class MultDPRegression:
             self.update_v()
             self.update_w_accel()                
             self.update_lambda_accel()
-            self.R_ = self.update_z_accel(self.X_, self.Y_,
-                                          self.constraint_subgraphs_)
+            self.R_ = self.update_z_accel(self.X_, self.Y_)
                 
             self.sig_trajs_ = np.max(self.R_, 0) > self.prob_thresh_
 
@@ -392,7 +346,7 @@ class MultDPRegression:
         for k in np.arange(0, self.K_):
             self.v_b_[k] = self.alpha_ + np.sum(self.R_[:, k+1:])
 
-    def update_z_accel(self, X, Y, constraint_subgraphs):
+    def update_z_accel(self, X, Y):
         """
         """
         expec_ln_v = psi(self.v_a_) - psi(self.v_a_ + self.v_b_)
@@ -433,30 +387,24 @@ class MultDPRegression:
         rho_10_shift = 10**((rho_10.T - max(rho_10, 1)).T + 300).clip(-300, 300)
         R = (rho_10_shift.T/sum(rho_10_shift, 1)).T
 
-        # Now apply constraints
-        self.apply_constraints(self.constraint_subgraphs_, R)
+        # Within a group, all data instances must have the same probability of
+        # belonging to each of the K trajectories
+        if self.gb_ is not None:
+            for g in self.gb_.groups.keys():
+                tmp_ids = self.gb_.get_group(g).index.values
+                tmp_vec = np.sum(np.log(R[tmp_ids, :] + \
+                                        np.finfo(float).tiny), 0)
+                vec = np.exp(tmp_vec + 700 - np.max(tmp_vec))
+                vec = vec/np.sum(vec)
+
+                # Now update the rows of 'normalized_mat'.
+                R[tmp_ids, :] = vec                
 
         # Any instance that has miniscule probability of belonging to a
         # trajectory, set it's probability of belonging to that trajectory to 0
         R[R <= self.prob_thresh_] = 0
 
         return R
-
-    def apply_constraints(self, constraint_subgraphs, R):
-        """
-        """
-        num_subgraphs = len(constraint_subgraphs)
-
-        for i in range(0, num_subgraphs):
-            is_must_link = True
-            for e in constraint_subgraphs[i].edges():
-                if constraint_subgraphs[i][e[0]][e[1]]['constraint'] != \
-                  'longitudinal' and constraint_subgraphs[i][e[0]][e[1]]\
-                  ['constraint'] != 'must_link':                    
-                  is_must_link = False
-                  break
-            if is_must_link:
-                self.update_R_rows_must_link_(constraint_subgraphs[i], R)
 
     def update_w_accel(self):
         """ Updates the variational distribution over latent variable w.
@@ -684,14 +632,14 @@ class MultDPRegression:
         Returns
         -------
         bic_obs[, bic_groups] : float or tuple
-            The BIC values. It 'data_names' was specified during the fitting 
-            routine, these values will be used to determine the number of 
-            individuals in the data set. In this case, two BIC values will be 
-            computed: one in which N is taken to be the number of observations 
-            (underestimates true BIC) and one in which N is taken to be the 
-            number of subjects (overstates true BIC). If the number of 
-            subjects can not be ascertained, a single BIC value (where N is 
-            taken to be the number of observations) is returned.
+            The BIC values. It 'groupby' was specified during the fitting 
+            routine, the groups will indicate the number of individuals in the 
+            data set. In this case, two BIC values will be computed: one in 
+            which N is taken to be the number of observations (underestimates 
+            true BIC) and one in which N is taken to be the number of subjects 
+            (overstates true BIC). If the number of subjects can not be 
+            ascertained, a single BIC value (where N is taken to be the number 
+            of observations) is returned.
     
         References
         ----------
@@ -713,20 +661,18 @@ class MultDPRegression:
         # Per recommendation in the reference, two BICs are computed: one in
         # which N is taken to be the number of observations (overstates true
         # "N") and one in which N is taken to be the number of subjects
-        # (understates true "N"). The number of subjects is determined by
-        # 'data_names' (if it was provided during fitting). Note that when we
-        # compute the total number of observations, we sum across each of the
-        # target variable dimensions, and for each dimension, we only consider
-        # those instances with non-NaN values.
+        # (understates true "N"). Note that when we compute the total number of
+        # observations, we sum across each of the target variable dimensions,
+        # and for each dimension, we only consider those instances with
+        # non-NaN values.
         num_obs_tally = 0
         for d in range(self.D_):
             num_obs_tally += np.sum(~np.isnan(self.Y_[:, d]))
         
         bic_obs = ll - 0.5*num_params*np.log(num_obs_tally)
         
-        if self.data_names_ is not None:
-            sid = [n.split('_')[0] for n in self.data_names_]
-            num_subjects = len(set(sid))
+        if self.gb_ is not None:
+            num_subjects = self.gb_.ngroups
             bic_groups = ll - 0.5*num_params*np.log(num_subjects)
     
             return (bic_obs, bic_groups)
@@ -778,130 +724,13 @@ class MultDPRegression:
         waic2 = -2.*(lppd - p_waic2)
 
         return waic2
-
-    def update_R_rows_must_link_(self, constraint_subgraph, R):
-        """Updates 'R_' by enforcing longitudinal points to have the same row
-        probabilities.
-
-        The nodes in the subgraph designate which rows (variables) to update in
-        'R_', the matrix that encodes the expected values of each indicator
-        variable, z.
-
-        Parameters
-        ----------
-        constraint_subgraph : networkx graph
-            The constraints are encoded in a networkx graph, each node should
-            indicate an instance index, and edges indicate constraints. Each
-            edge should have a string attribute called 'constraint' which takes
-            a value of 'longitudinal' or 'must_link'.
-
-        R : array, shape ( N, K )
-            Each element of this matrix represents the probability that
-            instance 'n' belongs to cluster 'k'.
-
-        """
-        node_ids = [n for n in constraint_subgraph.nodes()]
-
-        # The following operation computes the expectation. Because of the
-        # longitudinal constraint, the only state configurations that have
-        # non-zero probability are those that put all the data instances in
-        # this group into the same cluster. Note that we take the sum of the
-        # log to deal with the product of (potentially) many small values.
-        tmp_vec = np.sum(np.log(R[node_ids, :] + np.finfo(float).tiny), 0)
-        vec = np.exp(tmp_vec + 700 - np.max(tmp_vec))
-        vec = vec/np.sum(vec)
-
-        # Now update the rows of 'normalized_mat'.
-        R[node_ids, :] = vec
         
-    def compute_subgraph_unnormalized_(self, constraint_subgraph, state_mat):
-        """Computes the quantity inside the brackets in Eq. 20 in
-        'ConstrainedNonparametricGaussianProcessRegression' (without the
-        partition function), for a given state matrix.
-
-        Parameters
-        ----------
-        constraint_subgraph : networkx graph
-            The constraints are encoded in a networkx graph, each node should
-            indicate an instance index, and edges indicate constraints. Each
-            edge should have a string attribute called 'constraint', which must
-            take a value of 'weighted_must_link', 'weighted_cannot_link', 
-            'must_link', 'cannot_link', or 'longitudinal'.
-
-        state_mat : array, shape ( num_rows, num_cols )
-            A matrix in which each row has exactly one element equal to 1.0. The
-            other elements are equal to 0.0. There should be the same number of
-            rows as there are nodes in 'constraint_subgraph'
-
-        Returns
-        -------
-        unnormalized_prob : float
-            The quantity inside the brackets in Eq. 20 in
-            'ConstrainedNonparametricGaussianProcessRegression', without the
-            partition function.
-        """
-        num_nodes = len(constraint_subgraph.nodes())
-        constraint_subgraph.nodes().sort()
-        node_ids = constraint_subgraph.nodes()
-        edges = constraint_subgraph.edges()
-
-        unnormalized_term = 1.0
-        for i in np.arange(0, num_nodes):
-            id1 = node_ids[i]
-            row1 = node_ids.index(id1)
-            state_mat_row1 = state_mat[row1, :]
-            energy_accum = 0.0
-            for j in np.arange(0, num_nodes):
-                id2 = node_ids[j]
-                row2 = node_ids.index(id2)
-                state_mat_row2 = state_mat[row2, :]
-                if (id1, id2) in edges:
-                    energy = \
-                      self.compute_energy_(state_mat_row1, state_mat_row2,
-                        constraint_subgraph[id1][id2]['constraint'])
-                    energy_accum += energy
-                elif (id2, id1) in edges:
-                    energy = \
-                      self.compute_energy_(state_mat_row1, state_mat_row2,
-                        constraint_subgraph[id2][id1]['constraint'])
-                    energy_accum += energy
-
-                if unnormalized_term > 0.0 and np.exp(-energy_accum) > 0.0:
-                    unnormalized_term = np.max([np.nextafter(0, 1),
-                        unnormalized_term*np.exp(-energy_accum)])
-                else:
-                    unnormalized_term = 0.0
-
-                assert not np.isnan(unnormalized_term), \
-                  'unnormalized_term is NaN'
-
-        # Now we need to compute the contribution of the r_(n,k) terms show in
-        # Eq. 20
-        r_term = 1.0
-        for i in np.arange(0, num_nodes):
-            col = np.nonzero(state_mat[i, :] == 1.0)[0][0]
-            r_term *= self.R_[node_ids[i], col]
-
-        unnormalized_term *= r_term
-
-        return unnormalized_term
-
-    def init_R_mat(self, constraints, traj_probs=None,
-                   traj_probs_weight=None):
+    def init_R_mat(self, traj_probs=None, traj_probs_weight=None):
         """Initializes 'R_', using the stick-breaking construction. Also
         enforces any longitudinal constraints.
 
         Parameters
         ----------
-        constraints : networkx graph, optional
-            The constraints are encoded in a networkx graph, each node should
-            indicate an instance index, and edges indicate constraints. Each
-            edge should have a string attribute called 'constraint', which must
-            take a value of 'weighted_must_link', 'weighted_cannot_link', or 
-            'must_link', 'cannot_link' or 'longitudinal'. If constraints are 
-            specified, the variation inference update equations will take them 
-            into account. 
-
         traj_probs : array, shape ( K ), optional
             A priori probabilitiey of each of the K trajectories. Each element 
             must be >=0 and <= 1, and all elements must sum to one.
@@ -935,145 +764,9 @@ class MultDPRegression:
             warnings.warn("Initial trajectory probabilities sum to {}. \
             Alpha may be too high.".format(np.sum(init_traj_probs)))
 
-        self.R_ = self.predict_proba(self.X_, self.Y_, constraints,
-                                     init_traj_probs)
-        
-    def compute_energy_(self, state_mat_row1, state_mat_row2, constraint):
-        """Computes the energy function value represented by 'H' in Eq. 20 of
-        'ConstrainedNonparametricGaussianProcessRegression'
+        self.R_ = self.predict_proba(self.X_, self.Y_, init_traj_probs)
 
-        Parameters
-        ----------
-        state_mat_row1 : array, shape( 1, K )
-            A selected row from the state matrix. This row indicates the state
-            ie. which Gaussian Process regression curve this instance belongs
-            to). 'K' is the number of elements in the truncated Dirichlet
-            process.
-
-        state_mat_row2 : array, shape( 1, K )
-            A selected row from the state matrix. This row indicates the state
-            (ie. which Gaussian Process regression curve this instance belongs
-            to). 'K' is the number of elements in the truncated Dirichlet
-            process.
-
-        constraints : string
-            Takes on 'weighted_must_link', 'weighted_cannot_link', 'must_link',
-            'cannot_link', or 'longitudinal' to indicate the constraint type
-            between the two instances corresponding to 'state_mat_row1' and 
-            'state_mat_row2'
-
-        Returns
-        -------
-        energy : float
-            The computed energy term.
-        """
-        # Compute the inner product of the two rows. If the inner product is
-        # 1.0, then the two instances are in the same state, otherwise they are
-        # not.
-        inner_product = np.dot(state_mat_row1, state_mat_row2)
-
-        # Get the weight for computation of the energy function
-        weight = 10.
-
-        energy = 0.0
-        if inner_product == 1.0:
-            if constraint == 'weighted_must_link':
-                energy = -weight
-        else:
-            if constraint == 'weighted_cannot_link':
-                energy = -weight
-            elif constraint == 'longitudinal' or constraint == 'must_link':
-                energy = np.inf
-
-        return energy
-
-    def inc_state_mat_(self, state_mat, sig_cols=None):
-        """Increment 'state_mat' by one unit.
-
-        This function takes as input a matrix, 'state_mat', in which each row
-        has one element equal to 1.0 and every other element equal to 0.0. The
-        algorithm proceeds by moving down the rows and moving the row element
-        equal to 1.0 over by one place. If this means "resetting" that element
-        to the first position, then the next row will be considered for the
-        same procedure. This continues until no "resets" occur.
-
-        Parameters
-        ----------
-        state_mat : array, shape ( num_rows, num_cols )
-            A matrix in which each row has exactly one element equal to 1.0. The
-            other elements are equal to 0.0
-
-        sig_cols : list of 'num_rows' arrays shaped ( n_cols ), optional
-            Each row can have a different number of entries. Each list entry
-            indicates the set of columns (possible states) that the
-            corresponding data instance can take on. If not specified, it's
-            assumed that each row (instance) can take on every possible state.
-            If specified, columns taking on the value 1.0 will be moved to the
-            next allowable column (state)
-        """
-        num_rows = state_mat.shape[0]
-        num_cols = state_mat.shape[1]
-
-        row_inc = 0
-        reset = True
-        while row_inc < num_rows and reset:
-            # For the current row, find the column whose element is 1.0
-            col = np.nonzero(state_mat[row_inc,:]==1.0)[0][0]
-
-            if sig_cols is not None:
-                num_sigs = len(sig_cols[row_inc])
-                index = sig_cols[row_inc].index(col)
-                if num_sigs - 1 == index:
-                    reset = True
-                    state_mat[row_inc, col] = 0.0
-                    state_mat[row_inc, sig_cols[row_inc][0]] = 1.0
-                    row_inc += 1
-                else:
-                    reset = False
-                    state_mat[row_inc, col] = 0.0
-                    state_mat[row_inc, sig_cols[row_inc][index+1]] = 1.0
-            else:
-                if col == num_cols-1:
-                    reset = True
-                    state_mat[row_inc, col] = 0.0
-                    state_mat[row_inc, 0] = 1.0
-                    row_inc += 1
-                else:
-                    reset = False
-                    state_mat[row_inc, col] = 0.0
-                    state_mat[row_inc, col+1] = 1.0
-
-    def get_constraint_subgraphs_(self, constraints):
-        """Pulls out the connected subgraphs within the 'constraints' graph and
-        puts them into a list for easier access.
-
-        Parameters
-        ----------
-        constraints : networkx graph
-            The constraints are encoded in a networkx graph, each node should
-            indicate an instance index, and edges indicate constraints. Each
-            edge should have a string attribute called 'constraint', which must
-            either take a value of 'weighted_must_link', 'weighted_cannot_link', 
-            'must_link', 'cannot_link' or 'longitudinal'. Generally, the graph 
-            describing 'constraints' will be composed of connected subgraphs. 
-            This routine isolates the connected subgraphs.
-
-        Returns
-        -------
-        constraint_subgraphs : list of networkx graphs
-            Each element in the list is a connected sub-graph of 'constraints'
-        """
-        tmp = list(nx.connected_components(constraints))
-        num_subgraphs = len(tmp)
-
-        constraint_subgraphs = []
-        for i in np.arange(0, num_subgraphs):
-            tmp_graph = nx.subgraph(constraints, tmp[i])
-            constraint_subgraphs.append(tmp_graph)
-
-        return constraint_subgraphs
-
-    def predict_proba(self, X, Y, constraints=None, traj_probs=None):
+    def predict_proba(self, X, Y, traj_probs=None):
         """Compute the probability that each data instance belongs to each of
         the 'k' clusters. Note that 'X' and 'Y' can be "new" data; that is,
         data that was not necessarily used to train the model.
@@ -1089,13 +782,6 @@ class MultDPRegression:
             Each row is a D-dimensional target vector for the nth data sample.
             Note that 'N' here does not necessarily correspond to the same
             number of data points ('N') that was used to train the model.
-
-        constraints : networkx graph, optional
-            The constraints are encoded in a networkx graph, each node should
-            indicate an instance index, and edges indicate constraints. Each
-            edge should have a string attribute called 'constraint', which must
-            take a value of 'weighted_must_link', 'weighted_cannot_link', 
-            'must_link', 'cannot_link', or 'longitudinal'.
 
         traj_probs : array, shape ( K ), optional
             A priori probabilitiey of each of the K trajectories. Each element 
@@ -1130,12 +816,19 @@ class MultDPRegression:
         R_tmp[zero_ids] = np.ones([np.sum(zero_ids), self.K_])/self.K_
         R = np.array((R_tmp.T/np.sum(R_tmp, 1)).T)
         
-        # If constraints have been specified, get the connected subgraphs
-        constraint_subgraphs = []
-        if constraints is not None:
-            constraint_subgraphs = self.get_constraint_subgraphs_(constraints)
-            self.apply_constraints(constraint_subgraphs, R)
+        # Within a group, all data instances must have the same probability of
+        # belonging to each of the K trajectories
+        if self.gb_ is not None:
+            for g in self.gb_.groups.keys():
+                tmp_ids = self.gb_.get_group(g).index.values
+                tmp_vec = np.sum(np.log(R[tmp_ids, :] + \
+                                        np.finfo(float).tiny), 0)
+                vec = np.exp(tmp_vec + 700 - np.max(tmp_vec))
+                vec = vec/np.sum(vec)
 
+                # Now update the rows of 'normalized_mat'.
+                R[tmp_ids, :] = vec                
+        
         return R
 
     def compute_lower_bound(self):
@@ -1232,9 +925,6 @@ class MultDPRegression:
             tmp_dict[n] = pd.Series(self.Y_[:, i])
 
         df = pd.DataFrame(tmp_dict)
-
-        df = df.assign(data_names = pd.Series(self.data_names_,
-                                                index=df.index))
 
         traj = []
         for i in range(0, self.R_.shape[0]):
@@ -1340,211 +1030,202 @@ class MultDPRegression:
         plt.legend()
         plt.show()
     
-if __name__ == "__main__":
-    desc = """Run the multiple Dirichlet Process regression algorithm"""
-
-    parser = ArgumentParser(description=desc)
-    parser.add_argument('--data_file', help='csv file containing the data on \
-                        which to run the algorithm', dest='data_file',
-                        metavar='<string>', default=None)
-    parser.add_argument('--out_file', help='Pickle file name for output data.',
-                        dest='out_file', metavar='<string>', default=None)
-    parser.add_argument('--preds', help='Comma-separated list of predictors \
-                        to use. Each predictor must correspond to a column in \
-                        the data file', dest='preds', metavar='<string>',
-                        default=None)
-    parser.add_argument('--targets', help='Comma-separated list of target \
-                        variables: each must correspond to a column in \
-                        the data file', dest='targets', metavar='<string>',
-                        default=None)
-    parser.add_argument('--sid_col', help='Data file column name \
-                        corresponding to subject IDs. Repeated entries in \
-                        this column are interpreted as corresponding to \
-                        different visits for a given subject. Use of this \
-                        flag is only necessary if the user wants to impose \
-                        longitudinal constraints on the algorithm \
-                        (recommended for best performance). If this flag is \
-                        not specified, longitudinal constraints will not be \
-                        used.', dest='sid_col', metavar='<string>',
-                        default=None)
-    parser.add_argument('-K', help='Integer indicating the number of elements \
-                        in the truncated Dirichlet Process.', dest='K',
-                        metavar='<int>', default=20)
-    parser.add_argument('--alpha', help='Hyper parameter of the Beta \
-                        destribution involved in the stick-breaking \
-                        construction of the Dirichlet Process. Increasing \
-                        alpha tends to produce more clusters and vice-versa.',
-                        dest='alpha', metavar='<int>', default=20)
-    parser.add_argument('--iters', help='Number of variational inference \
-                        iterations to run.', dest='iters', metavar='<int>',
-                        default=10000)
-    parser.add_argument('--names_col', help='Data file column corresponding \
-                        names of data points. Entries in this columns must \
-                        be unique (optional).', dest='names_col',
-                        metavar='<int>', default=None)
-    parser.add_argument('--w_mu0_file', help='The coefficient for each \
-                        predictor is drawn from a normal distribution. \
-                        This is the file name of the M x D matrix of \
-                        hyperparameters of the mean values of those \
-                        normal distributions. M is the dimension of the \
-                        predictor space, and D is the dimension of the \
-                        target variable space. Values should be separated by \
-                        commas, and the ordering of the rows and columns \
-                        must be the same as the ordering of predictors \
-                        and targets specified on the command line.',
-                        dest='w_mu0_file', metavar='<string>', default=None)
-    parser.add_argument('--w_var0_file', help='The coefficient for each \
-                        predictor is drawn from a normal distribution. \
-                        This is the file name of the M x D matrix of \
-                        hyperparameters of the variance values of those \
-                        normal distributions. M is the dimension of the \
-                        predictor space, and D is the dimension of the \
-                        target variable space. Values should be separated by \
-                        commas, and the ordering of the rows and columns \
-                        must be the same as the ordering of predictors \
-                        and targets specified on the command line.',
-                        dest='w_var0_file', metavar='<string>', default=None)
-    parser.add_argument('--lambdas0_file', help='File containing the 2 x D \
-                        dimensional array of hyperparameters for the Gamma \
-                        priors over the precisions for each of the d target \
-                        variables. The first row in the file should \
-                        correspond to the first parameter of the \
-                        distribution, and the second row of the file should \
-                        correspond to the second parameter of the \
-                        distribution. Values should be comma-separated, and \
-                        ordering of the columns must be the same as the \
-                        ordering of targets specified on the command line.', 
-                        dest='lambdas0_file', metavar='<string>', default=None)
-    parser.add_argument('--R_file', help='Pickle file containing NxK values \
-                        using the "R" key. These values will be starting point \
-                        trajectory assignment probabilities for the fitting \
-                        process. If specified, the value of K will be set to \
-                        the number of columns in this matrix, and any value \
-                        set with the -K flag will be ignored. If there is a \
-                        mismatch between the number of rows in this matrix and \
-                        the number of data points in the data_file, a value \
-                        error will be raised. If any row in this matrix \
-                        contains a nan, the entire row will be replaced with \
-                        a normalized, K-dimensional random vector.',
-                        dest='R_file', metavar='<string>', default=None)
-    parser.add_argument('--v_a_file', help='Pickle file containing K values \
-                        using the "v_a" key. These are the first values of \
-                        the posterior Beta distribution describing the \
-                        latent vector, v, which is involved in the stick-\
-                        breaking construction of the DP. If this file is \
-                        specified, you must also specify the --v_b_file. \
-                        The fitting process will begin with these values.',
-                        dest='v_a_file', metavar='<string>', default=None)
-    parser.add_argument('--v_b_file', help='Pickle file containing K values \
-                        using the "v_b" key. These are the second values of \
-                        the posterior Beta distribution describing the \
-                        latent vector, v, which is involved in the stick-\
-                        breaking construction of the DP. If this file is \
-                        specified, you must also specify the --v_a_file. \
-                        The fitting process will begin with these values.',
-                        dest='v_b_file', metavar='<string>', default=None)
-    parser.add_argument('--w_mu_file', help='Pickle file containing MxDxK \
-                        values using the "w_mu" key. M is the dimension of \
-                        the predictor space, D is the dimension of the target \
-                        space, and K is the number of elements in the \
-                        truncated Dirichlet process. These values will be \
-                        used as the fitting starting point for the predictor \
-                        coefficients.', dest='w_mu_file', metavar='<string>',
-                        default=None)
-    parser.add_argument('--w_var_file', help='Pickle file containing MxDxK \
-                        values using the "w_var" key. M is the dimension of \
-                        the predictor space, D is the dimension of the target \
-                        space, and K is the number of elements in the \
-                        truncated Dirichlet process. These values will be \
-                        used as the fitting starting point for the variance \
-                        values of the distributions over the predictor \
-                        coefficients.', dest='w_var_file', metavar='<string>',
-                        default=None)
-    parser.add_argument('--lambda_a_file', help='Pickle file containing D x K \
-                        values using the key "lambda_a". D is the dimension \
-                        of the target space and K is the number of elements \
-                        in the truncated Dirichlet process. These values will \
-                        be used as the fitting starting point for the first \
-                        parameter of the Gamma distributions describing the \
-                        precision of the target variables. If this file is \
-                        specified, you should also specify --lambda_a_file.',
-                        dest='lambda_a_file', metavar='<string>', default=None)
-    parser.add_argument('--lambda_b_file', help='Pickle file containing D x K \
-                        values using the key "lambda_b". D is the dimension \
-                        of the target space and K is the number of elements \
-                        in the truncated Dirichlet process. These values will \
-                        be used as the fitting starting point for the second \
-                        parameter of the Gamma distributions describing the \
-                        precision of the target variables. If this file is \
-                        specified, you should also specify --lambda_a_file.',
-                        dest='lambda_b_file', metavar='<string>', default=None)
-
-    op = parser.parse_args()
-
-    if op.preds is None:
-        raise ValueError('Must specify at least one predictor')
-    if op.targets is None:
-        raise ValueError('Must specify at least one target variable')
-    if op.data_file is None:
-        raise ValueError('Must specify a data file')
-
-    preds = op.preds.split(',')
-    targets = op.targets.split(',')
-
-    df = pd.read_csv(op.data_file).dropna(how='any', subset=preds+targets,
-                                          inplace=False)
-
-    data_names = None
-    if op.names_col is not None:
-        data_names = df[op.names_col].values
-
-    K = int(op.K)
-    X = df[preds].values
-    Y = df[targets].values
-    R = None
-    if op.R_file is not None:
-        R = pickle.load(open(op.R_file, 'rb'))['R']
-
-        if R.shape[0] != df.shape[0]:
-            raise ValueError("Size mismatch between prior and data matrix")
-        replacement_rows = np.where(np.isnan(np.sum(R, 1)))[0]
-
-        for i in replacement_rows:
-            vec = np.random.rand(K)
-            R[i, :] = vec/np.sum(vec)
-
-    alpha = float(op.alpha)
-
-    graph = None
-    if op.sid_col is not None:
-        graph = get_longitudinal_constraints_graph(df[op.sid_col].values)
-
-    w_mu0 = pd.read_csv(op.w_mu0_file, header=None).values.T
-    w_var0 = pd.read_csv(op.w_var0_file, header=None).values.T
-    lambdas0 = pd.read_csv(op.lambdas0_file, header=None).values
-    lambda_a0 = lambdas0[0, :]
-    lambda_b0 = lambdas0[1, :]
-
-    v_a = v_b = w_mu = w_var = lambda_a = lambda_b = None
-
-    if op.v_a_file is not None:
-        v_a = pickle.load(open(op.v_a_file, 'rb'))['v_a']
-    if op.v_b_file is not None:
-        v_b = pickle.load(open(op.v_b_file, 'rb'))['v_b']
-    if op.w_mu_file is not None:
-        w_mu = pickle.load(open(op.w_mu_file, 'rb'))['w_mu']
-    if op.w_var_file is not None:
-        w_var = pickle.load(open(op.w_var_file, 'rb'))['w_var']
-    if op.lambda_a_file is not None:
-        lambda_a = pickle.load(open(op.lambda_a_file, 'rb'))['lambda_a']
-    if op.lambda_b_file is not None:
-        lambda_b = pickle.load(open(op.lambda_b_file, 'rb'))['lambda_b']
-
-    mm = MultDPRegression(w_mu0, w_var0, lambda_a0, lambda_b0, alpha,
-                          K=K)
-    mm.fit(X, Y, R=R, v_a=v_a, v_b=v_b, w_mu=w_mu, w_var=w_var,
-        lambda_a=lambda_a, lambda_b=lambda_b, iters=int(op.iters), tol=0.01,
-        constraints=graph, data_names=data_names, target_names=targets,
-        predictor_names=preds)
-
-    pickle.dump({'mm': mm}, open(op.out_file, "wb"))
+#if __name__ == "__main__":
+#    desc = """Run the multiple Dirichlet Process regression algorithm"""
+#
+#    parser = ArgumentParser(description=desc)
+#    parser.add_argument('--data_file', help='csv file containing the data on \
+#                        which to run the algorithm', dest='data_file',
+#                        metavar='<string>', default=None)
+#    parser.add_argument('--out_file', help='Pickle file name for output data.',
+#                        dest='out_file', metavar='<string>', default=None)
+#    parser.add_argument('--preds', help='Comma-separated list of predictors \
+#                        to use. Each predictor must correspond to a column in \
+#                        the data file', dest='preds', metavar='<string>',
+#                        default=None)
+#    parser.add_argument('--targets', help='Comma-separated list of target \
+#                        variables: each must correspond to a column in \
+#                        the data file', dest='targets', metavar='<string>',
+#                        default=None)
+#    parser.add_argument('--sid_col', help='Data file column name \
+#                        corresponding to subject IDs. Repeated entries in \
+#                        this column are interpreted as corresponding to \
+#                        different visits for a given subject. Use of this \
+#                        flag is only necessary if the user wants to impose \
+#                        longitudinal constraints on the algorithm \
+#                        (recommended for best performance). If this flag is \
+#                        not specified, longitudinal constraints will not be \
+#                        used.', dest='sid_col', metavar='<string>',
+#                        default=None)
+#    parser.add_argument('-K', help='Integer indicating the number of elements \
+#                        in the truncated Dirichlet Process.', dest='K',
+#                        metavar='<int>', default=20)
+#    parser.add_argument('--alpha', help='Hyper parameter of the Beta \
+#                        destribution involved in the stick-breaking \
+#                        construction of the Dirichlet Process. Increasing \
+#                        alpha tends to produce more clusters and vice-versa.',
+#                        dest='alpha', metavar='<int>', default=20)
+#    parser.add_argument('--iters', help='Number of variational inference \
+#                        iterations to run.', dest='iters', metavar='<int>',
+#                        default=10000)
+#    parser.add_argument('--w_mu0_file', help='The coefficient for each \
+#                        predictor is drawn from a normal distribution. \
+#                        This is the file name of the M x D matrix of \
+#                        hyperparameters of the mean values of those \
+#                        normal distributions. M is the dimension of the \
+#                        predictor space, and D is the dimension of the \
+#                        target variable space. Values should be separated by \
+#                        commas, and the ordering of the rows and columns \
+#                        must be the same as the ordering of predictors \
+#                        and targets specified on the command line.',
+#                        dest='w_mu0_file', metavar='<string>', default=None)
+#    parser.add_argument('--w_var0_file', help='The coefficient for each \
+#                        predictor is drawn from a normal distribution. \
+#                        This is the file name of the M x D matrix of \
+#                        hyperparameters of the variance values of those \
+#                        normal distributions. M is the dimension of the \
+#                        predictor space, and D is the dimension of the \
+#                        target variable space. Values should be separated by \
+#                        commas, and the ordering of the rows and columns \
+#                        must be the same as the ordering of predictors \
+#                        and targets specified on the command line.',
+#                        dest='w_var0_file', metavar='<string>', default=None)
+#    parser.add_argument('--lambdas0_file', help='File containing the 2 x D \
+#                        dimensional array of hyperparameters for the Gamma \
+#                        priors over the precisions for each of the d target \
+#                        variables. The first row in the file should \
+#                        correspond to the first parameter of the \
+#                        distribution, and the second row of the file should \
+#                        correspond to the second parameter of the \
+#                        distribution. Values should be comma-separated, and \
+#                        ordering of the columns must be the same as the \
+#                        ordering of targets specified on the command line.', 
+#                        dest='lambdas0_file', metavar='<string>', default=None)
+#    parser.add_argument('--R_file', help='Pickle file containing NxK values \
+#                        using the "R" key. These values will be starting point \
+#                        trajectory assignment probabilities for the fitting \
+#                        process. If specified, the value of K will be set to \
+#                        the number of columns in this matrix, and any value \
+#                        set with the -K flag will be ignored. If there is a \
+#                        mismatch between the number of rows in this matrix and \
+#                        the number of data points in the data_file, a value \
+#                        error will be raised. If any row in this matrix \
+#                        contains a nan, the entire row will be replaced with \
+#                        a normalized, K-dimensional random vector.',
+#                        dest='R_file', metavar='<string>', default=None)
+#    parser.add_argument('--v_a_file', help='Pickle file containing K values \
+#                        using the "v_a" key. These are the first values of \
+#                        the posterior Beta distribution describing the \
+#                        latent vector, v, which is involved in the stick-\
+#                        breaking construction of the DP. If this file is \
+#                        specified, you must also specify the --v_b_file. \
+#                        The fitting process will begin with these values.',
+#                        dest='v_a_file', metavar='<string>', default=None)
+#    parser.add_argument('--v_b_file', help='Pickle file containing K values \
+#                        using the "v_b" key. These are the second values of \
+#                        the posterior Beta distribution describing the \
+#                        latent vector, v, which is involved in the stick-\
+#                        breaking construction of the DP. If this file is \
+#                        specified, you must also specify the --v_a_file. \
+#                        The fitting process will begin with these values.',
+#                        dest='v_b_file', metavar='<string>', default=None)
+#    parser.add_argument('--w_mu_file', help='Pickle file containing MxDxK \
+#                        values using the "w_mu" key. M is the dimension of \
+#                        the predictor space, D is the dimension of the target \
+#                        space, and K is the number of elements in the \
+#                        truncated Dirichlet process. These values will be \
+#                        used as the fitting starting point for the predictor \
+#                        coefficients.', dest='w_mu_file', metavar='<string>',
+#                        default=None)
+#    parser.add_argument('--w_var_file', help='Pickle file containing MxDxK \
+#                        values using the "w_var" key. M is the dimension of \
+#                        the predictor space, D is the dimension of the target \
+#                        space, and K is the number of elements in the \
+#                        truncated Dirichlet process. These values will be \
+#                        used as the fitting starting point for the variance \
+#                        values of the distributions over the predictor \
+#                        coefficients.', dest='w_var_file', metavar='<string>',
+#                        default=None)
+#    parser.add_argument('--lambda_a_file', help='Pickle file containing D x K \
+#                        values using the key "lambda_a". D is the dimension \
+#                        of the target space and K is the number of elements \
+#                        in the truncated Dirichlet process. These values will \
+#                        be used as the fitting starting point for the first \
+#                        parameter of the Gamma distributions describing the \
+#                        precision of the target variables. If this file is \
+#                        specified, you should also specify --lambda_a_file.',
+#                        dest='lambda_a_file', metavar='<string>', default=None)
+#    parser.add_argument('--lambda_b_file', help='Pickle file containing D x K \
+#                        values using the key "lambda_b". D is the dimension \
+#                        of the target space and K is the number of elements \
+#                        in the truncated Dirichlet process. These values will \
+#                        be used as the fitting starting point for the second \
+#                        parameter of the Gamma distributions describing the \
+#                        precision of the target variables. If this file is \
+#                        specified, you should also specify --lambda_a_file.',
+#                        dest='lambda_b_file', metavar='<string>', default=None)
+#
+#    op = parser.parse_args()
+#
+#    if op.preds is None:
+#        raise ValueError('Must specify at least one predictor')
+#    if op.targets is None:
+#        raise ValueError('Must specify at least one target variable')
+#    if op.data_file is None:
+#        raise ValueError('Must specify a data file')
+#
+#    preds = op.preds.split(',')
+#    targets = op.targets.split(',')
+#
+#    df = pd.read_csv(op.data_file).dropna(how='any', subset=preds+targets,
+#                                          inplace=False)
+#
+#    K = int(op.K)
+#    X = df[preds].values
+#    Y = df[targets].values
+#    R = None
+#    if op.R_file is not None:
+#        R = pickle.load(open(op.R_file, 'rb'))['R']
+#
+#        if R.shape[0] != df.shape[0]:
+#            raise ValueError("Size mismatch between prior and data matrix")
+#        replacement_rows = np.where(np.isnan(np.sum(R, 1)))[0]
+#
+#        for i in replacement_rows:
+#            vec = np.random.rand(K)
+#            R[i, :] = vec/np.sum(vec)
+#
+#    alpha = float(op.alpha)
+#
+#    graph = None
+#    if op.sid_col is not None:
+#        graph = get_longitudinal_constraints_graph(df[op.sid_col].values)
+#
+#    w_mu0 = pd.read_csv(op.w_mu0_file, header=None).values.T
+#    w_var0 = pd.read_csv(op.w_var0_file, header=None).values.T
+#    lambdas0 = pd.read_csv(op.lambdas0_file, header=None).values
+#    lambda_a0 = lambdas0[0, :]
+#    lambda_b0 = lambdas0[1, :]
+#
+#    v_a = v_b = w_mu = w_var = lambda_a = lambda_b = None
+#
+#    if op.v_a_file is not None:
+#        v_a = pickle.load(open(op.v_a_file, 'rb'))['v_a']
+#    if op.v_b_file is not None:
+#        v_b = pickle.load(open(op.v_b_file, 'rb'))['v_b']
+#    if op.w_mu_file is not None:
+#        w_mu = pickle.load(open(op.w_mu_file, 'rb'))['w_mu']
+#    if op.w_var_file is not None:
+#        w_var = pickle.load(open(op.w_var_file, 'rb'))['w_var']
+#    if op.lambda_a_file is not None:
+#        lambda_a = pickle.load(open(op.lambda_a_file, 'rb'))['lambda_a']
+#    if op.lambda_b_file is not None:
+#        lambda_b = pickle.load(open(op.lambda_b_file, 'rb'))['lambda_b']
+#
+#    mm = MultDPRegression(w_mu0, w_var0, lambda_a0, lambda_b0, alpha,
+#                          K=K)
+#    mm.fit(target_names=targets, predictor_names=preds, R=R, v_a=v_a, v_b=v_b,
+#           w_mu=w_mu, w_var=w_var, lambda_a=lambda_a, lambda_b=lambda_b,
+#           iters=int(op.iters), tol=0.01)
+#
+#    pickle.dump({'mm': mm}, open(op.out_file, "wb"))
