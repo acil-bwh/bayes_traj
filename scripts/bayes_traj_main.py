@@ -1,12 +1,9 @@
 from argparse import ArgumentParser
 import pandas as pd
 import numpy as np
-import networkx as nx
 from bayes_traj.mult_dp_regression import MultDPRegression
 from bayes_traj.prior_from_model import prior_from_model
 from bayes_traj.utils import sample_cos
-from bayes_traj.get_longitudinal_constraints_graph \
-  import get_longitudinal_constraints_graph
 from provenance_tools.provenance_tracker import write_provenance_data
 import pdb, pickle, sys, warnings
 
@@ -18,24 +15,30 @@ predictors and target variables"""
 
 parser = ArgumentParser(description=desc)
 parser.add_argument('--in_csv', help='Input csv file containing data on which \
-  to run MultDPRegression', dest='in_csv', metavar='<string>', default=None)
+    to run MultDPRegression', metavar='<string>', required=True)
+parser.add_argument('--preds', help='Comma-separated list of predictor names. \
+    Must appear as column names of the input data file.', dest='preds',
+    metavar='<string>', default=None)
+parser.add_argument('--targets', help='Comma-separated list of target names. \
+    Must appear as column names of the input data file.', dest='targets',
+    metavar='<string>', default=None)
+parser.add_argument('--groupby', help='Column name in input data file \
+    indicating those data instances that must be in the same trajectory. This \
+    is typically a subject identifier (e.g. in the case of a longitudinal data \
+    set).', dest='groupby', metavar='<string>', default=None)
 parser.add_argument('--out_csv', help='If specified, an output csv file will \
-  be generated that contains the contents of the input csv file, but with \
-  additional columns indicating trajectory assignment information for each \
-  data instance. There will be a column called traj with and integer value \
-  indicating the most probable trajectory assignment. There will also be \
-  columns prefixed with traj_ and then an trajectory-identifying integer. The \
-  values of these columns indicate the probability that the data instance \
-  belongs to each of the corresponding trajectories.', dest='out_csv',
-  metavar='<string>', type=str, default=None)
-parser.add_argument('--prior_p', help='Input pickle file containing prior \
-  settings', dest='prior_p', metavar='<string>', default=None)
+    be generated that contains the contents of the input csv file, but with \
+    additional columns indicating trajectory assignment information for each \
+    data instance. There will be a column called traj with and integer value \
+    indicating the most probable trajectory assignment. There will also be \
+    columns prefixed with traj_ and then an trajectory-identifying integer. \
+    The values of these columns indicate the probability that the data \
+    instance belongs to each of the corresponding trajectories.',
+    dest='out_csv', metavar='<string>', type=str, default=None)
+parser.add_argument('--prior', help='Input pickle file containing prior \
+    settings', metavar='<string>', required=True)
 parser.add_argument('--alpha', help='If specified, over-rides the value in the \
-  prior file', dest='alpha', metavar=float, default=None)
-parser.add_argument('--preds', help='Comma-separated list of predictor names',
-    dest='preds', metavar='<string>', default=None)
-parser.add_argument('--targets', help='Comma-separated list of target names',
-    dest='targets', metavar='<string>', default=None)
+    prior file', dest='alpha', metavar=float, default=None)
 parser.add_argument('--out_file', help='Pickle file name to which to dump the \
     result', dest='out_file', metavar='<string>', default=None)
 parser.add_argument('--iters', help='Number of iterations per repeat attempt',
@@ -59,9 +62,6 @@ parser.add_argument("--save_all", help="By default, only the model with the \
     action="store_true")
 parser.add_argument("--verbose", help="Display per-trajectory counts during \
     optimization", action="store_true")
-parser.add_argument("--constraints", help="File name of pickled networkx \
-    pairwise constraints to impose during model fitting", dest='constraints',
-    default=None)
 parser.add_argument('--probs_weight', help='Value between 0 and 1 that \
     controls how much weight to assign to traj_probs, the marginal \
     probability of observing each trajectory. This value is only meaningful \
@@ -76,7 +76,7 @@ repeats = int(op.repeats)
 preds =  op.preds.split(',')
 targets = op.targets.split(',')
 in_csv = op.in_csv
-prior_p = op.prior_p
+prior = op.prior
 out_file = op.out_file
 probs_weight = op.probs_weight
 
@@ -85,25 +85,12 @@ if probs_weight is not None:
         "Invalide probs_weight value"
 
 df = pd.read_csv(in_csv)
-if 'sid' not in df.columns:
-    df['sid'] = [n.split('_')[0] for n in df.data_names.values]
 
-ids = ~np.isnan(np.sum(df[preds].values, 1))
-if np.sum(~ids) > 0:
-    print("Warning: identified NaNs in predictor set for {} individuals. \
-    Proceeding with non-NaN data".format(np.sum(~ids)))
-X = df[preds].values[ids]
-Y = df[targets].values[ids]
-
-data_names = df.data_names.values[ids]
-longitudinal_constraints = \
-    get_longitudinal_constraints_graph(df.sid.values[ids])
-if op.constraints is not None:
-    input_constraints = pickle.load(open(op.constraints, 'r'))['Graph']
-    constraints_graph = nx.compose(input_constraints, longitudinal_constraints)
-else:
-    constraints_graph = longitudinal_constraints
-
+if np.sum(np.isnan(np.sum(df[preds].values, 1))) > 0:
+    print("Warning: identified NaNs in predictor set. \
+    Proceeding with non-NaN data")
+    df = df.dropna(subset=preds).reset_index()
+    
 D = len(targets)
 M = len(preds)
 K = int(op.k)
@@ -114,7 +101,7 @@ for i in ['v_a', 'v_b', 'w_mu', 'w_var', 'lambda_a', 'lambda_b', 'traj_probs',
           'alpha']:
     prior_data[i] = None
 
-prior_data['probs_weight'] = 0
+prior_data['probs_weight'] = None
 prior_data['w_mu0'] = np.zeros([M, D])
 prior_data['w_var0'] = np.ones([M, D])
 prior_data['lambda_a0'] = np.ones([D])
@@ -130,8 +117,8 @@ prior_data['traj_probs'] = None#np.ones(K)/K
 #------------------------------------------------------------------------------
 # Get priors from file
 #------------------------------------------------------------------------------
-if prior_p is not None:
-    with open(prior_p, 'rb') as f:
+if prior is not None:
+    with open(prior, 'rb') as f:
         prior_file_info = pickle.load(f)
 
         prior_data['alpha'] = prior_file_info['alpha']
@@ -140,8 +127,10 @@ if prior_p is not None:
             prior_data['lambda_b0'][d] = prior_file_info['lambda_b0'][target]            
             
             for (m, pred) in enumerate(op.preds.split(',')):
-                prior_data['w_mu0'][m, d] = prior_file_info['w_mu0'][target][pred]
-                prior_data['w_var0'][m, d] = prior_file_info['w_var0'][target][pred]                
+                prior_data['w_mu0'][m, d] = \
+                    prior_file_info['w_mu0'][target][pred]
+                prior_data['w_var0'][m, d] = \
+                    prior_file_info['w_var0'][target][pred] 
 
 #------------------------------------------------------------------------------
 # Randomly sample trajectory coefficients if they are not already set in the
@@ -173,9 +162,8 @@ for r in np.arange(repeats):
                           prior_data['lambda_a0'], prior_data['lambda_b0'],
                           prior_data['alpha'], K=K)
 
-    mm.fit(X, Y, iters=iters, verbose=op.verbose,
-           constraints=constraints_graph, data_names=data_names,
-           target_names=targets, predictor_names=preds,
+    mm.fit(target_names=targets, predictor_names=preds, df=df,
+           groupby=op.groupby, iters=iters, verbose=op.verbose,           
            traj_probs=prior_data['traj_probs'],
            traj_probs_weight=prior_data['probs_weight'],
            v_a=prior_data['v_a'], v_b=prior_data['v_b'], w_mu=prior_data['w_mu'],
@@ -190,12 +178,16 @@ for r in np.arange(repeats):
         write_provenance_data(out_file_tmp, generator_args=op,
                               desc=provenance_desc)
     else:
-        bics = mm.bic()
-        
+        tmp_bics = mm.bic()
+        if type(tmp_bics) == tuple:
+            bics = tmp_bics
+        else:
+            bics = (tmp_bics, tmp_bics)
+            
         bics_tracker.append(bics)
         waics_tracker.append(mm.compute_waic2())
         num_tracker.append(np.sum(mm.sig_trajs_))
-        
+
         if bics[0] > best_bics[0] and bics[1] > best_bics[1]:
             best_bics = bics
 
