@@ -1,19 +1,17 @@
 from bayes_traj.mult_dp_regression import MultDPRegression
-from bayes_traj.get_longitudinal_constraints_graph \
-    import get_longitudinal_constraints_graph
 import numpy as np
 import pandas as pd
 from bayes_traj.utils import *
 import pdb, os
+
+np.set_printoptions(precision = 1, suppress = True, threshold=1e6,
+                    linewidth=300)
 
 def test_MultDPRegression():
     # Read data from resources dir
     data_file_name = os.path.split(os.path.realpath(__file__))[0] + \
         '/../resources/data/trajectory_data_1.csv'
     df = pd.read_csv(data_file_name)
-
-    longitudinal_constraints = \
-        get_longitudinal_constraints_graph(df['id'].values)
     
     prior_file_name = os.path.split(os.path.realpath(__file__))[0] + \
         '/../resources/priors/trajectory_prior_1.p'
@@ -47,10 +45,8 @@ def test_MultDPRegression():
                           prior_data['lambda_a0'], prior_data['lambda_b0'],
                           prior_data['alpha'], K=K)
 
-    mm.fit(df[preds].values, df[targets].values, iters=10, verbose=False,
-           constraints=longitudinal_constraints,
-           data_names=df['data_names'].values,
-           target_names=targets, predictor_names=preds)
+    mm.fit(target_names=targets, predictor_names=preds, df=df, groupby='id',
+           iters=10, verbose=True)
 
     df_traj = mm.to_df()
 
