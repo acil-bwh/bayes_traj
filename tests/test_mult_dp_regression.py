@@ -54,7 +54,7 @@ def test_MultDPRegression():
                                     df.traj.values).values == 250))
 
     assert num_trajs_found == 2, "Trajectory assignment error"
-
+    pdb.set_trace()
 
 def test_init_R_mat():
     """
@@ -163,3 +163,66 @@ def test_predict_proba():
                       [0.5, 0.5]])
     assert np.sum(np.isclose(R, R_ref)) == 6, "Unexpected R value"
 
+def test_update_lambda_batch():
+        # Read data from resources dir
+    data_file_name = os.path.split(os.path.realpath(__file__))[0] + \
+        '/../resources/data/trajectory_data_1.csv'
+    df = pd.read_csv(data_file_name)
+    
+    prior_file_name = os.path.split(os.path.realpath(__file__))[0] + \
+        '/../resources/priors/trajectory_prior_1.p'
+    
+    # Read prior from resources dir
+    with open(prior_file_name, 'rb') as f:
+        prior_file_info = pickle.load(f)
+        
+    preds = get_pred_names_from_prior_info(prior_file_info)
+    targets = get_target_names_from_prior_info(prior_file_info)        
+
+    D = len(targets)
+    M = len(preds)
+    K = 20
+
+    prior_data = {}
+    prior_data['w_mu0'] = np.zeros([M, D])
+    prior_data['w_var0'] = np.ones([M, D])
+    prior_data['lambda_a0'] = np.ones([D])
+    prior_data['lambda_b0'] = np.ones([D])
+    prior_data['alpha'] = prior_file_info['alpha']
+    for (d, target) in enumerate(targets):
+        prior_data['lambda_a0'][d] = prior_file_info['lambda_a0'][target]
+        prior_data['lambda_b0'][d] = prior_file_info['lambda_b0'][target]            
+            
+        for (m, pred) in enumerate(preds):
+            prior_data['w_mu0'][m, d] = prior_file_info['w_mu0'][target][pred]
+            prior_data['w_var0'][m, d] = prior_file_info['w_var0'][target][pred]            
+    
+    mm = MultDPRegression(prior_data['w_mu0'], prior_data['w_var0'],
+                          prior_data['lambda_a0'], prior_data['lambda_b0'],
+                          prior_data['alpha'], K=K)
+
+    mm.X_ = df[preds].values
+    mm.Y_ = df[targets].values
+    mm.N_ = df.shape[0]
+    mm.batch_indices_ = np.ones(mm.N_, dtype=bool)
+    mm.sig_trajs_ = np.zeros(mm.K_, dtype=bool)
+    mm.sig_trajs_[0] = True
+    mm.sig_trajs_[1] = True
+    mm.R_ = np.zeros([mm.N_, mm.K_])
+    mm.R_[0:50, 0] = 1
+    mm.R_[50:100, 1] = 1
+    
+    mm.w_mu_ = np.zeros([mm.M_, mm.D_, mm.K_])
+    mm.w_mu_[:, 0, 0] = np.array([10, -1])
+    mm.w_mu_[:, 0, 1] = np.array([6, -2])
+
+    mm.w_var_ = 1e-300*np.ones([mm.M_, mm.D_, mm.K_])
+
+    lambda_a, lambda_b = mm.update_lambda_batch(mm.w_mu_, mm.w_var_)
+    pdb.set_trace()
+    mm.lambda_a_ = np.ones([mm.D_, mm.K_])
+    mm.lambda_b_ = np.ones([mm.D_, mm.K_])
+
+    
+    mm.update_lambda_accel()
+    pdb.set_trace()

@@ -300,6 +300,11 @@ class MultDPRegression:
         if self.R_ is None:
             self.init_R_mat(traj_probs, traj_probs_weight)
 
+        # DEBUG
+        self.R_[:, :] = 0
+        self.R_[0:50, 0] = 1
+        self.R_[50:100, 0] = 1         
+            
         if iters is None:
             iters = 1
 
@@ -315,32 +320,73 @@ class MultDPRegression:
             tol = 0.0
             perc_change = 0.0
             
-        inc = 0
-
+        # Batch size taken to mean number of individuals.        
         #TODO
-        batch_size = int(self.N_/10)
-        indicator = np.zeros(self.N_)
-        indicator[0:batch_size] = 1
+        self.batch_size_ = 100 # 10 individuals: TODO: generalize
+        if self.gb_ is not None:
+            assert self.batch_size_ <= self.gb_.ngroups and \
+                self.batch_size_ >= 1, "Batch size error"
+            indicator = np.zeros(self.gb_.ngroups)
+        else:
+            assert self.batch_size_ <= self.N_ and \
+                self.batch_size_ >= 1, "Batch size error"            
+            indicator = np.zeros(self.N_)
+        indicator[0:self.batch_size_] = 1
         
         prev = -sys.float_info.max
         waics = []
+
+        # TODO
+        tau = 1.
+        kappa = 0.9
+        inc =  0
         while inc < iters or (perc_change > tol):
             inc += 1
-
-            #self.batch_indices_ = np.random.permutation(indicator) == 1
+            rho = (inc + tau)**(-kappa)
             
-            self.update_v() #self.update_v_batch()
-            self.update_w_accel() #self.update_w_batch()
-            self.update_lambda_accel() #self.update_lambda_batch()  
-            #self.R_[self.batch_indices_, :] = \
-            #    self.update_z_batch(self.X_, self.Y_)
-            self.R_ = self.update_z_accel(self.X_, self.Y_)            
-                
-            self.sig_trajs_ = np.max(self.R_, 0) > self.prob_thresh_
+            # Get batch indices. If the data has been grouped, retrieve the data
+            # indices corresponding to the randomly selected individuals
+            self.batch_indices_ = np.zeros(self.N_, dtype=bool)
+            if self.gb_ is not None:
+                self.batch_subjects_ = np.array(list(self.gb_.groups.keys()))\
+                    [np.where(np.random.permutation(indicator))[0]]
 
+                for ww in self.batch_subjects_:
+                    self.batch_indices_[self.gb_.get_group(ww).index] = True
+            else:
+                self.batch_indices_ = np.random.permutation(indicator) == 1
+
+            self.R_[self.batch_indices_, :] = \
+                self.update_z_batch(self.X_, self.Y_)                
+            self.sig_trajs_ = np.max(self.R_, 0) > self.prob_thresh_                
+            
+            v_a, v_b = self.update_v_batch() 
+            w_mu, w_var = self.update_w_batch(self.lambda_a_, self.lambda_b_) 
+            lambda_a, lambda_b = \
+                self.update_lambda_batch(self.w_mu_, self.w_var_)
+            
+            self.v_a_[self.sig_trajs_] = \
+                (1 - rho)*self.v_a_[self.sig_trajs_] + rho*v_a[self.sig_trajs_]
+            self.v_b_[self.sig_trajs_] = \
+                (1 - rho)*self.v_b_[self.sig_trajs_] + rho*v_b[self.sig_trajs_]
+            
+            self.w_mu_[:, :, self.sig_trajs_] = \
+                (1 - rho)*self.w_mu_[:, :, self.sig_trajs_] + \
+                rho*w_mu[:, :, self.sig_trajs_]
+            self.w_var_[:, :, self.sig_trajs_] = \
+                1./((1 - rho)*1./self.w_var_[:, :, self.sig_trajs_] + \
+                    rho*1./w_var[:, :, self.sig_trajs_])
+            
+            self.lambda_a_[:, self.sig_trajs_] = \
+                (1 - rho)*self.lambda_a_[:, self.sig_trajs_] + \
+                rho*lambda_a[:, self.sig_trajs_]
+            self.lambda_b_[:, self.sig_trajs_] = \
+                (1 - rho)*self.lambda_b_[:, self.sig_trajs_] + \
+                rho*lambda_b[:, self.sig_trajs_]            
+            
             if verbose:
                 print("iter {},  {}".format(inc, sum(self.R_, 0)))
-
+            #pdb.set_trace()
             if compute_lower_bound:
                 curr = self.compute_lower_bound()
                 perc_change = 100.*((curr-prev)/np.abs(prev))
@@ -359,11 +405,18 @@ class MultDPRegression:
         """Updates the parameters of the Beta distributions for latent
         variable 'v' in the variational approximation.
         """
-        self.v_a_ = 1.0 + np.sum(self.R_[self.batch_indices_, :], 0)
+        v_a = np.zeros(self.K_)
+        v_b = np.zeros(self.K_)        
+        
+        sum_factor = self.N_/np.sum(self.batch_indices_)
+        
+        v_a = 1.0 + sum_factor*np.sum(self.R_[self.batch_indices_, :], 0)
 
         for k in np.arange(0, self.K_):
-            self.v_b_[k] = self.alpha_ + \
-                np.sum(self.R_[self.batch_indices_, k+1:])
+            v_b[k] = self.alpha_ + \
+                sum_factor*np.sum(self.R_[self.batch_indices_, k+1:])
+
+        return v_a, v_b
                                  
     def update_z_batch(self, X, Y):
         """
@@ -409,7 +462,7 @@ class MultDPRegression:
         # Within a group, all data instances must have the same probability of
         # belonging to each of the K trajectories
         if self.gb_ is not None:
-            for g in self.gb_.groups.keys():
+            for g in self.batch_subjects_:
                 tmp_ids = self.gb_.get_group(g).index.values
                 tmp_vec = np.sum(np.log(R[tmp_ids, :] + \
                                         np.finfo(float).tiny), 0)
@@ -484,7 +537,6 @@ class MultDPRegression:
         R[R <= self.prob_thresh_] = 0
 
         return R
-
     
     def update_w_accel(self):
         """ Updates the variational distribution over latent variable w.
@@ -519,38 +571,45 @@ class MultDPRegression:
                        self.lambda_b_[d, self.sig_trajs_])*\
                      sum_term + mu0_DIV_var0[m, d])
 
-    def update_w_batch(self):
+    def update_w_batch(self, lambda_a, lambda_b):
         """ Updates the variational distribution over latent variable w.
         """
+        w_mu = np.nan*np.zeros([self.M_, self.D_, self.K_])
+        w_var = np.nan*np.zeros([self.M_, self.D_, self.K_])
+        
         mu0_DIV_var0 = self.w_mu0_/self.w_var0_
         for m in range(0, self.M_):
             ids = np.ones(self.M_, dtype=bool)
             ids[m] = False
             for d in range(0, self.D_):
                 sel_ids = ~np.isnan(self.Y_[:, d]) & self.batch_indices_
-    
-                tmp1 = (self.lambda_a_[d, self.sig_trajs_]/\
-                        self.lambda_b_[d, self.sig_trajs_])*\
-                        (np.sum(self.R_[:, self.sig_trajs_, newaxis]\
-                                [sel_ids, :, :]*\
-                                self.X_[sel_ids, newaxis, :]**2, 0).T)\
-                                [:, newaxis, :]
+                sum_factor = self.N_/np.sum(sel_ids)
                 
-                self.w_var_[:, :, self.sig_trajs_] = \
+                tmp1 = sum_factor*(lambda_a[d, self.sig_trajs_]/\
+                                lambda_b[d, self.sig_trajs_])*\
+                                (np.sum(self.R_[:, self.sig_trajs_, newaxis]\
+                                        [sel_ids, :, :]*\
+                                        self.X_[sel_ids, newaxis, :]**2, 0).T)\
+                                        [:, newaxis, :]
+                
+                w_var[:, :, self.sig_trajs_] = \
                     (tmp1 + (1.0/self.w_var0_)[:, :, newaxis])**-1
                 
-                sum_term = sum(self.R_[sel_ids, :][:, self.sig_trajs_]*\
-                               self.X_[sel_ids, m, newaxis]*\
-                               (dot(self.X_[:, ids][sel_ids, :], \
-                                    self.w_mu_[ids, d, :]\
-                                    [:, self.sig_trajs_]) - \
-                                self.Y_[sel_ids, d][:, newaxis]), 0)
+                sum_term = \
+                    sum_factor*sum(self.R_[sel_ids, :][:, self.sig_trajs_]*\
+                                   self.X_[sel_ids, m, newaxis]*\
+                                   (dot(self.X_[:, ids][sel_ids, :], \
+                                        self.w_mu_[ids, d, :]\
+                                        [:, self.sig_trajs_]) - \
+                                    self.Y_[sel_ids, d][:, newaxis]), 0)
     
-                self.w_mu_[m, d, self.sig_trajs_] = \
+                w_mu[m, d, self.sig_trajs_] = \
                     self.w_var_[m, d, self.sig_trajs_]*\
-                    (-(self.lambda_a_[d, self.sig_trajs_]/\
-                       self.lambda_b_[d, self.sig_trajs_])*\
-                     sum_term + mu0_DIV_var0[m, d])                
+                    (-(lambda_a[d, self.sig_trajs_]/\
+                       lambda_b[d, self.sig_trajs_])*\
+                     sum_term + mu0_DIV_var0[m, d])
+
+        return w_mu, w_var    
                 
     def update_lambda_accel(self):
         """Updates the variational distribution over latent variable lambda.
@@ -576,29 +635,35 @@ class MultDPRegression:
                                 self.w_mu_[:, d, self.sig_trajs_]) + \
                          self.Y_[non_nan_ids, d, newaxis]**2), 0)
 
-    def update_lambda_batch(self):
+    def update_lambda_batch(self, w_mu, w_var):
         """Updates the variational distribution over latent variable lambda.
-        """    
+        """
+        lambda_a = np.nan*np.zeros([self.D_, self.K_])
+        lambda_b = np.nan*np.zeros([self.D_, self.K_])
+        
         for d in range(self.D_):
             sel_ids = ~np.isnan(self.Y_[:, d]) & self.batch_indices_
-    
-            self.lambda_a_[d, self.sig_trajs_] = self.lambda_a0_[d, newaxis] + \
-                0.5*sum(self.R_[:, self.sig_trajs_][sel_ids, :], 0)\
+            sum_factor = self.N_/np.sum(sel_ids)
+
+            lambda_a[d, self.sig_trajs_] = self.lambda_a0_[d, newaxis] + \
+                sum_factor*0.5*sum(self.R_[:, self.sig_trajs_][sel_ids, :], 0)\
                 [newaxis, :]
             
-            tmp = (dot(self.w_mu_[:, d, self.sig_trajs_].T, \
+            tmp = (dot(w_mu[:, d, self.sig_trajs_].T, \
                        self.X_[sel_ids, :].T)**2).T + \
                        np.sum((self.X_[sel_ids, newaxis, :]**2)*\
-                              (self.w_var_[:, d, self.sig_trajs_].T)\
+                              (w_var[:, d, self.sig_trajs_].T)\
                               [newaxis, :, :], 2)
     
-            self.lambda_b_[d, self.sig_trajs_] = \
+            lambda_b[d, self.sig_trajs_] = \
                 self.lambda_b0_[d, newaxis] + \
-                0.5*sum(self.R_[sel_ids, :][:, self.sig_trajs_]*\
-                        (tmp - 2*self.Y_[sel_ids, d, newaxis]*\
-                         np.dot(self.X_[sel_ids, :], \
-                                self.w_mu_[:, d, self.sig_trajs_]) + \
-                         self.Y_[sel_ids, d, newaxis]**2), 0)            
+                0.5*sum_factor*sum(self.R_[sel_ids, :][:, self.sig_trajs_]*\
+                                   (tmp - 2*self.Y_[sel_ids, d, newaxis]*\
+                                    np.dot(self.X_[sel_ids, :], \
+                                           w_mu[:, d, self.sig_trajs_]) + \
+                                    self.Y_[sel_ids, d, newaxis]**2), 0)
+            
+        return lambda_a, lambda_b
             
     def sample(self, index=None, x=None):
         """sample from the posterior distribution using the input data.
