@@ -209,20 +209,34 @@ def test_update_lambda_batch():
     mm.sig_trajs_[0] = True
     mm.sig_trajs_[1] = True
     mm.R_ = np.zeros([mm.N_, mm.K_])
-    mm.R_[0:50, 0] = 1
-    mm.R_[50:100, 1] = 1
+    mm.R_[0:250, 0] = 1
+    mm.R_[250:500, 1] = 1
     
     mm.w_mu_ = np.zeros([mm.M_, mm.D_, mm.K_])
     mm.w_mu_[:, 0, 0] = np.array([10, -1])
     mm.w_mu_[:, 0, 1] = np.array([6, -2])
 
-    mm.w_var_ = 1e-300*np.ones([mm.M_, mm.D_, mm.K_])
+    mm.w_var_ = 1e-20*np.ones([mm.M_, mm.D_, mm.K_])
 
-    lambda_a, lambda_b = mm.update_lambda_batch(mm.w_mu_, mm.w_var_)
-    pdb.set_trace()
-    mm.lambda_a_ = np.ones([mm.D_, mm.K_])
-    mm.lambda_b_ = np.ones([mm.D_, mm.K_])
-
+    mm.gb_ = df.groupby('id')
     
-    mm.update_lambda_accel()
-    pdb.set_trace()
+    mm.batch_size_ = 50 # Number of individuals
+    indicator = np.zeros(mm.gb_.ngroups)
+    indicator[0:mm.batch_size_] = 1
+
+    mm.batch_indices_ = np.zeros(mm.N_, dtype=bool)
+    mm.batch_subjects_ = np.array([ 6, 8, 9, 10, 11, 13, 14, 18, 19, 20, 21, \
+                                    22, 25, 26, 29, 31, 35, 37, 38, 40, 41, \
+                                    44, 45, 46, 47, 50, 52, 53, 55, 57, 58, \
+                                    61, 62, 64, 66, 68, 71, 72, 75, 78, 80, \
+                                    82, 83, 90, 92, 94, 95, 96, 98, 100])    
+        
+    for ww in mm.batch_subjects_:
+            mm.batch_indices_[mm.gb_.get_group(ww).index] = True
+    
+    lambda_a, lambda_b = mm.update_lambda_batch(mm.w_mu_, mm.w_var_)
+
+    assert np.isclose(np.sqrt(lambda_b/lambda_a)[0, 0], 2, atol=.05), \
+        "Residual variance not calculated correctly"
+    assert np.isclose(np.sqrt(lambda_b/lambda_a)[0, 1], 1, atol=.05), \
+        "Residual variance not calculated correctly"    
