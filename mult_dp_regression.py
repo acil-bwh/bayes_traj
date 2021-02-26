@@ -126,12 +126,12 @@ class MultDPRegression:
         assert self.w_mu0_.shape[1] == self.lambda_a0_.shape[0], \
           "Target dimension mismatch"
 
-    def fit(self, target_names, predictor_names, df, groupby=None, iters=None,
-            tol=None, R=None, traj_probs=None, traj_probs_weight=None, v_a=None,
+    def fit(self, target_names, predictor_names, df, groupby=None, iters=100,
+            R=None, traj_probs=None, traj_probs_weight=None, v_a=None,
             v_b=None, w_mu=None, w_var=None, lambda_a=None, lambda_b=None,
             batch_size=None, verbose=False):
-        """Run the DP proportion mixture model algorithm using predictors 'X'
-        and proportion data 'Y'.
+        """Performs variational inference (coordinate ascent or SVI) given data
+        and provided parameters.
 
         Parameters
         ----------
@@ -151,18 +151,7 @@ class MultDPRegression:
             to the same individual. 
 
         iters : int, optional
-            Number of variational inference iterations to run. Note that if both
-            'iters' and 'tol are specified, computation will terminate when both
-            conditions are met.
-
-        tol : float, optional
-            The tolerance used for assessing convergence using the variational
-            lower bound. Tolerance is defined as the percentage change in
-            variational lower bound from one iteration to the next. Note that
-            if both 'iters' and 'tol' are specified, computation will
-            terminate when both conditions are met. Also, note that
-            specification of 'tol' requires computation of the  variational
-            lower bound at each iteration.
+            Number of variational inference iterations to run. 
 
         R : array, shape ( N, K ), optional
             Each element of this matrix represents the posterior probability
@@ -232,9 +221,6 @@ class MultDPRegression:
             instances are being assigned to each of the K possible
             trajectories.
         """
-        if tol is None and iters is None:
-            raise ValueError('Neither tol nor iters has been set')
-
         if traj_probs_weight is not None:
             assert traj_probs_weight >= 0 and traj_probs_weight <=1, \
                 "Invalid traj_probs_weightd value"
@@ -301,16 +287,25 @@ class MultDPRegression:
         if self.R_ is None:
             self.init_R_mat(traj_probs, traj_probs_weight)
             
-        if iters is None:
-            iters = 1
-
         if batch_size is not None:
             self.fit_svi(batch_size, iters, verbose)
         else:
             self.fit_coordinate_ascent(iters, verbose)
 
     def fit_coordinate_ascent(self, iters, verbose):
-        """
+        """This function contains the iteratrion loop for mean-field 
+        variational inference using coordinate ascent
+
+        Parameters
+        ----------
+        iters : int, optional
+            Number of variational inference iterations to run.
+
+        verbose : bool, optional
+            If true, a printout of the sum along rows of the R_ matrix will
+            be provided during optimization. This sum indicates how many data
+            instances are being assigned to each of the K possible
+            trajectories.
         """
         inc = 0
         while inc < iters:
@@ -327,7 +322,24 @@ class MultDPRegression:
                 print("iter {},  {}".format(inc, sum(self.R_, 0)))
 
     def fit_svi(self, batch_size, iters, verbose):
-        """
+        """This function contains the iteratrion loop for stochastic variational 
+       inference.
+
+        Parameters
+        ----------
+        batch_size : int, optional
+            The size (number of individuals) of the minibatch to use for 
+            stochastic variational inference. It must be less than the total 
+            number of individuals.
+
+        iters : int, optional
+            Number of variational inference iterations to run.
+
+        verbose : bool, optional
+            If true, a printout of the sum along rows of the R_ matrix will
+            be provided during optimization. This sum indicates how many data
+            instances are being assigned to each of the K possible
+            trajectories.
 
         References
         ----------
