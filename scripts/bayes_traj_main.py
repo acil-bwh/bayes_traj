@@ -45,6 +45,10 @@ parser.add_argument('--iters', help='Number of iterations per repeat attempt',
     dest='iters', metavar='<int>', default=100)
 parser.add_argument('--repeats', help='Number of repeats to attempt',
     dest='repeats', metavar='<int>', default=100)
+parser.add_argument('--batch_size', help='The number of subjects that will \
+    be used at each iteration. If not specified, all subjects will be used. \
+    Specifying less than the total number of subjects can speed convergence.',
+    metavar='<int>', default=None, type=int)
 parser.add_argument('-k', help='Number of columns in the truncated assignment \
     matrix', metavar='<int>', default=20)
 parser.add_argument('--waic2_thresh', help='Model will only be written to \
@@ -168,7 +172,7 @@ for r in np.arange(repeats):
            traj_probs_weight=prior_data['probs_weight'],
            v_a=prior_data['v_a'], v_b=prior_data['v_b'], w_mu=prior_data['w_mu'],
            w_var=prior_data['w_var'], lambda_a=prior_data['lambda_a'],
-           lambda_b=prior_data['lambda_b'])
+           lambda_b=prior_data['lambda_b'], batch_size=op.batch_size)
 
     if op.save_all:
         out_file_tmp = out_file.split('.')[0] + '_repeat{}.p'.format(r)

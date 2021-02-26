@@ -129,7 +129,7 @@ class MultDPRegression:
     def fit(self, target_names, predictor_names, df, groupby=None, iters=None,
             tol=None, R=None, traj_probs=None, traj_probs_weight=None, v_a=None,
             v_b=None, w_mu=None, w_var=None, lambda_a=None, lambda_b=None,
-            minibatch_size=None, verbose=False):
+            batch_size=None, verbose=False):
         """Run the DP proportion mixture model algorithm using predictors 'X'
         and proportion data 'Y'.
 
@@ -221,9 +221,10 @@ class MultDPRegression:
             precision of the target variable. If specified, the algorithm will
             be initialized with this matrix.
 
-        minibatch_size : int, optional
-            The size of the minibatch to use for stochastic variational
-            inference. It must be less than the total number of data points.
+        batch_size : int, optional
+            The size (number of individuals) of the minibatch to use for 
+            stochastic variational inference. It must be less than the total 
+            number of individuals.
 
         verbose : bool, optional
             If true, a printout of the sum along rows of the R_ matrix will
@@ -299,30 +300,49 @@ class MultDPRegression:
         # Initialize the latent variables if needed
         if self.R_ is None:
             self.init_R_mat(traj_probs, traj_probs_weight)
-
-        # DEBUG
-        self.R_[:, :] = 0
-        self.R_[0:50, 0] = 1
-        self.R_[50:100, 0] = 1         
             
         if iters is None:
             iters = 1
 
-        compute_lower_bound = True
-        perc_change = sys.float_info.max        
-        if tol is None:
-            # Neither 'tol' nor 'perc_change' will be used to determine whether
-            # or not to continue. Set these both to 0 so that the
-            # 'perc_change > tol' evaluation below evaluates to False and only
-            # the number of iterations is used to determine whether or not to
-            # terminate.
-            compute_lower_bound = False
-            tol = 0.0
-            perc_change = 0.0
+        if batch_size is not None:
+            self.fit_svi(batch_size, iters, verbose)
+        else:
+            self.fit_coordinate_ascent(iters, verbose)
+
+    def fit_coordinate_ascent(self, iters, verbose):
+        """
+        """
+        inc = 0
+        while inc < iters:
+            inc += 1
             
-        # Batch size taken to mean number of individuals.        
-        #TODO
-        self.batch_size_ = 100 # 10 individuals: TODO: generalize
+            self.update_v()
+            self.update_w_accel()
+            self.update_lambda_accel() 
+            self.R_ = self.update_z_accel(self.X_, self.Y_)            
+                
+            self.sig_trajs_ = np.max(self.R_, 0) > self.prob_thresh_
+
+            if verbose:
+                print("iter {},  {}".format(inc, sum(self.R_, 0)))
+
+    def fit_svi(self, batch_size, iters, verbose):
+        """
+
+        References
+        ----------
+        Hoffman MD, Blei DM, Wang C, Paisley J. Stochastic variational 
+        inference. Journal of Machine Learning Research. 2013 May 1;14(5).
+        """            
+        # Batch size taken to mean number of individuals.
+        if self.gb_ is not None:
+            assert batch_size > 0 & batch_size <= self.gb_.ngroups, \
+                "Batch size misspecified"
+        else:
+            assert batch_size > 0 & batch_size <= self.N_, \
+                "Batch size misspecified"
+        self.batch_size_ = batch_size
+
         if self.gb_ is not None:
             assert self.batch_size_ <= self.gb_.ngroups and \
                 self.batch_size_ >= 1, "Batch size error"
@@ -332,15 +352,12 @@ class MultDPRegression:
                 self.batch_size_ >= 1, "Batch size error"            
             indicator = np.zeros(self.N_)
         indicator[0:self.batch_size_] = 1
-        
-        prev = -sys.float_info.max
-        waics = []
-
-        # TODO
+                
+        # tau and kappa set to reasonable values as investigated in 
         tau = 1.
         kappa = 0.9
         inc =  0
-        while inc < iters or (perc_change > tol):
+        while inc < iters:
             inc += 1
             rho = (inc + tau)**(-kappa)
             
@@ -358,40 +375,34 @@ class MultDPRegression:
 
             self.R_[self.batch_indices_, :] = \
                 self.update_z_batch(self.X_, self.Y_)                
-            self.sig_trajs_ = np.max(self.R_, 0) > self.prob_thresh_                
+            self.sig_trajs_ = np.max(self.R_, 0) > self.prob_thresh_
             
-            v_a, v_b = self.update_v_batch() 
-            w_mu, w_var = self.update_w_batch(self.lambda_a_, self.lambda_b_) 
-            lambda_a, lambda_b = \
-                self.update_lambda_batch(self.w_mu_, self.w_var_)
-            
+            v_a, v_b = self.update_v_batch()             
             self.v_a_[self.sig_trajs_] = \
                 (1 - rho)*self.v_a_[self.sig_trajs_] + rho*v_a[self.sig_trajs_]
             self.v_b_[self.sig_trajs_] = \
                 (1 - rho)*self.v_b_[self.sig_trajs_] + rho*v_b[self.sig_trajs_]
-            
+
+            w_mu, w_var = self.update_w_batch(self.lambda_a_, self.lambda_b_)             
             self.w_mu_[:, :, self.sig_trajs_] = \
                 (1 - rho)*self.w_mu_[:, :, self.sig_trajs_] + \
                 rho*w_mu[:, :, self.sig_trajs_]
             self.w_var_[:, :, self.sig_trajs_] = \
                 1./((1 - rho)*1./self.w_var_[:, :, self.sig_trajs_] + \
                     rho*1./w_var[:, :, self.sig_trajs_])
-            
+
+            lambda_a, lambda_b = \
+                self.update_lambda_batch(self.w_mu_, self.w_var_)            
             self.lambda_a_[:, self.sig_trajs_] = \
                 (1 - rho)*self.lambda_a_[:, self.sig_trajs_] + \
                 rho*lambda_a[:, self.sig_trajs_]
             self.lambda_b_[:, self.sig_trajs_] = \
                 (1 - rho)*self.lambda_b_[:, self.sig_trajs_] + \
-                rho*lambda_b[:, self.sig_trajs_]            
+                rho*lambda_b[:, self.sig_trajs_]
             
             if verbose:
-                print("iter {},  {}".format(inc, sum(self.R_, 0)))
-            #pdb.set_trace()
-            if compute_lower_bound:
-                curr = self.compute_lower_bound()
-                perc_change = 100.*((curr-prev)/np.abs(prev))
-                prev = curr
-
+                print("iter {},  {}".format(inc, sum(self.R_, 0)))        
+                
     def update_v(self):
         """Updates the parameters of the Beta distributions for latent
         variable 'v' in the variational approximation.
@@ -574,8 +585,8 @@ class MultDPRegression:
     def update_w_batch(self, lambda_a, lambda_b):
         """ Updates the variational distribution over latent variable w.
         """
-        w_mu = np.nan*np.zeros([self.M_, self.D_, self.K_])
-        w_var = np.nan*np.zeros([self.M_, self.D_, self.K_])
+        w_mu = np.array(self.w_mu_)
+        w_var = np.array(self.w_var_)
         
         mu0_DIV_var0 = self.w_mu0_/self.w_var0_
         for m in range(0, self.M_):
@@ -599,16 +610,15 @@ class MultDPRegression:
                     sum_factor*sum(self.R_[sel_ids, :][:, self.sig_trajs_]*\
                                    self.X_[sel_ids, m, newaxis]*\
                                    (dot(self.X_[:, ids][sel_ids, :], \
-                                        self.w_mu_[ids, d, :]\
-                                        [:, self.sig_trajs_]) - \
+                                        w_mu[ids, d, :][:, self.sig_trajs_]) - \
                                     self.Y_[sel_ids, d][:, newaxis]), 0)
     
                 w_mu[m, d, self.sig_trajs_] = \
-                    self.w_var_[m, d, self.sig_trajs_]*\
+                    w_var[m, d, self.sig_trajs_]*\
                     (-(lambda_a[d, self.sig_trajs_]/\
                        lambda_b[d, self.sig_trajs_])*\
                      sum_term + mu0_DIV_var0[m, d])
-
+                
         return w_mu, w_var    
                 
     def update_lambda_accel(self):
