@@ -46,6 +46,7 @@ df_out = pd.DataFrame()
 subj_inc = 0
 traj_inc = 0
 
+plt.figure(figsize=(8, 8))
 print("Generating trajectories...")
 for tp in op.traj_params:
     traj_inc += 1
