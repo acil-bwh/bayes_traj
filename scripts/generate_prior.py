@@ -119,10 +119,10 @@ if op.coef is not None:
         prior_info['w_var0'][tt][pp] = s**2
 
 if op.coef_std is not None:
-    for i in range(len(op.coef)):
-        tt = op.coef[i][0].split(',')[0]
-        pp = op.coef[i][0].split(',')[1]
-        s = float(op.coef[i][0].split(',')[2])
+    for i in range(len(op.coef_std)):
+        tt = op.coef_std[i][0].split(',')[0]
+        pp = op.coef_std[i][0].split(',')[1]
+        s = float(op.coef_std[i][0].split(',')[2])
 
         assert tt in targets, "{} not among specified targets".format(tt)
         assert pp in preds, "{} not among specified predictors".format(pp)        
