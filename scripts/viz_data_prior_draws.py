@@ -49,8 +49,10 @@ if op.prior is not None:
             for (m, pred) in enumerate(preds):
                 prior_data['w_mu0'][m, d] = prior_file_info['w_mu0'][target][pred]
                 prior_data['w_var0'][m, d] = prior_file_info['w_var0'][target][pred]
-                
-plt.scatter(df[op.x_axis].values, df[op.y_axis].values)
+
+plt.figure(figsize=(8, 8))                
+plt.scatter(df[op.x_axis].values, df[op.y_axis].values, facecolor='none',
+            edgecolor='k', alpha=0.2)
 
 num_dom_locs = 100
 x_dom = np.linspace(np.min(df[op.x_axis].values), np.max(df[op.x_axis].values),
