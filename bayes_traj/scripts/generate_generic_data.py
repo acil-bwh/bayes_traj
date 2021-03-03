@@ -50,10 +50,10 @@ plt.figure(figsize=(8, 8))
 print("Generating trajectories...")
 for tp in op.traj_params:
     traj_inc += 1
-    traj_cos = np.array(tp[0].strip('<').strip('>').split(',')[0:3],
-                        dtype=float)
-    num_in_traj = int(tp[0].strip('<').strip('>').split(',')[-1])
-    traj_resid_std = float(tp[0].strip('<').strip('>').split(',')[-2])
+
+    traj_dim_cos = tp[0].split('><')
+    D = len(traj_dim_cos)
+    num_in_traj = int(traj_dim_cos[0].strip('>').split(',')[4])
 
     for s in range(num_in_traj):
         subj_inc += 1
@@ -75,24 +75,46 @@ for tp in op.traj_params:
         df_tmp['id'] = str(subj_inc)
         df_tmp['data_names'] = [str(subj_inc) + '_' + \
                                 str(j) for j in range(ages.shape[0])]
-
-        y = np.dot(traj_cos, df_tmp[['intercept', 'age', 'age^2']].values.T) + \
-            traj_resid_std*np.random.randn(ages.shape[0])
-
-        df_tmp['y'] = y
         df_tmp['traj'] = traj_inc
-        
+
+        for i, dd in enumerate(traj_dim_cos):
+            cos = np.array(dd.strip('<').strip('>').split(',')[0:3],
+                           dtype=float)
+            traj_resid_std = float(dd.strip('<').strip('>').split(',')[3])
+            
+            y = np.dot(cos, df_tmp[['intercept', 'age', 'age^2']].values.T) + \
+                traj_resid_std*np.random.randn(ages.shape[0])
+
+            df_tmp['y{}'.format(i+1)] = y
+
         df_out = pd.concat([df_out, df_tmp])        
-        
 
-    plt.scatter(df_out[df_out.traj.values==traj_inc].age.values,
-                df_out[df_out.traj.values==traj_inc].y.values,
-                color=cmap(traj_inc), label='Traj {} (N={})'.\
-                format(traj_inc, num_in_traj))
+if traj_inc <= 10:
+    cmap = plt.cm.get_cmap('tab10')
+else:
+    cmap = plt.cm.get_cmap('tab20')
 
-plt.legend()
-plt.xlabel('Age')
-plt.ylabel('y')
+fig, axs = plt.subplots(1, D, figsize=(6*D, 6))
+for d in range(D):
+    for tt in range(traj_inc):
+        ids = df_out.traj.values == tt+1
+        num_in_traj = df_out[ids].groupby('id').ngroups
+        if D > 1:
+            axs[d].scatter(df_out[ids].age.values,
+                           df_out[ids]['y{}'.format(d+1)].values, edgecolor='k',
+                           color=cmap(tt), alpha=0.5,
+                           label='Traj {} (N={})'.format(tt+1, num_in_traj))
+            axs[d].set_xlabel('Age')
+            axs[d].set_ylabel('y{}'.format(d+1))
+            axs[d].legend()
+        else:
+            axs.scatter(df_out[ids].age.values,
+                        df_out[ids]['y{}'.format(d+1)].values, edgecolor='k',
+                        color=cmap(tt), alpha=0.5,
+                        label='Traj {} (N={})'.format(tt+1, num_in_traj))
+            axs.set_xlabel('Age')
+            axs.set_ylabel('y{}'.format(d+1))
+            axs.legend()
 plt.show()
 
 if op.out_file is not None:
