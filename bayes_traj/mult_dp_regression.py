@@ -267,7 +267,7 @@ class MultDPRegression:
         # Initialize the latent variables if needed
         if self.R_ is None:
             self.init_R_mat(traj_probs, traj_probs_weight)
-        pdb.set_trace()
+
         if batch_size is not None:
             self.fit_svi(batch_size, iters, verbose)
         else:
@@ -1066,15 +1066,19 @@ class MultDPRegression:
             stick-breaking: 
             traj_probs_weight*traj_probs + (1-traj_probs_weight)*random_probs.
         """
-        tmp = np.random.beta(1, self.alpha_, self.K_)
-        one_tmp = 1. - tmp
-        vec = np.array([np.prod(one_tmp[0:k])*tmp[k] for k in range(self.K_)])
+        # Draw a weight vector from the stick-breaking process
+        #tmp = np.random.beta(1, self.alpha_, self.K_)
+        #one_tmp = 1. - tmp
+        #vec = np.array([np.prod(one_tmp[0:k])*tmp[k] for k in range(self.K_)])
 
+        # Each trajectory gets equal weight
+        vec = np.ones(self.K_)/self.K_
+        
         if (traj_probs is None and traj_probs_weight is not None) or \
            (traj_probs_weight is None and traj_probs is not None):
             warnings.warn('Both traj_probs and traj_probs_weight \
             should be None or non-None')
-        
+
         if traj_probs is not None and traj_probs_weight is not None:
             assert traj_probs_weight >= 0 and traj_probs_weight <= 1, \
                 "Invalid traj_probs_weight"
@@ -1088,7 +1092,7 @@ class MultDPRegression:
         if np.sum(init_traj_probs) < 0.95:
             warnings.warn("Initial trajectory probabilities sum to {}. \
             Alpha may be too high.".format(np.sum(init_traj_probs)))
-
+        
         self.R_ = self.predict_proba(self.X_, self.Y_, init_traj_probs)
 
     def predict_proba(self, X, Y, traj_probs=None):
