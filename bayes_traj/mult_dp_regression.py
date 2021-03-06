@@ -256,26 +256,7 @@ class MultDPRegression:
         self.v_b_ = v_b
         self.R_ = R
 
-        if self.lambda_a_ is None:
-            self.lambda_a_ = np.zeros([self.D_, self.K_])
-            for k in range(0, self.K_):
-                self.lambda_a_[:, k] = self.lambda_a0_
-
-        if self.lambda_b_ is None:
-            self.lambda_b_ = np.zeros([self.D_, self.K_])
-            for k in range(0, self.K_):
-                self.lambda_b_[:, k] = self.lambda_b0_
-
-        if self.w_mu_ is None:
-            self.w_mu_ = np.zeros([self.M_, self.D_, self.K_])
-            for k in range(0, self.K_):
-                self.w_mu_[:, :, k] = sample_cos(self.w_mu0_,
-                                                 self.w_var0_)[:, :, 0]
-            
-        if self.w_var_ is None:
-            self.w_var_ = np.zeros([self.M_, self.D_, self.K_])
-            for k in range(0, self.K_):
-                self.w_var_[:, :, k] = self.w_var0_
+        self.init_traj_params()
 
         if self.v_a_ is None:
             self.v_a_ = np.ones(self.K_)
@@ -286,7 +267,7 @@ class MultDPRegression:
         # Initialize the latent variables if needed
         if self.R_ is None:
             self.init_R_mat(traj_probs, traj_probs_weight)
-            
+        pdb.set_trace()
         if batch_size is not None:
             self.fit_svi(batch_size, iters, verbose)
         else:
@@ -384,10 +365,6 @@ class MultDPRegression:
                     self.batch_indices_[self.gb_.get_group(ww).index] = True
             else:
                 self.batch_indices_ = np.random.permutation(indicator) == 1
-
-            self.R_[self.batch_indices_, :] = \
-                self.update_z_batch(self.X_, self.Y_)                
-            self.sig_trajs_ = np.max(self.R_, 0) > self.prob_thresh_
             
             v_a, v_b = self.update_v_batch()             
             self.v_a_[self.sig_trajs_] = \
@@ -411,6 +388,10 @@ class MultDPRegression:
             self.lambda_b_[:, self.sig_trajs_] = \
                 (1 - rho)*self.lambda_b_[:, self.sig_trajs_] + \
                 rho*lambda_b[:, self.sig_trajs_]
+
+            self.R_[self.batch_indices_, :] = \
+                self.update_z_batch(self.X_, self.Y_)                
+            self.sig_trajs_ = np.max(self.R_, 0) > self.prob_thresh_            
             
             if verbose:
                 print("iter {},  {}".format(inc, sum(self.R_, 0)))        
@@ -948,6 +929,126 @@ class MultDPRegression:
         waic2 = -2.*(lppd - p_waic2)
 
         return waic2
+
+    def expand_mat(self, mat, which_m, which_d, expand_vec):
+        """Helper function for trajectory coefficient initialization. It takes 
+        in a matrix and returns a larger matrix (along the k-dimension) with
+        values at the specified predictor and target location set to the values
+        in expand_vec.
+
+        Parameters
+        ----------
+        mat : array, shape ( M, D, kk )
+            Matrix of trajectory coefficients. kk is expected to vary from 
+            function call to function call
+
+        which_m : int
+            Matrix index corresponding to the predictor coefficient that will
+            be expanded with respect to.
+
+        which_d : int
+            Matrix index corresponding to the target dimension of the predictor
+            coefficient that will be expanded with respect to.
+
+        expand_vec : array, shape ( L )
+            Array of coefficient values that will be used to create the expanded
+            matrix.
+
+        Returns
+        -------
+        expanded_mat : array, shape ( M, D, kk*L)
+            Expanded trajectory coefficient matrix
+        """
+        M = mat.shape[0]
+        D = mat.shape[1]
+        K = mat.shape[2]
+    
+        expand_size = expand_vec.shape[0]
+        
+        new_mat = np.zeros([M, D, K*expand_size])
+        for kk in range(K):
+            for xx in range(expand_size):
+                new_mat[:, :, kk*expand_size + xx] = mat[:, :, kk]
+            new_mat[which_m, which_d, \
+                    (kk*expand_size):(kk*expand_size)+expand_size] = expand_vec
+            
+        return new_mat
+    
+    def prune_coef_mat(self, w_mu):
+        """
+        """
+        tmp_K = w_mu.shape[2]
+        R_tmp = np.ones([self.N_, tmp_K])
+        var = self.lambda_b0_/self.lambda_a0_
+        for k in range(tmp_K):
+            for d in range(self.D_):
+                ids = ~np.isnan(self.Y_[:, d])
+                
+                mu_tmp = np.dot(self.X_, w_mu[:, d, k])
+    
+                R_tmp[ids, k] *= (1/(np.sqrt(2*np.pi*var[d])))*\
+                    np.exp(-((self.Y_[ids, d] - mu_tmp[ids])**2)/(2*var[d]))
+    
+        zero_ids = np.sum(R_tmp, 1) == 0
+        R_tmp[zero_ids] = np.ones([np.sum(zero_ids), tmp_K])/tmp_K
+        R = np.array((R_tmp.T/np.sum(R_tmp, 1)).T)
+            
+        # Within a group, all data instances must have the same probability of
+        # belonging to each of the K trajectories
+        if self.gb_ is not None:
+            for g in self.gb_.groups.keys():
+                tmp_ids = self.gb_.get_group(g).index.values
+                tmp_vec = np.sum(np.log(R[tmp_ids, :] + \
+                                        np.finfo(float).tiny), 0)
+                vec = np.exp(tmp_vec + 700 - np.max(tmp_vec))
+                vec = vec/np.sum(vec)
+    
+                # Now update the rows of 'normalized_mat'.
+                R[tmp_ids, :] = vec                
+    
+        top_indices = np.argsort(-np.sum(R, 0))[0:self.K_]
+        
+        return w_mu[:, :, top_indices]
+        
+    def init_traj_params(self):
+        """Initializes trajectory parameters. 
+
+        """
+        if self.w_var_ is None:
+            self.w_var_ = np.zeros([self.M_, self.D_, self.K_])
+            for k in range(self.K_):
+                self.w_var_[:, :, k] = np.array(self.w_var0_)
+            
+        if self.lambda_a_ is None:
+            self.lambda_a_ = np.ones([self.D_, self.K_])
+            for k in range(self.K_):
+                self.lambda_a_[:, k] = np.array(self.lambda_a0_)
+            
+        if self.lambda_b_ is None:
+            self.lambda_b_ = np.ones([self.D_, self.K_])
+            for k in range(self.K_):
+                self.lambda_b_[:, k] = np.array(self.lambda_b0_)            
+            
+        w_mu_tmp = np.zeros([self.M_, self.D_, 1])
+        w_mu_tmp[:, :, 0] = self.w_mu0_
+                    
+        num_param_levels = 5
+        if num_param_levels**(self.M_*self.D_) < self.K_:
+            num_param_levels = \
+                int(np.ceil(10**(np.log10(self.K_)/(self.D_*self.M_))))
+        
+        for m in range(self.M_):
+            for d in range(self.D_):
+                cos = np.linspace(self.w_mu0_[m, d] - \
+                                  1.5*np.sqrt(self.w_var0_[m, d]),
+                                  self.w_mu0_[m, d] + \
+                                  1.5*np.sqrt(self.w_var0_[m, d]),
+                                  num_param_levels)        
+                w_mu_tmp = self.expand_mat(w_mu_tmp, m, d, cos)
+                if w_mu_tmp.shape[2] > self.K_:
+                    w_mu_tmp = self.prune_coef_mat(w_mu_tmp)
+    
+        self.w_mu_ = w_mu_tmp
         
     def init_R_mat(self, traj_probs=None, traj_probs_weight=None):
         """Initializes 'R_', using the stick-breaking construction. Also
