@@ -189,7 +189,7 @@ for r in np.arange(repeats):
             bics = (tmp_bics, tmp_bics)
             
         bics_tracker.append(bics)
-        waics_tracker.append(mm.compute_waic2())
+        #waics_tracker.append(mm.compute_waic2())
         num_tracker.append(np.sum(mm.sig_trajs_))
 
         if bics[0] > best_bics[0] and bics[1] > best_bics[1]:
