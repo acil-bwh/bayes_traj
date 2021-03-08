@@ -15,12 +15,12 @@ def main():
     np.set_printoptions(precision = 1, suppress = True, threshold=1e6,
                         linewidth=300)
     
-    desc = """Runs MultDPRegression on the specified data file with the specified
-    predictors and target variables"""
+    desc = """Runs Bayesian trajectory analysis on the specified data file with the 
+    specified predictors and target variables"""
     
     parser = ArgumentParser(description=desc)
     parser.add_argument('--in_csv', help='Input csv file containing data on which \
-        to run MultDPRegression', metavar='<string>', required=True)
+        to run Bayesian trajectory analysis', metavar='<string>', required=True)
     parser.add_argument('--preds', help='Comma-separated list of predictor names. \
         Must appear as column names of the input data file.', dest='preds',
         metavar='<string>', default=None)
