@@ -23,6 +23,18 @@ setup(
     author='James Ross',
     author_email='jross@bwh.harvard.edu',
 
+    scripts=[
+        'bin/bayes_traj_main',
+        'bin/viz_data_prior_draws',
+        'bin/generate_generic_data',
+        'bin/generate_prior'],
+    
+    install_requires=[
+        'provenance-tools',
+        'pandas >= 1.1.1',
+        'numpy >= 1.19.1'
+    ],
+    
     ### Other stuff ...
     classifiers=[
         'Development Status :: 3 - Alpha',
@@ -32,5 +44,9 @@ setup(
         'Programming Language :: Python :: 3',
     ],
 
-    packages = find_packages(),
+    packages = find_packages(include=['bayes_traj_main',
+                                      'viz_data_prior_draws',
+                                      'generate_generic_data',
+                                      'generate_prior',                                    
+                                      'bin/*']),
 )

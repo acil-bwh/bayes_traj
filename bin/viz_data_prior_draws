@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 import numpy as np
 import pandas as pd
 import pdb
@@ -5,7 +7,7 @@ import pickle
 from bayes_traj.utils import *
 import matplotlib.pyplot as plt
 from argparse import ArgumentParser
-from provenance_tools.provenance_tracker import write_provenance_data
+from provenance_tools.write_provenance_data import write_provenance_data
 
 desc = """Produces a scatter plot of the data contained in the input data file
 as well as plots of random draws from the prior. This is useful to inspect 
