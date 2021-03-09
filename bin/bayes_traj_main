@@ -14,7 +14,7 @@ def main():
     """
     np.set_printoptions(precision = 1, suppress = True, threshold=1e6,
                         linewidth=300)
-    
+
     desc = """Runs Bayesian trajectory analysis on the specified data file with the 
     specified predictors and target variables"""
     
@@ -185,7 +185,8 @@ def main():
     
             provenance_desc = """ """
             write_provenance_data(out_file_tmp, generator_args=op,
-                                  desc=provenance_desc)
+                                  desc=provenance_desc,
+                                  module_name='bayes_traj')
         else:
             tmp_bics = mm.bic()
             if type(tmp_bics) == tuple:
@@ -205,7 +206,8 @@ def main():
     
                     provenance_desc = """ """
                     write_provenance_data(out_file, generator_args=op,
-                                          desc=provenance_desc)
+                                          desc=provenance_desc,
+                                          module_name='bayes_traj')
     
                 # TODO: need to indicate column that will be used for merge. This
                 # will be done when moving to DF groupby paradigm
