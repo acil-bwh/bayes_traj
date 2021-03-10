@@ -1321,10 +1321,10 @@ class MultDPRegression:
         else:
             cmap = plt.cm.get_cmap('tab20')
     
-        plt.figure(figsize=(6, 6))        
+        fig, ax = plt.subplots(figsize=(6, 6))
         for (traj_inc, tt) in enumerate(traj_ids):
             ids_tmp = df_traj.traj.values == tt
-            plt.scatter(df_traj[ids_tmp][x_axis].values,
+            ax.scatter(df_traj[ids_tmp][x_axis].values,
                         df_traj[ids_tmp][y_axis].values,
                         edgecolor='k', color=cmap(traj_inc), alpha=0.5)
 
@@ -1334,16 +1334,18 @@ class MultDPRegression:
             co = self.w_mu_[:, target_index, tt]
             y_tmp = np.dot(co, X_tmp.T)
     
-            plt.plot(x_dom, y_tmp, color=cmap(traj_inc), linewidth=3,
+            ax.plot(x_dom, y_tmp, color=cmap(traj_inc), linewidth=3,
                      label='Traj {}'.format(tt))
-            plt.fill_between(x_dom, y_tmp-2*std, y_tmp+2*std,
+            ax.fill_between(x_dom, y_tmp-2*std, y_tmp+2*std,
                              color=cmap(traj_inc), alpha=0.3)
     
-        plt.xlabel(x_axis, fontsize=16)
-        plt.ylabel(y_axis, fontsize=16)    
+        ax.set_xlabel(x_axis, fontsize=16)
+        ax.set_ylabel(y_axis, fontsize=16)    
         plt.tight_layout()
-        plt.legend()
+        ax.legend()
         plt.show()
+
+        return ax
     
 #if __name__ == "__main__":
 #    desc = """Run the multiple Dirichlet Process regression algorithm"""
