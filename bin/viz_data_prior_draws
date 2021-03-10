@@ -52,8 +52,8 @@ if op.prior is not None:
                 prior_data['w_mu0'][m, d] = prior_file_info['w_mu0'][target][pred]
                 prior_data['w_var0'][m, d] = prior_file_info['w_var0'][target][pred]
 
-plt.figure(figsize=(8, 8))                
-plt.scatter(df[op.x_axis].values, df[op.y_axis].values, facecolor='none',
+fig, ax = plt.subplots(figsize=(8, 8))                
+ax.scatter(df[op.x_axis].values, df[op.y_axis].values, facecolor='none',
             edgecolor='k', alpha=0.2)
 
 num_dom_locs = 100
@@ -85,9 +85,9 @@ for nn in range(op.num_draws):
                 
     y_tmp = np.dot(co, X_tmp.T)
 
-    plt.plot(x_dom, y_tmp)
-    plt.fill_between(x_dom, y_tmp-2*std, y_tmp+2*std, alpha=0.3)
+    ax.plot(x_dom, y_tmp)
+    ax.fill_between(x_dom, y_tmp-2*std, y_tmp+2*std, alpha=0.3)
 
-plt.xlabel(op.x_axis)
-plt.ylabel(op.y_axis)
+ax.set_xlabel(op.x_axis, fontsize=16)
+ax.set_ylabel(op.y_axis, fontsize=16)
 plt.show()
