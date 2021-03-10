@@ -1348,7 +1348,9 @@ class MultDPRegression:
         ax.set_ylabel(y_axis, fontsize=16)    
         plt.tight_layout()
         ax.legend()
-        plt.show()
+
+        if show:
+            plt.show()
 
         return ax
     
