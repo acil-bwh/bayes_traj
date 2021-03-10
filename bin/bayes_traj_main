@@ -9,7 +9,8 @@ from bayes_traj.utils import sample_cos
 from provenance_tools.write_provenance_data import write_provenance_data
 import pdb, pickle, sys, warnings
 
-def main():
+#def main():
+if True:
     """
     """
     np.set_printoptions(precision = 1, suppress = True, threshold=1e6,
@@ -23,10 +24,10 @@ def main():
         to run Bayesian trajectory analysis', metavar='<string>', required=True)
     parser.add_argument('--preds', help='Comma-separated list of predictor names. \
         Must appear as column names of the input data file.', dest='preds',
-        metavar='<string>', default=None)
+        metavar='<string>', required=True)
     parser.add_argument('--targets', help='Comma-separated list of target names. \
         Must appear as column names of the input data file.', dest='targets',
-        metavar='<string>', default=None)
+        metavar='<string>', required=True)
     parser.add_argument('--groupby', help='Column name in input data file \
         indicating those data instances that must be in the same trajectory. This \
         is typically a subject identifier (e.g. in the case of a longitudinal data \
@@ -44,12 +45,12 @@ def main():
         settings', metavar='<string>', required=True)
     parser.add_argument('--alpha', help='If specified, over-rides the value in the \
         prior file', dest='alpha', metavar=float, default=None)
-    parser.add_argument('--out_file', help='Pickle file name to which to dump the \
-        result', dest='out_file', metavar='<string>', default=None)
+    parser.add_argument('--out_model', help='Pickle file name to which to dump the \
+        result', dest='out_model', metavar='<string>', default=None)
     parser.add_argument('--iters', help='Number of iterations per repeat attempt',
         dest='iters', metavar='<int>', default=100)
     parser.add_argument('--repeats', help='Number of repeats to attempt',
-        dest='repeats', metavar='<int>', default=100)
+        dest='repeats', metavar='<int>', default=1)
     parser.add_argument('--batch_size', help='The number of subjects that will \
         be used at each iteration. If not specified, all subjects will be used. \
         Specifying less than the total number of subjects can speed convergence.',
@@ -86,13 +87,14 @@ def main():
     targets = op.targets.split(',')
     in_csv = op.in_csv
     prior = op.prior
-    out_file = op.out_file
+    out_model = op.out_model
     probs_weight = op.probs_weight
     
     if probs_weight is not None:
         assert probs_weight >=0 and probs_weight <= 1, \
             "Invalide probs_weight value"
-    
+
+    print("Reading data...")
     df = pd.read_csv(in_csv)
     
     if np.sum(np.isnan(np.sum(df[preds].values, 1))) > 0:
@@ -117,41 +119,30 @@ def main():
     prior_data['lambda_b0'] = np.ones([D])
     prior_data['v_a'] = None
     prior_data['v_b'] = None
-    prior_data['w_mu'] = np.nan*np.ones([M, D, K])
+    prior_data['w_mu'] = None
     prior_data['w_var'] = None
     prior_data['lambda_a'] = None
     prior_data['lambda_b'] = None
-    prior_data['traj_probs'] = None#np.ones(K)/K
+    prior_data['traj_probs'] = None
     
     #------------------------------------------------------------------------------
     # Get priors from file
     #------------------------------------------------------------------------------
-    if prior is not None:
-        with open(prior, 'rb') as f:
-            prior_file_info = pickle.load(f)
+    print("Reading prior...")
+    with open(prior, 'rb') as f:
+        prior_file_info = pickle.load(f)
     
-            prior_data['alpha'] = prior_file_info['alpha']
-            for (d, target) in enumerate(op.targets.split(',')):
-                prior_data['lambda_a0'][d] = prior_file_info['lambda_a0'][target]
-                prior_data['lambda_b0'][d] = prior_file_info['lambda_b0'][target]            
+        prior_data['alpha'] = prior_file_info['alpha']
+        for (d, target) in enumerate(op.targets.split(',')):
+            prior_data['lambda_a0'][d] = prior_file_info['lambda_a0'][target]
+            prior_data['lambda_b0'][d] = prior_file_info['lambda_b0'][target]            
                 
-                for (m, pred) in enumerate(op.preds.split(',')):
-                    prior_data['w_mu0'][m, d] = \
-                        prior_file_info['w_mu0'][target][pred]
-                    prior_data['w_var0'][m, d] = \
-                        prior_file_info['w_var0'][target][pred] 
-    
-    #------------------------------------------------------------------------------
-    # Randomly sample trajectory coefficients if they are not already set in the
-    # prior
-    #------------------------------------------------------------------------------            
-    for k in range(K):
-        for d in range(D):
-            if np.isnan(np.sum(prior_data['w_mu'][:, d, k])):
-                prior_data['w_mu'][:, d, k] = \
-                    sample_cos(prior_data['w_mu0'],
-                               prior_data['w_var0'])[:, d, 0]
-    
+            for (m, pred) in enumerate(op.preds.split(',')):
+                prior_data['w_mu0'][m, d] = \
+                    prior_file_info['w_mu0'][target][pred]
+                prior_data['w_var0'][m, d] = \
+                    prior_file_info['w_var0'][target][pred] 
+        
     if op.alpha is not None:
         prior_data['alpha'] = float(op.alpha)
         
@@ -180,11 +171,11 @@ def main():
                lambda_b=prior_data['lambda_b'], batch_size=op.batch_size)
     
         if op.save_all:
-            out_file_tmp = out_file.split('.')[0] + '_repeat{}.p'.format(r)
-            pickle.dump({'MultDPRegression': mm}, open(out_file_tmp, 'wb'))
+            out_model_tmp = out_model.split('.')[0] + '_repeat{}.p'.format(r)
+            pickle.dump({'MultDPRegression': mm}, open(out_model_tmp, 'wb'))
     
             provenance_desc = """ """
-            write_provenance_data(out_file_tmp, generator_args=op,
+            write_provenance_data(out_model_tmp, generator_args=op,
                                   desc=provenance_desc,
                                   module_name='bayes_traj')
         else:
@@ -201,19 +192,21 @@ def main():
             if bics[0] > best_bics[0] and bics[1] > best_bics[1]:
                 best_bics = bics
     
-                if out_file is not None:
-                    pickle.dump({'MultDPRegression': mm}, open(out_file, 'wb'))
+                if out_model is not None:
+                    pickle.dump({'MultDPRegression': mm}, open(out_model, 'wb'))
     
                     provenance_desc = """ """
-                    write_provenance_data(out_file, generator_args=op,
+                    write_provenance_data(out_model, generator_args=op,
                                           desc=provenance_desc,
                                           module_name='bayes_traj')
     
-                # TODO: need to indicate column that will be used for merge. This
-                # will be done when moving to DF groupby paradigm
-                #if op.out_csv is not None:
-                #    df_traj = mm.to_df()
-                #    df_out = pd.merge()
+                if op.out_csv is not None:
+                    mm.to_df().to_csv(op.out_csv, index=False)
+                    provenance_desc = """ """
+                    write_provenance_data(op.out_csv, generator_args=op,
+                                          desc=provenance_desc,
+                                          module_name='bayes_traj')                    
+                    
                     
             #waic2 = mm.compute_waic2()
             #waics_tracker.append(waic2)
@@ -225,7 +218,7 @@ def main():
             #    provenance_desc = """ """
             #    write_provenance_data(out_file, generator_args=op,
             #                          desc=provenance_desc)
-
-if __name__ == "__main__":
-    main()
+ 
+#if __name__ == "__main__":
+#    main()
         
