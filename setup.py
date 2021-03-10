@@ -32,7 +32,7 @@ setup(
         'bin/generate_prior'],
     
     install_requires=[
-        'provenance-tools',
+        'provenance-tools > 0.0.1',
         'pandas >= 1.1.1',
         'numpy >= 1.19.1'
     ],
