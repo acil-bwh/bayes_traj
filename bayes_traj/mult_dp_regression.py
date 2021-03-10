@@ -1259,7 +1259,7 @@ class MultDPRegression:
         
         return self.df_  
 
-    def plot(self, x_axis, y_axis, which_trajs=None):
+    def plot(self, x_axis, y_axis, which_trajs=None, show=True):
         """Generates a 2D plot of trajectory results. The original data will be
         shown as a scatter plot, color-coded according to trajectory membership.
         Trajectories will be plotted with line plots indicating the expected 
@@ -1283,6 +1283,11 @@ class MultDPRegression:
         which_trajs : int or array, optional
             If specified, only these trajectories will be plotted. If not 
             specified, all trajectories will be plotted.
+
+        show : bool
+            By default, invocation of this function will show the plot. If set
+            to false, the handle to the axes will be returned, but the plot will
+            not be displayed
         """
         df_traj = self.to_df()
             
