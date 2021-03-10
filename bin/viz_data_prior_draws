@@ -23,6 +23,8 @@ parser.add_argument('--y_axis', help='Name of the target variable that will \
     be plotted on the y-axis', type=str, default=None)
 parser.add_argument('--x_axis', help='Name of the predictor variable that will \
     be plotted on the x-axis', type=str, default=None)
+parser.add_argument('--fig_file', help='File name where figure will be saved',
+    type=str, default=None)
 
 op = parser.parse_args()
 
@@ -91,3 +93,11 @@ for nn in range(op.num_draws):
 ax.set_xlabel(op.x_axis, fontsize=16)
 ax.set_ylabel(op.y_axis, fontsize=16)
 plt.show()
+
+if op.fig_file is not None:
+    print("Saving figure...")
+    plt.savefig(op.fig_file)
+    print("Writing provenance info...")
+    write_provenance_data(generator_args=op, desc=""" """,
+                          module_name='bayes_traj')
+    print("DONE.")
