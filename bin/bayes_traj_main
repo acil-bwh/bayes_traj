@@ -49,46 +49,46 @@ if True:
         result', dest='out_model', metavar='<string>', default=None)
     parser.add_argument('--iters', help='Number of iterations per repeat attempt',
         dest='iters', metavar='<int>', default=100)
-    parser.add_argument('--repeats', help='Number of repeats to attempt',
-        dest='repeats', metavar='<int>', default=1)
+#    parser.add_argument('--repeats', help='Number of repeats to attempt',
+ #       dest='repeats', metavar='<int>', default=1)
     parser.add_argument('--batch_size', help='The number of subjects that will \
         be used at each iteration. If not specified, all subjects will be used. \
         Specifying less than the total number of subjects can speed convergence.',
         metavar='<int>', default=None, type=int)
     parser.add_argument('-k', help='Number of columns in the truncated assignment \
-        matrix', metavar='<int>', default=20)
-    parser.add_argument('--waic2_thresh', help='Model will only be written to \
-        file provided that the WAIC2 value is below this threshold',
-        dest='waic2_thresh', metavar='<float>', type=float,
-        default=sys.float_info.max)
-    parser.add_argument('--bic_thresh', help='Model will only be written to \
-        file provided that BIC values are above this threshold',
-        dest='bic_thresh', metavar='<float>', type=float,
-        default=-sys.float_info.max)
-    parser.add_argument("--save_all", help="By default, only the model with the \
-        lowest WAIC score is saved to file. However, if this flag is set a model \
-        file is saved for each repeat. The specified output file name is used \
-        with a 'repeat[n]' appended, where [n] indicates the repeat number.",
-        action="store_true")
+        matrix', metavar='<int>', default=30)
+#    parser.add_argument('--waic2_thresh', help='Model will only be written to \
+#        file provided that the WAIC2 value is below this threshold',
+#        dest='waic2_thresh', metavar='<float>', type=float,
+#        default=sys.float_info.max)
+#    parser.add_argument('--bic_thresh', help='Model will only be written to \
+#        file provided that BIC values are above this threshold',
+#        dest='bic_thresh', metavar='<float>', type=float,
+#        default=-sys.float_info.max)
+#    parser.add_argument("--save_all", help="By default, only the model with the \
+#        highest BIC scores is saved to file. However, if this flag is set a model \
+#        file is saved for each repeat. The specified output file name is used \
+#        with a 'repeat[n]' appended, where [n] indicates the repeat number.",
+#        action="store_true")
     parser.add_argument("--verbose", help="Display per-trajectory counts during \
         optimization", action="store_true")
-    parser.add_argument('--probs_weight', help='Value between 0 and 1 that \
-        controls how much weight to assign to traj_probs, the marginal \
-        probability of observing each trajectory. This value is only meaningful \
-        if traj_probs has been set in the input prior file. Otherwise, it has no \
-        effect. Higher values place more weight on the model-derived probabilities \
-        and reflect a stronger belief in those assignment probabilities.',
-        dest='probs_weight', metavar='<float>', type=float, default=None)
+#    parser.add_argument('--probs_weight', help='Value between 0 and 1 that \
+#        controls how much weight to assign to traj_probs, the marginal \
+#        probability of observing each trajectory. This value is only meaningful \
+#        if traj_probs has been set in the input prior file. Otherwise, it has no \
+#        effect. Higher values place more weight on the model-derived probabilities \
+#        and reflect a stronger belief in those assignment probabilities.',
+#        dest='probs_weight', metavar='<float>', type=float, default=None)
     
     op = parser.parse_args()
     iters = int(op.iters)
-    repeats = int(op.repeats)
+    repeats = 1 #int(op.repeats)
     preds =  op.preds.split(',')
     targets = op.targets.split(',')
     in_csv = op.in_csv
     prior = op.prior
     out_model = op.out_model
-    probs_weight = op.probs_weight
+    probs_weight = None #op.probs_weight
     
     if probs_weight is not None:
         assert probs_weight >=0 and probs_weight <= 1, \
@@ -153,11 +153,15 @@ if True:
     bics_tracker = []
     num_tracker = []
     best_mm = None
-    best_waic2 = op.waic2_thresh
-    best_bics = (op.bic_thresh, op.bic_thresh)
-    for r in np.arange(repeats):    
-        print("---------- Repeat {}, Best BICs: {}, {} ----------".\
-          format(r, best_bics[0], best_bics[1]))
+    #best_waic2 = op.waic2_thresh
+    bic_thresh = -sys.float_info.max
+    best_bics = (bic_thresh, bic_thresh)
+
+    print("Fitting...")
+    for r in np.arange(repeats):
+        if r > 0:
+            print("---------- Repeat {}, Best BICs: {}, {} ----------".\
+                  format(r, best_bics[0], best_bics[1]))
         mm = MultDPRegression(prior_data['w_mu0'], prior_data['w_var0'],
                               prior_data['lambda_a0'], prior_data['lambda_b0'],
                               prior_data['alpha'], K=K)
@@ -170,7 +174,7 @@ if True:
                w_var=prior_data['w_var'], lambda_a=prior_data['lambda_a'],
                lambda_b=prior_data['lambda_b'], batch_size=op.batch_size)
     
-        if op.save_all:
+        if False: #op.save_all:
             out_model_tmp = out_model.split('.')[0] + '_repeat{}.p'.format(r)
             pickle.dump({'MultDPRegression': mm}, open(out_model_tmp, 'wb'))
     
@@ -193,32 +197,28 @@ if True:
                 best_bics = bics
     
                 if out_model is not None:
+                    print("Saving model...")
                     pickle.dump({'MultDPRegression': mm}, open(out_model, 'wb'))
-    
+
+                    print("Saving model provenance info...")
                     provenance_desc = """ """
                     write_provenance_data(out_model, generator_args=op,
                                           desc=provenance_desc,
                                           module_name='bayes_traj')
     
                 if op.out_csv is not None:
+                    print("Saving data file with trajectory info...")
                     mm.to_df().to_csv(op.out_csv, index=False)
+
+                    print("Saving data file provenance info...")
                     provenance_desc = """ """
                     write_provenance_data(op.out_csv, generator_args=op,
                                           desc=provenance_desc,
                                           module_name='bayes_traj')                    
                     
                     
-            #waic2 = mm.compute_waic2()
-            #waics_tracker.append(waic2)
-            #if waic2 < best_waic2:
-            #    best_waic2 = waic2
-            #    best_mm = mm
-            #    pickle.dump({'MultDPRegression': mm}, open(out_file, 'wb'))
-            # 
-            #    provenance_desc = """ """
-            #    write_provenance_data(out_file, generator_args=op,
-            #                          desc=provenance_desc)
- 
+    print("DONE.")
+    
 #if __name__ == "__main__":
 #    main()
         
