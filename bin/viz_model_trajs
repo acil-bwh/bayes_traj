@@ -30,12 +30,15 @@ with open(op.model, 'rb') as f:
         'x-axis variable not among model predictor variables'
     assert op.y_axis in mm.target_names_, \
         'y-axis variable not among model target variables'
-
+    
+    show = op.fig_file is None
+    
     if op.trajs is not None:
-        ax = mm.plot(op.x_axis, op.y_axis, np.array(op.trajs.split(','),
-                                                    dtype=int))
+        ax = mm.plot(op.x_axis, op.y_axis,
+                     np.array(op.trajs.split(','), dtype=int),
+                     show)
     else:            
-        ax = mm.plot(op.x_axis, op.y_axis)
+        ax = mm.plot(op.x_axis, op.y_axis, show)
     
     if op.fig_file is not None:
         print("Saving figure...")
