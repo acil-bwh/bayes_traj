@@ -77,7 +77,7 @@ for tp in op.traj_params:
         df_tmp['id'] = str(subj_inc)
         df_tmp['data_names'] = [str(subj_inc) + '_' + \
                                 str(j) for j in range(ages.shape[0])]
-        df_tmp['traj'] = traj_inc
+        df_tmp['traj_gt'] = traj_inc
 
         for i, dd in enumerate(traj_dim_cos):
             cos = np.array(dd.strip('<').strip('>').split(',')[0:3],
@@ -99,7 +99,7 @@ else:
 fig, axs = plt.subplots(1, D, figsize=(6*D, 6))
 for d in range(D):
     for tt in range(traj_inc):
-        ids = df_out.traj.values == tt+1
+        ids = df_out.traj_gt.values == tt+1
         num_in_traj = df_out[ids].groupby('id').ngroups
         if D > 1:
             axs[d].scatter(df_out[ids].age.values,
