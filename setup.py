@@ -26,6 +26,7 @@ setup(
     scripts=[
         'bin/bayes_traj_main',
         'bin/viz_data_prior_draws',
+        'bin/viz_model_trajs',        
         'bin/generate_generic_data',
         'bin/generate_prior'],
     
@@ -46,6 +47,7 @@ setup(
 
     packages = find_packages(include=['bayes_traj_main',
                                       'viz_data_prior_draws',
+                                      'viz_model_trajs',                                      
                                       'generate_generic_data',
                                       'generate_prior',                                    
                                       'bin/*']),
