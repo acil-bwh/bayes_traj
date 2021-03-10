@@ -8,7 +8,8 @@ import numpy as np
 import pdb
 from provenance_tools.write_provenance_data import write_provenance_data
 
-desc = """ """
+desc = """Generates a pickled file containing Bayesian trajectory prior 
+information"""
 
 parser = ArgumentParser(description=desc)
 parser.add_argument('--preds', help='Comma-separated list of predictor names',
@@ -20,17 +21,17 @@ parser.add_argument('--out_file', help='Output (pickle) file that will \
 parser.add_argument('-k', help='Number of columns in the truncated assignment \
     matrix', metavar='<int>', default=20)
 parser.add_argument('--tar_resid', help='Residual standard deviation prior \
-    value for specified target. Specify as a comman-separated tuple:  \
+    value for specified target. Specify as a comma-separated tuple:  \
     target_name,mean,std. Here, mean is the expected value of the residual \
     standard deviation, and std reflects the strength of the prior (lower \
     values indicate more confidence in the mean value)', type=str,
     default=None, action='append', nargs='+')
 parser.add_argument('--coef', help='Coefficient prior for a specified \
-    target and predictor. Specify as a comman-separated tuple: \
+    target and predictor. Specify as a comma-separated tuple: \
     target_name,predictor_name,mean,std', type=str,
     default=None, action='append', nargs='+')
 parser.add_argument('--coef_std', help='Coefficient prior standard deviation \
-    for a specified target and predictor. Specify as a comman-separated tuple: \
+    for a specified target and predictor. Specify as a comma-separated tuple: \
     target_name,predictor_name,std', type=str, default=None,
     action='append', nargs='+')
 parser.add_argument('--in_data', help='If a data file is specified, it will be \
