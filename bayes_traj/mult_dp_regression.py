@@ -229,9 +229,10 @@ class MultDPRegression:
         self.Y_ = df[list(target_names)].values        
 
         self.gb_ = None
+        self.df_ = df
         if groupby is not None:
-            self.gb_ = df.groupby(groupby)
-        
+            self.gb_ = df[[groupby]].groupby(groupby)
+            
         assert len(set(target_names)) == len(target_names), \
             "Duplicate target name found"
         self.target_names_ = target_names
@@ -1235,40 +1236,28 @@ class MultDPRegression:
         return lower_bound
 
     def to_df(self):
-        """Converts the current model to a pandas data frame, with columns
-        indicating trajectory membership.
+        """Adds to the current data frame columns containing trajectory 
+        assignments and probabilities.
 
         Returns
         -------
         df : Pandas dataframe
             Column 'traj' contains integer values indicating which trajectory
-            the data instance belongs to. 'traj_*' contain actual
-            probabilities that the data instance belongs to a particular
-            trajectory.
+            the data instance belongs to. If the current data frame already has 
+            a 'traj' column, the new columns will be called 'traj_'. 'traj_*' 
+            contain actual probabilities that the data instance belongs to a 
+            particular trajectory.
         """
-        tmp_dict = {}
-        for i, n in enumerate(self.predictor_names_):
-            tmp_dict[n] = pd.Series(self.X_[:, i])
-
-        for i, n in enumerate(self.target_names_):
-            tmp_dict[n] = pd.Series(self.Y_[:, i])
-
-        df = pd.DataFrame(tmp_dict)
-
         traj = []
         for i in range(0, self.R_.shape[0]):
-            traj.append(where(max(self.R_[i, :]) == self.R_[i, :])[0][0])
+            traj.append(where(max(self.R_[i, :]) == self.R_[i, :])[0][0]) 
 
-        df = df.assign(traj=pd.Series(traj, index=df.index))
+        self.df_['traj'] = traj
 
-        traj_ids = np.where(np.max(self.R_, 0) > self.prob_thresh_)[0]
-        for tt in traj_ids:
-            df = df.assign(tmp_col_name = pd.Series(self.R_[:, tt],
-                index=df.index))
-            df.rename(columns={'tmp_col_name' : 'traj_' + str(tt)},
-                inplace=True)
-
-        return df
+        for s in np.where(self.sig_trajs_)[0]:
+            self.df_['traj_{}'.format(s)] = self.R_[:, s]
+        
+        return self.df_  
 
     def plot(self, x_axis, y_axis, which_trajs=None):
         """Generates a 2D plot of trajectory results. The original data will be
@@ -1306,21 +1295,18 @@ class MultDPRegression:
     
         X_tmp = np.ones([num_dom_locs, self.M_])
         for (inc, pp) in enumerate(self.predictor_names_):
-            if pp == 'intercept':
-                pass
-            else:
-                tmp = pp.split('^')
+            tmp = pp.split('^')
                 
-                if len(tmp) > 1:
-                    if x_axis in tmp:                
-                        X_tmp[:, inc] = x_dom**(int(tmp[-1]))
-                    else:                
-                        X_tmp[:, inc] = np.mean(df_traj[tmp[0]].values)**\
-                            (int(tmp[-1]))
-                elif pp == x_axis:
-                    X_tmp[:, inc] = x_dom
-                else:
-                    X_tmp[:, inc] = np.nanmean(df_traj[tmp[0]].values)
+            if len(tmp) > 1:
+                if x_axis in tmp:                
+                    X_tmp[:, inc] = x_dom**(int(tmp[-1]))
+                else:                
+                    X_tmp[:, inc] = np.mean(df_traj[tmp[0]].values)**\
+                        (int(tmp[-1]))
+            elif pp == x_axis:
+                X_tmp[:, inc] = x_dom
+            else:
+                X_tmp[:, inc] = np.nanmean(df_traj[tmp[0]].values)
     
         if which_trajs is not None:
             if type(which_trajs) == int:

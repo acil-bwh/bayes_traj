@@ -71,20 +71,17 @@ for nn in range(op.num_draws):
 
     X_tmp = np.ones([num_dom_locs, M])
     for (inc, pp) in enumerate(preds):
-        if pp == 'intercept':
-            pass
-        else:
-            tmp = pp.split('^')
+        tmp = pp.split('^')
             
-            if len(tmp) > 1:
-                if op.x_axis in tmp:                
-                    X_tmp[:, inc] = x_dom**(int(tmp[-1]))
-                else:                
-                    X_tmp[:, inc] = np.mean(df[tmp[0]].values)**(int(tmp[-1]))
-            elif pp == op.x_axis:
-                X_tmp[:, inc] = x_dom
-            else:
-                X_tmp[:, inc] = np.mean(df[tmp[0]].values)
+        if len(tmp) > 1:
+            if op.x_axis in tmp:                
+                X_tmp[:, inc] = x_dom**(int(tmp[-1]))
+            else:                
+                X_tmp[:, inc] = np.mean(df[tmp[0]].values)**(int(tmp[-1]))
+        elif pp == op.x_axis:
+            X_tmp[:, inc] = x_dom
+        else:
+            X_tmp[:, inc] = np.mean(df[tmp[0]].values)
                 
     y_tmp = np.dot(co, X_tmp.T)
 
@@ -94,8 +91,3 @@ for nn in range(op.num_draws):
 plt.xlabel(op.x_axis)
 plt.ylabel(op.y_axis)
 plt.show()
-
-
-
-
-
