@@ -36,9 +36,9 @@ with open(op.model, 'rb') as f:
     if op.trajs is not None:
         ax = mm.plot(op.x_axis, op.y_axis,
                      np.array(op.trajs.split(','), dtype=int),
-                     show)
+                     show=show)
     else:            
-        ax = mm.plot(op.x_axis, op.y_axis, show)
+        ax = mm.plot(op.x_axis, op.y_axis, show=show)
     
     if op.fig_file is not None:
         print("Saving figure...")
