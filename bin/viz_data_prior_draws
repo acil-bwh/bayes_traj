@@ -92,7 +92,6 @@ for nn in range(op.num_draws):
 
 ax.set_xlabel(op.x_axis, fontsize=16)
 ax.set_ylabel(op.y_axis, fontsize=16)
-plt.show()
 
 if op.fig_file is not None:
     print("Saving figure...")
@@ -101,3 +100,5 @@ if op.fig_file is not None:
     write_provenance_data(op.fig_file, generator_args=op, desc=""" """,
                           module_name='bayes_traj')
     print("DONE.")
+else:
+    plt.show()
