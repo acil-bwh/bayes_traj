@@ -28,6 +28,7 @@ setup(
         'bin/viz_data_prior_draws',
         'bin/viz_model_trajs',        
         'bin/generate_generic_data',
+        'bin/summarize_traj_model',
         'bin/generate_prior'],
     
     install_requires=[
@@ -49,6 +50,7 @@ setup(
                                       'viz_data_prior_draws',
                                       'viz_model_trajs',                                      
                                       'generate_generic_data',
-                                      'generate_prior',                                    
+                                      'generate_prior',
+                                      'summarize_traj_model',
                                       'bin/*']),
 )
