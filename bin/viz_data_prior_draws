@@ -98,6 +98,6 @@ if op.fig_file is not None:
     print("Saving figure...")
     plt.savefig(op.fig_file)
     print("Writing provenance info...")
-    write_provenance_data(generator_args=op, desc=""" """,
+    write_provenance_data(op.fig_file, generator_args=op, desc=""" """,
                           module_name='bayes_traj')
     print("DONE.")
