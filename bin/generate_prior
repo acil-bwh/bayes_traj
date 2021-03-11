@@ -8,6 +8,63 @@ import numpy as np
 import pdb
 from provenance_tools.write_provenance_data import write_provenance_data
 
+def prior_info_from_model(target_name, mm, prior_info):
+    """This function estimates prior values from draws of the specified model
+    posterior. Estimates are made for a specific target variable. The assumption
+    is the model's predictors and the predictor set for which estimates are
+    desired are the same.
+
+    Parameters
+    ----------
+    target_name : str
+        Name of the target variable for which predictor prior values will be 
+        estimated.
+
+    mm : MultDPRegression instance
+        Trajectory model containing a fit to data. The trajectories in this 
+        model will be used to estimate the prior values.
+
+    prior_info : dict
+        Prior data structure that will be updated by this function
+    """
+    assert set(prior_info['w_mu0'][target_name].keys()) == \
+        set(mm.predictor_names_), "Predictor name mismatch"
+
+    traj_ids = np.where(mm.sig_trajs_)[0]
+    traj_probs = np.sum(mm.R_, 0)/np.sum(mm.R_)
+    
+    num_traj_samples = np.random.multinomial(10000, traj_probs)
+
+    model_target_index = \
+        np.where(np.array(mm.target_names_, dtype=str) == target_name)[0][0]
+    
+    for m in range(mm.M_):
+        samples = []
+        for t in traj_ids:
+            samples.append(mm.w_mu_[m, model_target_index, t] + \
+                           np.sqrt(mm.w_var_[m, model_target_index, t])*\
+                           np.random.randn(num_traj_samples[t]))
+
+            prior_info['w_mu0'][target_name][mm.predictor_names_[m]] = \
+                np.mean(np.hstack(samples))
+            prior_info['w_var0'][target_name][mm.predictor_names_[m]] = \
+                np.var(np.hstack(samples))  
+
+    # For precision parameters, we'll use a similar sample-based procedure as
+    # was done for the coefficients
+    samples = []
+    for t in traj_ids:
+        scale_tmp = 1./mm.lambda_b_[model_target_index, t]
+        shape_tmp = mm.lambda_a_[model_target_index, t]
+        samples.append(np.random.gamma(shape_tmp, scale_tmp,
+                                       num_traj_samples[t]))
+
+        prior_info['lambda_a0'][target_name] = \
+            np.mean(np.hstack(samples))**2/np.var(np.hstack(samples))
+        prior_info['lambda_b0'][target_name] = \
+	    np.mean(np.hstack(samples))/np.var(np.hstack(samples))
+
+            
 desc = """Generates a pickled file containing Bayesian trajectory prior 
 information"""
 
@@ -41,6 +98,9 @@ parser.add_argument('--in_data', help='If a data file is specified, it will be \
     type=str, default=None)
 parser.add_argument('--num_trajs', help='Rough estimate of the number of \
     trajectories expected in the data set.', type=int, default=2)
+parser.add_argument('--model', help='Pickled bayes_traj model that \
+      has been fit to data and from which information will be extracted to \
+      produce an updated prior file', type=str, default=None)
 
 op = parser.parse_args()
 
@@ -51,6 +111,9 @@ D = len(targets)
 M = len(preds)
 K = float(op.k)
 
+#-------------------------------------------------------------------------------
+# Initialize prior info
+#-------------------------------------------------------------------------------
 prior_info = {}
 
 prior_info['w_mu0'] = {}
@@ -71,7 +134,29 @@ for tt in targets:
 # Guesstimate of how big a data sample. Will be used to generate an estimate of
 # alpha. Will be overwritten if a data file has been specified.
 N = 10000
+prior_info['alpha'] = op.num_trajs/np.log10(N)
 
+#-------------------------------------------------------------------------------
+# If a model has been specified, use it to set prior values
+#-------------------------------------------------------------------------------
+if op.model is not None:
+    with open(op.model, 'rb') as f:
+        mm = pickle.load(f)['MultDPRegression']
+
+    if mm.gb_ is not None:
+        prior_info['alpha'] = np.sum(mm.sig_trajs_)/np.log10(mm.gb_.ngroups)
+    else:
+        prior_info['alpha'] = np.sum(mm.sig_trajs_)/np.log10(mm.N_)
+        
+    if set(mm.predictor_names_) == set(preds):
+        for tt in targets:
+            if tt in mm.targets_:
+                prior_info_from_model(tt, mm, prior_info)
+            
+
+#-------------------------------------------------------------------------------
+# If a data file has been specified
+#-------------------------------------------------------------------------------
 if op.in_data is not None:
     df = pd.read_csv(op.in_data)
     N = df.shape[0]
@@ -95,7 +180,11 @@ if op.in_data is not None:
                 
 # Generate a rough estimate of alpha
 prior_info['alpha'] = op.num_trajs/np.log10(N)
-            
+
+
+#-------------------------------------------------------------------------------
+# Override prior settings with user-specified preferences
+#-------------------------------------------------------------------------------
 if op.tar_resid is not None:
     for i in range(len(op.tar_resid)):
         tt = op.tar_resid[i][0].split(',')[0]
@@ -132,6 +221,9 @@ if op.coef_std is not None:
 
         prior_info['w_var0'][tt][pp] = s**2
 
+#-------------------------------------------------------------------------------
+# Summarize prior info and save to file
+#-------------------------------------------------------------------------------        
 print('---------- Prior Info ----------')
 print('alpha: {}'.format(prior_info['alpha']))        
 for tt in targets:
