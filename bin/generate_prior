@@ -150,7 +150,7 @@ if op.model is not None:
         
     if set(mm.predictor_names_) == set(preds):
         for tt in targets:
-            if tt in mm.targets_names_:
+            if tt in mm.target_names_:
                 prior_info_from_model(tt, mm, prior_info)
             
 
