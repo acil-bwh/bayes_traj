@@ -1190,7 +1190,7 @@ class MultDPRegression:
         X = df_[self.predictor_names_].values
 
         gb = None
-        if groupy is not None:
+        if groupby is not None:
             gb = df_.groupby(groupby)
         
         traj_probs = np.sum(self.R_, 0)/np.sum(self.R_)
