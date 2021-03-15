@@ -1094,9 +1094,9 @@ class MultDPRegression:
             warnings.warn("Initial trajectory probabilities sum to {}. \
             Alpha may be too high.".format(np.sum(init_traj_probs)))
         
-        self.R_ = self.predict_proba(self.X_, self.Y_, init_traj_probs)
+        self.R_ = self.predict_proba_(self.X_, self.Y_, init_traj_probs)
 
-    def predict_proba(self, X, Y, traj_probs=None):
+    def predict_proba_(self, X, Y, traj_probs=None):
         """Compute the probability that each data instance belongs to each of
         the 'k' clusters. Note that 'X' and 'Y' can be "new" data; that is,
         data that was not necessarily used to train the model.
@@ -1161,6 +1161,79 @@ class MultDPRegression:
         
         return R
 
+    def augment_df_with_traj_info(self, target_names, predictor_names, df,
+                                  groupby=None):
+        """Compute the probability that each data instance belongs to each of
+        the 'k' clusters. Note that 'X' and 'Y' can be "new" data; that is,
+        data that was not necessarily used to train the model.
+
+        Parameters
+        ----------
+
+        Returns
+        -------
+        R : array, shape ( N, K )
+            Each element of this matrix represents the probability that
+            instance 'n' belongs to cluster 'k'.
+        """
+        df_ = pd.DataFrame(df)
+        
+        N = df_.shape[0]
+        D = len(target_names)
+
+        assert set(target_names) == set(self.target_names_), \
+            "Target name discrepancy"
+        assert set(predictor_names) == set(self.predictor_names_), \
+            "Predictor name discrepancy"
+
+        Y = df_[self.target_names_].values
+        X = df_[self.predictor_names_].values
+
+        gb = None
+        if groupy is not None:
+            gb = df_.groupby(groupby)
+        
+        traj_probs = np.sum(self.R_, 0)/np.sum(self.R_)
+            
+        R_tmp = np.ones([N, self.K_])
+        for k in range(self.K_):
+            for d in range(D):
+                ids = ~np.isnan(Y[:, d])
+                var_tmp = self.lambda_b_[d, k]/self.lambda_a_[d, k]
+                mu_tmp = np.dot(X, self.w_mu_[:, d, k])
+
+                R_tmp[ids, k] *= (1/(np.sqrt(2*np.pi*var_tmp)))*\
+                    np.exp(-((Y[ids, d] - mu_tmp[ids])**2)/(2*var_tmp))
+            R_tmp[:, k] *= traj_probs[k]
+
+        zero_ids = np.sum(R_tmp, 1) == 0
+        R_tmp[zero_ids] = np.ones([np.sum(zero_ids), self.K_])/self.K_
+        R = np.array((R_tmp.T/np.sum(R_tmp, 1)).T)
+        
+        # Within a group, all data instances must have the same probability of
+        # belonging to each of the K trajectories
+        if gb is not None:
+            for g in gb.groups.keys():
+                tmp_ids = gb.get_group(g).index.values
+                tmp_vec = np.sum(np.log(R[tmp_ids, :] + \
+                                        np.finfo(float).tiny), 0)
+                vec = np.exp(tmp_vec + 700 - np.max(tmp_vec))
+                vec = vec/np.sum(vec)
+
+                # Now update the rows of 'normalized_mat'.
+                R[tmp_ids, :] = vec                
+
+        # Now augment the data frame with trajectory info
+        traj = []
+        for i in range(N):
+            traj.append(np.where(np.max(R[i, :]) == R[i, :])[0][0])
+        df_['traj'] = traj
+
+        for s in np.where(self.sig_trajs_)[0]:
+            df_['traj_{}'.format(s)] = R[:, s]
+
+        return df_
+            
     def compute_lower_bound(self):
         """Compute the variational lower bound
 
