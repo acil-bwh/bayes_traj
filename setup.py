@@ -15,7 +15,7 @@ with open(path.join(here, 'README.md'), encoding='utf-8') as f:
 
 setup(
     name='bayes_traj',
-    version='0.0.1',
+    version='0.0.2',
     description='bayes_traj',
     long_description=long_description,
     long_description_content_type='text/markdown',
@@ -32,7 +32,7 @@ setup(
         'bin/generate_prior'],
     
     install_requires=[
-        'provenance-tools >= 0.0.1',
+        'provenance-tools >= 0.0.2',
         'pandas >= 1.1.1',
         'numpy >= 1.19.1'
     ],
