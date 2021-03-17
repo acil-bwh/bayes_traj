@@ -1353,7 +1353,8 @@ class MultDPRegression:
         
         return self.df_  
 
-    def plot(self, x_axis, y_axis, which_trajs=None, show=True):
+    def plot(self, x_axis, y_axis, which_trajs=None, show=True,
+             min_traj_prob=0, max_traj_prob=1):
         """Generates a 2D plot of trajectory results. The original data will be
         shown as a scatter plot, color-coded according to trajectory membership.
         Trajectories will be plotted with line plots indicating the expected 
@@ -1382,7 +1383,29 @@ class MultDPRegression:
             By default, invocation of this function will show the plot. If set
             to false, the handle to the axes will be returned, but the plot will
             not be displayed
+
+        min_traj_prob : float
+            The probability of a given trajectory must be at least this value in
+            order to be rendered. Value should be between 0 and 1 inclusive.
+
+        max_traj_prob : float
+            The probability of a given trajectory can not be larger than this 
+            value in order to be rendered. Value should be between 0 and 1 
+            inclusive.
         """
+        # Compute the probability vector for each trajectory
+
+        if self.gb_ is not None:
+            num_individuals = self.gb_.ngroups
+            R_per_individual = np.zeros([self.gb_.ngroups, self.K_])
+            for (ii, kk) in enumerate(self.gb_.groups.keys()):
+                tmp_index = self.gb_.get_group(kk).index[0]
+                R_per_individual[ii, :] = self.R_[tmp_index, :]
+            traj_prob_vec = np.sum(R_per_individual, 0)/np.sum(R_per_individual)
+        else:
+            num_individuals = self.N_
+            traj_prob_vec = np.sum(mm.R_, 0)/np.sum(mm.R_)
+        
         df_traj = self.to_df()
             
         num_dom_locs = 100
@@ -1421,23 +1444,33 @@ class MultDPRegression:
             cmap = plt.cm.get_cmap('tab20')
     
         fig, ax = plt.subplots(figsize=(6, 6))
-        for (traj_inc, tt) in enumerate(traj_ids):
-            ids_tmp = df_traj.traj.values == tt
-            ax.scatter(df_traj[ids_tmp][x_axis].values,
-                        df_traj[ids_tmp][y_axis].values,
-                        edgecolor='k', color=cmap(traj_inc), alpha=0.5)
+        ax.scatter(df_traj[x_axis].values,
+                   df_traj[y_axis].values,
+                   edgecolor='k', color='None', alpha=0.1)
 
-            std = np.sqrt(self.lambda_b_[target_index][tt]/\
-                          self.lambda_a_[target_index][tt])
+        for (traj_inc, tt) in enumerate(traj_ids):
+            if traj_prob_vec[tt] >= min_traj_prob and \
+               traj_prob_vec[tt] <= max_traj_prob:
+                
+                ids_tmp = df_traj.traj.values == tt
+                ax.scatter(df_traj[ids_tmp][x_axis].values,
+                            df_traj[ids_tmp][y_axis].values,
+                            edgecolor='k', color=cmap(traj_inc), alpha=0.5)
+
+                std = np.sqrt(self.lambda_b_[target_index][tt]/\
+                              self.lambda_a_[target_index][tt])
             
-            co = self.w_mu_[:, target_index, tt]
-            y_tmp = np.dot(co, X_tmp.T)
-    
-            ax.plot(x_dom, y_tmp, color=cmap(traj_inc), linewidth=3,
-                     label='Traj {}'.format(tt))
-            ax.fill_between(x_dom, y_tmp-2*std, y_tmp+2*std,
-                             color=cmap(traj_inc), alpha=0.3)
-    
+                co = self.w_mu_[:, target_index, tt]
+                y_tmp = np.dot(co, X_tmp.T)
+
+                n_traj = int(traj_prob_vec[tt]*num_individuals)
+                perc_traj = traj_prob_vec[tt]*100
+                ax.plot(x_dom, y_tmp, color=cmap(traj_inc), linewidth=3,
+                         label='Traj {} (N={}, {:.1f}%)'.\
+                        format(tt, n_traj, perc_traj))
+                ax.fill_between(x_dom, y_tmp-2*std, y_tmp+2*std,
+                                 color=cmap(traj_inc), alpha=0.3)
+
         ax.set_xlabel(x_axis, fontsize=16)
         ax.set_ylabel(y_axis, fontsize=16)    
         plt.tight_layout()
