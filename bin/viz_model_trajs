@@ -19,6 +19,12 @@ parser.add_argument('--x_axis', help='Name of the predictor variable that will \
 parser.add_argument('--trajs', help='Comma-separated list of trajectories to \
     plot. If none specified, all trajectories will be plotted.', type=str,
     default=None)
+parser.add_argument('--min_traj_prob', help='The probability of a given \
+    trajectory must be at least this value in order to be rendered. Value \
+    should be between 0 and 1 inclusive.', type=float, default=0)
+parser.add_argument('--max_traj_prob', help='The probability of a given \
+    trajectory can not be larger than this value in order to be rendered. \
+    Value should be between 0 and 1 inclusive.', type=float, default=1)
 parser.add_argument('--fig_file', help='If specified, will save the figure to \
     file.', type=str, default=None)
 
@@ -36,9 +42,12 @@ with open(op.model, 'rb') as f:
     if op.trajs is not None:
         ax = mm.plot(op.x_axis, op.y_axis,
                      np.array(op.trajs.split(','), dtype=int),
-                     show=show)
+                     show=show, min_traj_prob=op.min_traj_prob,
+                     max_traj_prob=op.max_traj_prob)
     else:            
-        ax = mm.plot(op.x_axis, op.y_axis, show=show)
+        ax = mm.plot(op.x_axis, op.y_axis, show=show,
+                     min_traj_prob=op.min_traj_prob,
+                     max_traj_prob=op.max_traj_prob)
     
     if op.fig_file is not None:
         print("Saving figure...")
