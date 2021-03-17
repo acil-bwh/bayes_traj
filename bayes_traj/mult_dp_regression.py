@@ -1006,8 +1006,24 @@ class MultDPRegression:
     
                 # Now update the rows of 'normalized_mat'.
                 R[tmp_ids, :] = vec                
-    
-        top_indices = np.argsort(-np.sum(R, 0))[0:self.K_]
+
+        # By using R_sel here, we are preferring sets of trajectories that
+        # tend not to be redundant. E.g. consider a matrix where each
+        # trajectory has equal probability vs the scenario where each
+        # instance is assigned to some trajectory with high probability. It
+        # may be the case that both of these matrices, when summed across rows
+        # equal the same sum vector, but we prefer the latter case. If we
+        # did not do this little trick, then as the number of predictors and
+        # targets grew, the set of selected trajectories would tend toward
+        # the average trajectory, with each data instance having approximately
+        # the probability of belonging to each those -- approximately the same
+        # -- trajectories.
+        R_sel = np.zeros([self.N_, tmp_K])
+        for i in range(self.N_):
+            col = np.where(R[i, :] == np.max(R[i, :]))[0][0]
+            R_sel[i, col] = R[i, col]
+                
+        top_indices = np.argsort(-np.sum(R_sel, 0))[0:self.K_]        
         
         return w_mu[:, :, top_indices]
         
@@ -1037,8 +1053,13 @@ class MultDPRegression:
         if num_param_levels**(self.M_*self.D_) < self.K_:
             num_param_levels = \
                 int(np.ceil(10**(np.log10(self.K_)/(self.D_*self.M_))))
-        
-        for m in range(self.M_):
+
+        # Loop over the predictors in reverse order. This is because, typically,
+        # users list predictors from lowest to highest order (e.g. intercept
+        # first, then slope, etc). Looping over predictors in reverse order
+        # better ensures that we get a healthy spread of trajectories for the
+        # lower order predictors
+        for m in range(self.M_-1, -1, -1):
             for d in range(self.D_):
                 cos = np.linspace(self.w_mu0_[m, d] - \
                                   3*np.sqrt(self.w_var0_[m, d]),
