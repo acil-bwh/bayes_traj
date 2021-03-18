@@ -1049,22 +1049,20 @@ class MultDPRegression:
         w_mu_tmp = np.zeros([self.M_, self.D_, 1])
         w_mu_tmp[:, :, 0] = self.w_mu0_
                     
-        num_param_levels = 9
+        num_param_levels = 5
         if num_param_levels**(self.M_*self.D_) < self.K_:
             num_param_levels = \
                 int(np.ceil(10**(np.log10(self.K_)/(self.D_*self.M_))))
 
-        # Loop over the predictors in reverse order. This is because, typically,
-        # users list predictors from lowest to highest order (e.g. intercept
-        # first, then slope, etc). Looping over predictors in reverse order
-        # better ensures that we get a healthy spread of trajectories for the
-        # lower order predictors
-        for m in range(self.M_-1, -1, -1):
-            for d in range(self.D_):
+        # Permute predictor and target indices. This is to further sample the
+        # space of possible trajectories (given multipler restarts) on
+        # initializeation
+        for m in np.random.permutation(range(self.M_)):
+            for d in np.random.permutation(range(self.D_)):
                 cos = np.linspace(self.w_mu0_[m, d] - \
-                                  3*np.sqrt(self.w_var0_[m, d]),
+                                  2*np.sqrt(self.w_var0_[m, d]),
                                   self.w_mu0_[m, d] + \
-                                  3*np.sqrt(self.w_var0_[m, d]),
+                                  2*np.sqrt(self.w_var0_[m, d]),
                                   num_param_levels)        
                 w_mu_tmp = self.expand_mat(w_mu_tmp, m, d, cos)
                 if w_mu_tmp.shape[2] > self.K_:
