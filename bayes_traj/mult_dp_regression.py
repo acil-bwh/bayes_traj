@@ -1056,13 +1056,16 @@ class MultDPRegression:
 
         # Permute predictor and target indices. This is to further sample the
         # space of possible trajectories (given multipler restarts) on
-        # initializeation
+        # initializeation. Also randomly sample (low and high) the range over
+        # which cos are chosen to further jitter the initialization
         for m in np.random.permutation(range(self.M_)):
             for d in np.random.permutation(range(self.D_)):
+                low = np.random.uniform(1.7, 2.3)
+                high = np.random.uniform(1.7, 2.3)
                 cos = np.linspace(self.w_mu0_[m, d] - \
-                                  2*np.sqrt(self.w_var0_[m, d]),
+                                  low*np.sqrt(self.w_var0_[m, d]),
                                   self.w_mu0_[m, d] + \
-                                  2*np.sqrt(self.w_var0_[m, d]),
+                                  high*np.sqrt(self.w_var0_[m, d]),
                                   num_param_levels)        
                 w_mu_tmp = self.expand_mat(w_mu_tmp, m, d, cos)
                 if w_mu_tmp.shape[2] > self.K_:
