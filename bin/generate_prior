@@ -76,7 +76,8 @@ def prior_info_from_df_traj(df_traj, target_name, preds, prior_info):
     prev = 0
     resids = np.zeros(df_traj.shape[0])
     for (i, t) in enumerate(traj_ids):
-        ids = df_traj.traj.values == t
+        ids = (df_traj.traj.values == t) & \
+            ~np.isnan(df_traj[target_name].values)
         res_tmp = sm.OLS(df_traj[ids][target_name], df_traj[ids][preds],
                          missing='drop').fit()
         
