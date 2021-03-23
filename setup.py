@@ -43,8 +43,7 @@ setup(
     install_requires=[
         'provenance-tools >= 0.0.3',
         'pandas >= 1.1.1',
-        'numpy >= 1.19.1',
-        'gitpython'
+        'numpy >= 1.19.1'
     ],
     
     ### Other stuff ...
