@@ -13,9 +13,18 @@ here = path.abspath(path.dirname(__file__))
 with open(path.join(here, 'README.md'), encoding='utf-8') as f:
     long_description = f.read()
 
+packages = find_packages(include=['bayes_traj_main',
+                                  'viz_data_prior_draws',
+                                  'viz_model_trajs',                                      
+                                  'generate_generic_data',
+                                  'generate_prior',
+                                  'summarize_traj_model',
+                                  'bin/*'])
+packages.append('bayes_traj')
+
 setup(
     name='bayes_traj',
-    version='0.0.2',
+    version='0.0.3',
     description='bayes_traj',
     long_description=long_description,
     long_description_content_type='text/markdown',
@@ -32,7 +41,7 @@ setup(
         'bin/generate_prior'],
     
     install_requires=[
-        'provenance-tools >= 0.0.2',
+        'provenance-tools >= 0.0.3',
         'pandas >= 1.1.1',
         'numpy >= 1.19.1'
     ],
@@ -46,11 +55,5 @@ setup(
         'Programming Language :: Python :: 3',
     ],
 
-    packages = find_packages(include=['bayes_traj_main',
-                                      'viz_data_prior_draws',
-                                      'viz_model_trajs',                                      
-                                      'generate_generic_data',
-                                      'generate_prior',
-                                      'summarize_traj_model',
-                                      'bin/*']),
+    packages=packages,
 )
