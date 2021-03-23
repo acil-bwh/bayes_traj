@@ -24,7 +24,7 @@ packages.append('bayes_traj')
 
 setup(
     name='bayes_traj',
-    version='0.0.3',
+    version='0.0.4',
     description='bayes_traj',
     long_description=long_description,
     long_description_content_type='text/markdown',
@@ -43,7 +43,8 @@ setup(
     install_requires=[
         'provenance-tools >= 0.0.3',
         'pandas >= 1.1.1',
-        'numpy >= 1.19.1'
+        'numpy >= 1.19.1',
+        'gitpython'
     ],
     
     ### Other stuff ...
