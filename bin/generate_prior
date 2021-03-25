@@ -8,7 +8,7 @@ import numpy as np
 import pdb
 from provenance_tools.write_provenance_data import write_provenance_data
 
-def prior_info_from_df(df, target_name, preds, prior_info):
+def prior_info_from_df(df, target_name, preds, num_trajs, prior_info):
     """
     """
     res_tmp = sm.OLS(df[target_name], df[preds], missing='drop').fit()
@@ -25,7 +25,7 @@ def prior_info_from_df(df, target_name, preds, prior_info):
     gamma_var = np.var(prec_vec)
 
     prior_info['lambda_b0'][target_name] = gamma_mean/gamma_var
-    prior_info['lambda_a0'][target_name] = gamma_mean**2/gamma_var
+    prior_info['lambda_a0'][target_name] = num_trajs*gamma_mean**2/gamma_var
 
     samples = np.random.multivariate_normal(res_tmp.params.values,
                                             np.diag(res_tmp.HC0_se.values**2),
@@ -35,9 +35,10 @@ def prior_info_from_df(df, target_name, preds, prior_info):
         prior_info['w_mu0'][target_name][m] = np.mean(samples, 0)[i]
         prior_info['w_var0'][target_name][m] = np.var(samples, 0)[i]
                 
-    prior_info['alpha'] = op.num_trajs/np.log10(df.shape[0])
+    prior_info['alpha'] = num_trajs/np.log10(df.shape[0])
     
-def prior_info_from_df_traj(df_traj, target_name, preds, prior_info):
+def prior_info_from_df_traj(df_traj, target_name, preds, prior_info,
+                            traj_ids=None):
     """ Takes in a dataframe in which each data instance has a trajectory 
     assignment, and from this dataframe and specified target name and 
     predictors, estimates information for the prior. Estimates are made by 
@@ -60,8 +61,14 @@ def prior_info_from_df_traj(df_traj, target_name, preds, prior_info):
 
     prior_info : dict
         Prior data structure that will be updated by this function
-    """    
-    traj_ids = list(set(df_traj.traj.values))
+
+    traj_ids : array of ints, optional
+        Subset of trajectories to use for informing prior setting. It may be 
+        desirable to use a subset in case some trajectories have been deemed to
+        be spurios or unstable
+    """
+    if traj_ids is None:
+        traj_ids = np.array(list(set(df_traj.traj.values)))
 
     traj_col_names = []
     for i in traj_ids:
@@ -106,9 +113,9 @@ def prior_info_from_df_traj(df_traj, target_name, preds, prior_info):
     prior_info['lambda_b0'][target_name] = gamma_mean/gamma_var
     prior_info['lambda_a0'][target_name] = gamma_mean**2/gamma_var
 
-    prior_info['alpha'] = len(traj_ids)/np.log10(df_traj.shape[0])
+    prior_info['alpha'] = traj_ids.shape[0]/np.log10(df_traj.shape[0])
     
-def prior_info_from_model(target_name, mm, prior_info):
+def prior_info_from_model(target_name, mm, prior_info, traj_ids=None):
     """This function estimates prior values from draws of the specified model
     posterior. Estimates are made for a specific target variable. The assumption
     is the model's predictors and the predictor set for which estimates are
@@ -126,13 +133,19 @@ def prior_info_from_model(target_name, mm, prior_info):
 
     prior_info : dict
         Prior data structure that will be updated by this function
+
+    traj_ids : array of ints, optional
+        Subset of trajectories to use for informing prior setting. It may be 
+        desirable to use a subset in case some trajectories have been deemed to
+        be spurios or unstable
     """
     assert set(prior_info['w_mu0'][target_name].keys()) == \
         set(mm.predictor_names_), "Predictor name mismatch"
 
-    traj_ids = np.where(mm.sig_trajs_)[0]
+    if traj_ids is None:
+        traj_ids = np.where(mm.sig_trajs_)[0]
+        
     traj_probs = np.sum(mm.R_, 0)/np.sum(mm.R_)
-    
     num_traj_samples = np.random.multinomial(10000, traj_probs)
 
     model_target_index = \
@@ -165,9 +178,9 @@ def prior_info_from_model(target_name, mm, prior_info):
 	np.mean(np.hstack(samples))/np.var(np.hstack(samples))
 
     if mm.gb_ is not None:
-        prior_info['alpha'] = np.sum(mm.sig_trajs_)/np.log10(mm.gb_.ngroups)
+        prior_info['alpha'] = traj_ids.shape[0]/np.log10(mm.gb_.ngroups)
     else:
-        prior_info['alpha'] = np.sum(mm.sig_trajs_)/np.log10(mm.N_)
+        prior_info['alpha'] = traj_ids.shape[0]/np.log10(mm.N_)
     
 desc = """Generates a pickled file containing Bayesian trajectory prior 
 information"""
@@ -181,12 +194,11 @@ parser.add_argument('--out_file', help='Output (pickle) file that will \
     contain the prior', dest='out_file', type=str, default=None)
 parser.add_argument('-k', help='Number of columns in the truncated assignment \
     matrix', metavar='<int>', default=20)
-parser.add_argument('--tar_resid', help='Residual standard deviation prior \
-    value for specified target. Specify as a comma-separated tuple:  \
-    target_name,mean,std. Here, mean is the expected value of the residual \
-    standard deviation, and std reflects the strength of the prior (lower \
-    values indicate more confidence in the mean value)', type=str,
-    default=None, action='append', nargs='+')
+parser.add_argument('--tar_resid', help='Use this flag to specify the residual \
+    precision mean and variance for the corresponding target value. Specify as \
+    a comma-separated tuple: target_name,mean,var. Note that precision is the \
+    inverse of the variance.', type=str, default=None, action='append',
+    nargs='+')
 parser.add_argument('--coef', help='Coefficient prior for a specified \
     target and predictor. Specify as a comma-separated tuple: \
     target_name,predictor_name,mean,std', type=str,
@@ -205,6 +217,12 @@ parser.add_argument('--num_trajs', help='Rough estimate of the number of \
 parser.add_argument('--model', help='Pickled bayes_traj model that \
     has been fit to data and from which information will be extracted to \
     produce an updated prior file', type=str, default=None)
+parser.add_argument('--model_trajs', help='Comma-separated list of integers \
+    indicating which trajectories to use from the specified model. If a model \
+    is not specified, the values specified with this flag will be ignored. If \
+    a model is specified, and specific trajectories are not specified with \
+    this flag, then all trajectories will be used to inform the prior', \
+    default=None)
 parser.add_argument('--groupby', help='Column name in input data file \
     indicating those data instances that must be in the same trajectory. This \
     is typically a subject identifier (e.g. in the case of a longitudinal data \
@@ -214,6 +232,10 @@ op = parser.parse_args()
 
 preds = op.preds.split(',')
 targets = op.targets.split(',')
+
+model_trajs = None
+if op.model_trajs is not None:
+    model_trajs = np.array(op.model_trajs.split(','), dtype=int)
 
 D = len(targets)
 M = len(preds)
@@ -257,7 +279,7 @@ if op.model is not None:
         mm = pickle.load(f)['MultDPRegression']
 
     df_traj_model = mm.to_df()
-            
+    
 if op.in_data is not None:
     df_data = pd.read_csv(op.in_data)
     if mm is not None:
@@ -277,15 +299,17 @@ if op.in_data is not None:
 
 for tt in targets:
     if df_traj_data is not None:
-        prior_info_from_df_traj(df_traj_data, tt, preds, prior_info)
+        prior_info_from_df_traj(df_traj_data, tt, preds, prior_info,
+                                model_trajs)
     elif mm is not None:
         if tt in mm.target_names_ and set(mm.predictor_names_) == set(preds):
             prior_info_from_model(tt, mm, prior_info)
         elif tt in df_traj_model.columns and set(preds) <= \
              set(df_traj_model.columns):
-            prior_info_from_df_traj(df_traj_model, tt, preds, prior_info)
+            prior_info_from_df_traj(df_traj_model, tt, preds, prior_info,
+                                    model_trajs)
     elif df_data is not None:
-        prior_info_from_df(df_data, tt, preds, prior_info)
+        prior_info_from_df(df_data, tt, preds, op.num_trajs, prior_info)
         
 #-------------------------------------------------------------------------------
 # Override prior settings with user-specified preferences
@@ -294,13 +318,11 @@ if op.tar_resid is not None:
     for i in range(len(op.tar_resid)):
         tt = op.tar_resid[i][0].split(',')[0]
         mean_tmp = float(op.tar_resid[i][0].split(',')[1])
-        std_tmp = float(op.tar_resid[i][0].split(',')[2])        
+        var_tmp = float(op.tar_resid[i][0].split(',')[2])        
         assert tt in targets, "{} not among specified targets".format(tt)
                 
-        gamma_mean = 1./(mean_tmp**2)
-        gamma_var = std_tmp**2
-        prior_info['lambda_b0'][tt] = gamma_mean/gamma_var
-        prior_info['lambda_a0'][tt] = gamma_mean**2/gamma_var
+        prior_info['lambda_b0'][tt] = mean_tmp/var_tmp
+        prior_info['lambda_a0'][tt] = (mean_tmp**2)/var_tmp
 
 if op.coef is not None:
     for i in range(len(op.coef)):
@@ -332,10 +354,11 @@ if op.coef_std is not None:
 print('---------- Prior Info ----------')
 print('alpha: {}'.format(prior_info['alpha']))        
 for tt in targets:
-    tar_mean = prior_info['lambda_b0'][tt]/prior_info['lambda_a0'][tt]
-    tar_std = np.sqrt(prior_info['lambda_a0'][tt]/\
-                      (prior_info['lambda_b0'][tt]**2))
-    print("{} residual (mean, std): ({}, {})".format(tt, tar_mean, tar_std))
+    print(" ")
+    prec_mean = prior_info['lambda_a0'][tt]/prior_info['lambda_b0'][tt]
+    prec_var = prior_info['lambda_a0'][tt]/(prior_info['lambda_b0'][tt]**2)
+    print("{} residual (precision mean, precision variance): ({}, {})".\
+          format(tt, prec_mean, prec_var))
     for pp in preds:
         tmp_mean = prior_info['w_mu0'][tt][pp]
         tmp_std = np.sqrt(prior_info['w_var0'][tt][pp])
