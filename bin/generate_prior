@@ -13,9 +13,9 @@ def prior_info_from_df(df, target_name, preds, num_trajs, prior_info):
     """
     res_tmp = sm.OLS(df[target_name], df[preds], missing='drop').fit()
 
-    sel_ids = np.zeros(df.shape[0], dtype=bool)
-    sel_ids[0:int(df.shape[0]/2.)] = True
-
+    sel_ids = np.zeros(res_tmp.resid.shape[0], dtype=bool)
+    sel_ids[0:int(res_tmp.resid.shape[0]/2.)] = True
+    
     prec_vec = []
     for i in range(100):
         sel_ids = np.random.permutation(sel_ids)
