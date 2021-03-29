@@ -1418,18 +1418,27 @@ class MultDPRegression:
     
         X_tmp = np.ones([num_dom_locs, self.M_])
         for (inc, pp) in enumerate(self.predictor_names_):
-            tmp = pp.split('^')
-                
-            if len(tmp) > 1:
-                if x_axis in tmp:                
-                    X_tmp[:, inc] = x_dom**(int(tmp[-1]))
+            tmp_pow = pp.split('^')
+            tmp_int = pp.split('*')
+            
+            if len(tmp_pow) > 1:
+                if x_axis in tmp_pow:                
+                    X_tmp[:, inc] = x_dom**(int(tmp_pow[-1]))
                 else:                
-                    X_tmp[:, inc] = np.mean(df_traj[tmp[0]].values)**\
-                        (int(tmp[-1]))
+                    X_tmp[:, inc] = np.mean(df_traj[tmp_pow[0]].values)**\
+                        (int(tmp_pow[-1]))
+            elif len(tmp_int) > 1:
+                if x_axis in tmp_int:                
+                    X_tmp[:, inc] = \
+                        x_dom**np.mean(df_traj[tmp_int[np.where(\
+                            np.array(tmp_int) != x_axis)[0][0]]].values)
+                else:
+                    X_tmp[:, inc] = np.mean(df_traj[tmp_int[0]])*\
+                        np.mean(df_traj[tmp_int[1]])                    
             elif pp == x_axis:
                 X_tmp[:, inc] = x_dom
             else:
-                X_tmp[:, inc] = np.nanmean(df_traj[tmp[0]].values)
+                X_tmp[:, inc] = np.nanmean(df_traj[tmp_pow[0]].values)
     
         if which_trajs is not None:
             if type(which_trajs) == int:
