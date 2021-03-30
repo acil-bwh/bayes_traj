@@ -1452,7 +1452,15 @@ class MultDPRegression:
             cmap = plt.cm.get_cmap('tab10')
         else:
             cmap = plt.cm.get_cmap('tab20')
-    
+
+        # The following just maps trajectories to sequential integers starting
+        # at 0. Otherwise, trajectory numbers greater than 19 will all be given
+        # the same color. With the chosen colormap, we still only have access
+        # to 20 unique colors, but this should suffice in most cases.
+        traj_id_to_cmap_index = {}
+        for (ii, tt) in enumerate(np.where(self.sig_trajs_)[0]):
+            traj_id_to_cmap_index[tt] = ii
+            
         fig, ax = plt.subplots(figsize=(6, 6))
         ax.scatter(df_traj[x_axis].values,
                    df_traj[y_axis].values,
@@ -1464,8 +1472,10 @@ class MultDPRegression:
                 
                 ids_tmp = df_traj.traj.values == tt
                 ax.scatter(df_traj[ids_tmp][x_axis].values,
-                            df_traj[ids_tmp][y_axis].values,
-                            edgecolor='k', color=cmap(traj_inc), alpha=0.5)
+                           df_traj[ids_tmp][y_axis].values,
+                           edgecolor='k',
+                           color=cmap(traj_id_to_cmap_index[tt]),
+                           alpha=0.5)
 
                 std = np.sqrt(self.lambda_b_[target_index][tt]/\
                               self.lambda_a_[target_index][tt])
@@ -1475,11 +1485,14 @@ class MultDPRegression:
 
                 n_traj = int(traj_prob_vec[tt]*num_individuals)
                 perc_traj = traj_prob_vec[tt]*100
-                ax.plot(x_dom, y_tmp, color=cmap(traj_inc), linewidth=3,
-                         label='Traj {} (N={}, {:.1f}%)'.\
+                ax.plot(x_dom, y_tmp,
+                        color=cmap(traj_id_to_cmap_index[tt]),
+                        linewidth=3,
+                        label='Traj {} (N={}, {:.1f}%)'.\
                         format(tt, n_traj, perc_traj))
                 ax.fill_between(x_dom, y_tmp-2*std, y_tmp+2*std,
-                                 color=cmap(traj_inc), alpha=0.3)
+                                color=cmap(traj_id_to_cmap_index[tt]),
+                                alpha=0.3)
 
         ax.set_xlabel(x_axis, fontsize=16)
         ax.set_ylabel(y_axis, fontsize=16)    
