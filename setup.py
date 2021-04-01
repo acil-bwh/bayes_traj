@@ -13,18 +13,20 @@ here = path.abspath(path.dirname(__file__))
 with open(path.join(here, 'README.md'), encoding='utf-8') as f:
     long_description = f.read()
 
-packages = find_packages(include=['bayes_traj_main',
-                                  'viz_data_prior_draws',
-                                  'viz_model_trajs',                                      
-                                  'generate_generic_data',
-                                  'generate_prior',
-                                  'summarize_traj_model',
-                                  'bin/*'])
+#packages = find_packages(include=['bayes_traj_main',
+#                                  'viz_data_prior_draws',
+#                                  'viz_model_trajs',                                      
+#                                  'generate_generic_data',
+#                                  'generate_prior',
+#                                  'summarize_traj_model',
+#                                  'bin/*'])
+
+packages = find_packages()
 packages.append('bayes_traj')
 
 setup(
     name='bayes_traj',
-    version='0.0.6',
+    version='0.0.7',
     description='bayes_traj',
     long_description=long_description,
     long_description_content_type='text/markdown',
@@ -32,13 +34,12 @@ setup(
     author='James Ross',
     author_email='jross@bwh.harvard.edu',
 
-    scripts=[
-        'bin/bayes_traj_main',
-        'bin/viz_data_prior_draws',
-        'bin/viz_model_trajs',        
-        'bin/generate_generic_data',
-        'bin/summarize_traj_model',
-        'bin/generate_prior'],
+    entry_points = {"console_scripts": ['bayes_traj_main = bayes_traj.bayes_traj_main:main',
+                                        'viz_data_prior_draws = bayes_traj.viz_data_prior_draws:main',
+                                        'viz_model_trajs = bayes_traj.viz_model_trajs:main',
+                                        'generate_generic_data = bayes_traj.generate_generic_data:main',
+                                        'summarize_traj_model = bayes_traj.summarize_traj_model:main',
+                                        'generate_prior = bayes_traj.generate_prior:main']},
     
     install_requires=[
         'provenance-tools >= 0.0.4',

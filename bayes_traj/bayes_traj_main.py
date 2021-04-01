@@ -9,8 +9,7 @@ from bayes_traj.utils import sample_cos
 from provenance_tools.write_provenance_data import write_provenance_data
 import pdb, pickle, sys, warnings
 
-#def main():
-if True:
+def main():
     """
     """
     np.set_printoptions(precision = 1, suppress = True, threshold=1e6,
@@ -219,6 +218,6 @@ if True:
                     
     print("DONE.")
 
-#if __name__ == "__main__":
-#    main()
+if __name__ == "__main__":
+    main()
         
