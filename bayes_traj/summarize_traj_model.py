@@ -47,11 +47,7 @@ def main():
     # Get dataframe column that was used to create groups, if groups exist
     if mm.gb_ is not None:
         num_groups = mm.gb_.ngroups
-        group_tmp = list(mm.gb_.groups.keys())[0]
-        for c in df_traj.columns:
-            if group_tmp in df_traj[c].values:
-                groupby_col = c
-                break
+        groupby_col = mm.gb_.count().index.name               
     else:
         num_groups = df_traj.shape[0]
         
