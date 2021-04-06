@@ -34,9 +34,9 @@ def main():
     parser.add_argument('--out_csv', help='If specified, an output csv file will \
         be generated that contains the contents of the input csv file, but with \
         additional columns indicating trajectory assignment information for each \
-        data instance. There will be a column called traj with and integer value \
+        data instance. There will be a column called traj with an integer value \
         indicating the most probable trajectory assignment. There will also be \
-        columns prefixed with traj_ and then an trajectory-identifying integer. \
+        columns prefixed with traj_ and then a trajectory-identifying integer. \
         The values of these columns indicate the probability that the data \
         instance belongs to each of the corresponding trajectories.',
         dest='out_csv', metavar='<string>', type=str, default=None)
@@ -44,16 +44,17 @@ def main():
         settings', metavar='<string>', required=True)
     parser.add_argument('--alpha', help='If specified, over-rides the value in the \
         prior file', dest='alpha', metavar=float, default=None)
-    parser.add_argument('--out_model', help='Pickle file name to which to dump the \
-        result', dest='out_model', metavar='<string>', default=None)
-    parser.add_argument('--iters', help='Number of iterations per repeat attempt',
+    parser.add_argument('--out_model', help='Pickle file name. If specified, \
+        the model object will be written to this file.', dest='out_model',
+        metavar='<string>', default=None, required=False)
+    parser.add_argument('--iters', help='Number of inference iterations',
         dest='iters', metavar='<int>', default=100)
 #    parser.add_argument('--repeats', help='Number of repeats to attempt',
  #       dest='repeats', metavar='<int>', default=1)
-    parser.add_argument('--batch_size', help='The number of subjects that will \
-        be used at each iteration. If not specified, all subjects will be used. \
-        Specifying less than the total number of subjects can speed convergence.',
-        metavar='<int>', default=None, type=int)
+#    parser.add_argument('--batch_size', help='The number of subjects that will \
+#        be used at each iteration. If not specified, all subjects will be used. \
+#        Specifying less than the total number of subjects can speed convergence.',
+#        metavar='<int>', default=None, type=int)
     parser.add_argument('-k', help='Number of columns in the truncated assignment \
         matrix', metavar='<int>', default=30)
 #    parser.add_argument('--waic2_thresh', help='Model will only be written to \
@@ -171,7 +172,7 @@ def main():
                traj_probs_weight=prior_data['probs_weight'],
                v_a=prior_data['v_a'], v_b=prior_data['v_b'], w_mu=prior_data['w_mu'],
                w_var=prior_data['w_var'], lambda_a=prior_data['lambda_a'],
-               lambda_b=prior_data['lambda_b'], batch_size=op.batch_size)
+               lambda_b=prior_data['lambda_b'], batch_size=None)
     
         if False: #op.save_all:
             out_model_tmp = out_model.split('.')[0] + '_repeat{}.p'.format(r)
