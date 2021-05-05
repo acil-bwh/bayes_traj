@@ -173,48 +173,68 @@ def main():
                v_a=prior_data['v_a'], v_b=prior_data['v_b'], w_mu=prior_data['w_mu'],
                w_var=prior_data['w_var'], lambda_a=prior_data['lambda_a'],
                lambda_b=prior_data['lambda_b'], batch_size=None)
-    
-        if False: #op.save_all:
-            out_model_tmp = out_model.split('.')[0] + '_repeat{}.p'.format(r)
-            pickle.dump({'MultDPRegression': mm}, open(out_model_tmp, 'wb'))
-    
+
+        if op.out_model is not None:
+            print("Saving model...")
+            pickle.dump({'MultDPRegression': mm}, open(op.out_model, 'wb'))
+
+            print("Saving model provenance info...")
             provenance_desc = """ """
-            write_provenance_data(out_model_tmp, generator_args=op,
+            write_provenance_data(op.out_model, generator_args=op,
                                   desc=provenance_desc,
                                   module_name='bayes_traj')
-        else:
-            tmp_bics = mm.bic()
-            if type(tmp_bics) == tuple:
-                bics = tmp_bics
-            else:
-                bics = (tmp_bics, tmp_bics)
-                
-            bics_tracker.append(bics)
-            #waics_tracker.append(mm.compute_waic2())
-            num_tracker.append(np.sum(mm.sig_trajs_))
     
-            if bics[0] > best_bics[0] and bics[1] > best_bics[1]:
-                best_bics = bics
-    
-                if out_model is not None:
-                    print("Saving model...")
-                    pickle.dump({'MultDPRegression': mm}, open(out_model, 'wb'))
+        if op.out_csv is not None:
+            print("Saving data file with trajectory info...")
+            mm.to_df().to_csv(op.out_csv, index=False)
 
-                    print("Saving model provenance info...")
-                    provenance_desc = """ """
-                    write_provenance_data(out_model, generator_args=op,
-                                          desc=provenance_desc,
-                                          module_name='bayes_traj')
-    
-                if op.out_csv is not None:
-                    print("Saving data file with trajectory info...")
-                    mm.to_df().to_csv(op.out_csv, index=False)
-
-                    print("Saving data file provenance info...")
-                    provenance_desc = """ """
-                    write_provenance_data(op.out_csv, generator_args=op,
-                                          desc=provenance_desc,
-                                          module_name='bayes_traj')                    
+            print("Saving data file provenance info...")
+            provenance_desc = """ """
+            write_provenance_data(op.out_csv, generator_args=op,
+                                  desc=provenance_desc,
+                                  module_name='bayes_traj')                    
+        
+#        if False: #op.save_all:(
+#            out_model_tmp = out_model.split('.')[0] + '_repeat{}.p'.format(r)
+#            pickle.dump({'MultDPRegression': mm}, open(out_model_tmp, 'wb'))
+#    
+#            provenance_desc = """ """
+#            write_provenance_data(out_model_tmp, generator_args=op,
+#                                  desc=provenance_desc,
+#                                  module_name='bayes_traj')
+#        else:
+#            tmp_bics = mm.bic()
+#            if type(tmp_bics) == tuple:
+#                bics = tmp_bics
+#            else:
+#                bics = (tmp_bics, tmp_bics)
+#                
+#            bics_tracker.append(bics)
+#            #waics_tracker.append(mm.compute_waic2())
+#            num_tracker.append(np.sum(mm.sig_trajs_))
+#    
+#            if bics[0] > best_bics[0] and bics[1] > best_bics[1]:
+#                best_bics = bics
+#    
+#                if out_model is not None:
+#                    print("Saving model...")
+#                    pickle.dump({'MultDPRegression': mm}, open(out_model, 'wb'))
+#
+#                    print("Saving model provenance info...")
+#                    provenance_desc = """ """
+#                    write_provenance_data(out_model, generator_args=op,
+#                                          desc=provenance_desc,
+#                                          module_name='bayes_traj')
+#    
+#                if op.out_csv is not None:
+#                    print("Saving data file with trajectory info...")
+#                    mm.to_df().to_csv(op.out_csv, index=False)
+#
+#                    print("Saving data file provenance info...")
+#                    provenance_desc = """ """
+#                    write_provenance_data(op.out_csv, generator_args=op,
+#                                          desc=provenance_desc,
+#                                          module_name='bayes_traj')                    
                     
                     
     print("DONE.")
