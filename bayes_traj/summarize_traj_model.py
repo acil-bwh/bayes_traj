@@ -110,7 +110,7 @@ def main():
             print("{}{}".format("Odds Correct Classification:".ljust(35), "{:.1f}".\
                                 format(occs[traj]).rjust(15))) 
             print("{}{}".format("Ave. Post. Prob. of Assignment:".ljust(35), \
-                                "{:.1f}".format(ave_pps[traj]).rjust(15)))     
+                                "{:.2f}".format(ave_pps[traj]).rjust(15)))     
         
             print("")
             print("{}{}{}{}".format(" "*first_col_width, "Residual STD".center(20),
@@ -120,7 +120,7 @@ def main():
             for (ii, tar) in enumerate(mm.target_names_):
                 prec_mean = mm.lambda_a_[ii, traj]/mm.lambda_b_[ii, traj]
                 prec_var = mm.lambda_a_[ii, traj]/(mm.lambda_b_[ii, traj]**2)
-                resid_std = np.sqrt(1/prec_var)
+                resid_std = np.sqrt(1/prec_mean)
                 space = " "*(first_col_width - len(tar))
                 print("{}{}{}{}{}".format(tar, space,
                                           "{:.2f}".format(resid_std).center(20),
