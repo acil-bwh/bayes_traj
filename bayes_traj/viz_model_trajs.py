@@ -25,7 +25,7 @@ def main():
         should be between 0 and 1 inclusive.', type=float, default=0)
     parser.add_argument('--max_traj_prob', help='The probability of a given \
         trajectory can not be larger than this value in order to be rendered. \
-        Value should be between 0 and 1 inclusive.', type=float, default=1)
+        Value should be between 0 and 1 inclusive.', type=float, default=1.01)
     parser.add_argument('--fig_file', help='If specified, will save the figure to \
         file.', type=str, default=None)
     
