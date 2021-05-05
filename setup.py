@@ -26,7 +26,7 @@ packages.append('bayes_traj')
 
 setup(
     name='bayes_traj',
-    version='0.0.8',
+    version='0.1.1',
     description='bayes_traj',
     long_description=long_description,
     long_description_content_type='text/markdown',
@@ -42,10 +42,15 @@ setup(
                                         'generate_prior = bayes_traj.generate_prior:main']},
     
     install_requires=[
-        'provenance-tools >= 0.0.4',
+        'provenance-tools >= 0.0.5',
         'pandas >= 1.1.1',
-        'numpy >= 1.19.1'
+        'numpy >= 1.19.1',
+        'matplotlib >= 3.3.1',
+        'scipy >= 1.5.2',
+        'argparse >= 1.1',
+        'statsmodels >= 0.11.1'
     ],
+    
     
     ### Other stuff ...
     classifiers=[
