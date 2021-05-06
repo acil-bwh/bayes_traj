@@ -710,7 +710,7 @@ class MultDPRegression:
                     raise ValueError('x has incorrect dimension')
 
         for n in indices:
-            z = np.random.multinomial(1, self.R_[n, :])
+            z = np.random.multinomial(1, self.R_[n, :]/np.sum(self.R_[n, :]))
             for d in range(0, self.D_):
                 co = multivariate_normal(self.w_mu_[:, d, z.astype(bool)][:, 0],
                     diag(self.w_var_[:, d, z.astype(bool)][:, 0]), 1)
