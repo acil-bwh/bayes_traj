@@ -6,6 +6,7 @@ import numpy as np
 from bayes_traj.mult_dp_regression import MultDPRegression
 from bayes_traj.prior_from_model import prior_from_model
 from bayes_traj.utils import sample_cos
+from bayes_traj.fit_stats import compute_waic2
 from provenance_tools.write_provenance_data import write_provenance_data
 import pdb, pickle, sys, warnings
 
@@ -49,8 +50,11 @@ def main():
         metavar='<string>', default=None, required=False)
     parser.add_argument('--iters', help='Number of inference iterations',
         dest='iters', metavar='<int>', default=100)
-#    parser.add_argument('--repeats', help='Number of repeats to attempt',
- #       dest='repeats', metavar='<int>', default=1)
+    parser.add_argument('--repeats', help='Number of repeats to attempt. If a \
+        value greater than 1 is specified, the WAIC2 fit criterion will be \
+        computed at the end of each repeat. If, for a given repeat, the WAIC2 \
+        score is lower than the lowest score seen at that point, the model \
+        will be saved to file.', type=int, metavar='<int>', default=1)
 #    parser.add_argument('--batch_size', help='The number of subjects that will \
 #        be used at each iteration. If not specified, all subjects will be used. \
 #        Specifying less than the total number of subjects can speed convergence.',
@@ -82,7 +86,7 @@ def main():
     
     op = parser.parse_args()
     iters = int(op.iters)
-    repeats = 1 #int(op.repeats)
+    repeats = int(op.repeats)
     preds =  op.preds.split(',')
     targets = op.targets.split(',')
     in_csv = op.in_csv
@@ -153,15 +157,15 @@ def main():
     bics_tracker = []
     num_tracker = []
     best_mm = None
-    #best_waic2 = op.waic2_thresh
+    best_waic2 = sys.float_info.max
     bic_thresh = -sys.float_info.max
     best_bics = (bic_thresh, bic_thresh)
 
     print("Fitting...")
     for r in np.arange(repeats):
         if r > 0:
-            print("---------- Repeat {}, Best BICs: {}, {} ----------".\
-                  format(r, best_bics[0], best_bics[1]))
+            print("---------- Repeat {}, Best WAIC2: {} ----------".\
+                  format(r, best_waic2))
         mm = MultDPRegression(prior_data['w_mu0'], prior_data['w_var0'],
                               prior_data['lambda_a0'], prior_data['lambda_b0'],
                               prior_data['alpha'], K=K)
@@ -170,72 +174,59 @@ def main():
                groupby=op.groupby, iters=iters, verbose=op.verbose,           
                traj_probs=prior_data['traj_probs'],
                traj_probs_weight=prior_data['probs_weight'],
-               v_a=prior_data['v_a'], v_b=prior_data['v_b'], w_mu=prior_data['w_mu'],
-               w_var=prior_data['w_var'], lambda_a=prior_data['lambda_a'],
+               v_a=prior_data['v_a'], v_b=prior_data['v_b'],
+               w_mu=prior_data['w_mu'], w_var=prior_data['w_var'],
+               lambda_a=prior_data['lambda_a'],
                lambda_b=prior_data['lambda_b'], batch_size=None)
 
-        if op.out_model is not None:
-            print("Saving model...")
-            pickle.dump({'MultDPRegression': mm}, open(op.out_model, 'wb'))
+        if r == 0:
+            if op.out_model is not None:
+                print("Saving model...")
+                pickle.dump({'MultDPRegression': mm}, open(op.out_model, 'wb'))
 
-            print("Saving model provenance info...")
-            provenance_desc = """ """
-            write_provenance_data(op.out_model, generator_args=op,
-                                  desc=provenance_desc,
-                                  module_name='bayes_traj')
+                print("Saving model provenance info...")
+                provenance_desc = """ """
+                write_provenance_data(op.out_model, generator_args=op,
+                                      desc=provenance_desc,
+                                      module_name='bayes_traj')
     
-        if op.out_csv is not None:
-            print("Saving data file with trajectory info...")
-            mm.to_df().to_csv(op.out_csv, index=False)
+            if op.out_csv is not None:
+                print("Saving data file with trajectory info...")
+                mm.to_df().to_csv(op.out_csv, index=False)
 
-            print("Saving data file provenance info...")
-            provenance_desc = """ """
-            write_provenance_data(op.out_csv, generator_args=op,
-                                  desc=provenance_desc,
-                                  module_name='bayes_traj')                    
+                print("Saving data file provenance info...")
+                provenance_desc = """ """
+                write_provenance_data(op.out_csv, generator_args=op,
+                                      desc=provenance_desc,
+                                      module_name='bayes_traj')
+                
+            if repeats > 1:
+                best_waic2 = compute_waic2(mm)
+        else:
+            waic2 = compute_waic2(mm)
+            if waic2 < best_waic2:
+                best_waic2 = waic2
+
+                if op.out_model is not None:
+                    print("Saving model...")
+                    pickle.dump({'MultDPRegression': mm},
+                                open(op.out_model, 'wb'))
+    
+                    print("Saving model provenance info...")
+                    provenance_desc = """ """
+                    write_provenance_data(op.out_model, generator_args=op,
+                                          desc=provenance_desc,
+                                          module_name='bayes_traj')
         
-#        if False: #op.save_all:(
-#            out_model_tmp = out_model.split('.')[0] + '_repeat{}.p'.format(r)
-#            pickle.dump({'MultDPRegression': mm}, open(out_model_tmp, 'wb'))
-#    
-#            provenance_desc = """ """
-#            write_provenance_data(out_model_tmp, generator_args=op,
-#                                  desc=provenance_desc,
-#                                  module_name='bayes_traj')
-#        else:
-#            tmp_bics = mm.bic()
-#            if type(tmp_bics) == tuple:
-#                bics = tmp_bics
-#            else:
-#                bics = (tmp_bics, tmp_bics)
-#                
-#            bics_tracker.append(bics)
-#            #waics_tracker.append(mm.compute_waic2())
-#            num_tracker.append(np.sum(mm.sig_trajs_))
-#    
-#            if bics[0] > best_bics[0] and bics[1] > best_bics[1]:
-#                best_bics = bics
-#    
-#                if out_model is not None:
-#                    print("Saving model...")
-#                    pickle.dump({'MultDPRegression': mm}, open(out_model, 'wb'))
-#
-#                    print("Saving model provenance info...")
-#                    provenance_desc = """ """
-#                    write_provenance_data(out_model, generator_args=op,
-#                                          desc=provenance_desc,
-#                                          module_name='bayes_traj')
-#    
-#                if op.out_csv is not None:
-#                    print("Saving data file with trajectory info...")
-#                    mm.to_df().to_csv(op.out_csv, index=False)
-#
-#                    print("Saving data file provenance info...")
-#                    provenance_desc = """ """
-#                    write_provenance_data(op.out_csv, generator_args=op,
-#                                          desc=provenance_desc,
-#                                          module_name='bayes_traj')                    
-                    
+                if op.out_csv is not None:
+                    print("Saving data file with trajectory info...")
+                    mm.to_df().to_csv(op.out_csv, index=False)
+    
+                    print("Saving data file provenance info...")
+                    provenance_desc = """ """
+                    write_provenance_data(op.out_csv, generator_args=op,
+                                          desc=provenance_desc,
+                                          module_name='bayes_traj')                    
                     
     print("DONE.")
 
