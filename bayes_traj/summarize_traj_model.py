@@ -5,7 +5,8 @@ import pdb
 import pickle
 from argparse import ArgumentParser
 from provenance_tools.write_provenance_data import write_provenance_data
-from bayes_traj.fit_stats import ave_pp, odds_correct_classification
+from bayes_traj.fit_stats import ave_pp, odds_correct_classification, \
+    compute_waic2
 
 def main():
     desc = """"""
@@ -36,7 +37,7 @@ def main():
     all_traj_ids = np.where(mm.sig_trajs_)[0]
     
     bic = mm.bic()
-    #waic2 = mm.compute_waic2()
+    waic2 = compute_waic2(mm)
     
     # Compute fit stats
     ave_pps = ave_pp(mm)
@@ -75,6 +76,9 @@ def main():
                         format(df_traj.shape[0]).ljust(15)))
     print("{}{}".format("No. Groups:".ljust(20), "{}".\
                         format(num_groups).ljust(15)))
+
+    print("{}{}".format("WAIC2:".ljust(20), "{}".\
+                        format(int(waic2)).ljust(10))) 
     
     if len(bic) == 2:
         print("{}{}".format("BIC1:".ljust(20), "{}".\
@@ -83,8 +87,7 @@ def main():
                             format(int(bic[1])).ljust(10))) 
     else:
         print("{}{}".format("BIC:".ljust(20), "{}".\
-                            format(int(bic)).ljust(10))) 
-    
+                            format(int(bic)).ljust(10)))         
         
     for traj in traj_ids:
         if traj_probs[traj] > op.min_traj_prob:
