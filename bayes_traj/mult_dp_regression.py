@@ -1355,7 +1355,7 @@ class MultDPRegression:
         return self.df_  
 
     def plot(self, x_axis, y_axis, which_trajs=None, show=True,
-             min_traj_prob=0, max_traj_prob=1):
+             min_traj_prob=0, max_traj_prob=1, traj_map=None):
         """Generates a 2D plot of trajectory results. The original data will be
         shown as a scatter plot, color-coded according to trajectory membership.
         Trajectories will be plotted with line plots indicating the expected 
@@ -1380,19 +1380,25 @@ class MultDPRegression:
             If specified, only these trajectories will be plotted. If not 
             specified, all trajectories will be plotted.
 
-        show : bool
+        show : bool, optional
             By default, invocation of this function will show the plot. If set
             to false, the handle to the axes will be returned, but the plot will
             not be displayed
 
-        min_traj_prob : float
+        min_traj_prob : float, optional
             The probability of a given trajectory must be at least this value in
             order to be rendered. Value should be between 0 and 1 inclusive.
 
-        max_traj_prob : float
+        max_traj_prob : float, optional
             The probability of a given trajectory can not be larger than this 
             value in order to be rendered. Value should be between 0 and 1 
             inclusive.
+
+        traj_map : dict, optional
+            Int-to-int mapping of trajectories, where keys are the original 
+            (default) trajectory numbers, and the values are the new trajectory
+            numbers. This for display purposes only. Supercedes which_trajs.
+
         """
         # Compute the probability vector for each trajectory
 
@@ -1439,8 +1445,20 @@ class MultDPRegression:
                 X_tmp[:, inc] = x_dom
             else:
                 X_tmp[:, inc] = np.nanmean(df_traj[tmp_pow[0]].values)
-    
-        if which_trajs is not None:
+
+        # Create a trajeectory mapping for internal uses. By default, this is
+        # the trivial mapping whereby every trajectory maps to itself. Using
+        # this trajectory mapping consistently will facilitate the use case
+        # when a user specifies a specific mapping. Note that traj_map_ is only
+        # for plotting color selection and legend numbering
+        traj_map_ = {}
+        for ii in range(self.K_):
+            traj_map_[ii] = ii
+                
+        if traj_map is not None:
+            traj_ids = np.array(list(traj_map.keys()))
+            traj_map_ = traj_map
+        elif which_trajs is not None:
             if type(which_trajs) == int:
                 traj_ids = np.array([which_trajs])
             else:
@@ -1457,9 +1475,15 @@ class MultDPRegression:
         # at 0. Otherwise, trajectory numbers greater than 19 will all be given
         # the same color. With the chosen colormap, we still only have access
         # to 20 unique colors, but this should suffice in most cases.
+        # If a traj_map is specified, there will be a one-to-one mapping between
+        # the mapped values and colors        
         traj_id_to_cmap_index = {}
-        for (ii, tt) in enumerate(np.where(self.sig_trajs_)[0]):
-            traj_id_to_cmap_index[tt] = ii
+        if traj_map is not None:
+            for vv in traj_map.values():
+                traj_id_to_cmap_index[vv] = vv
+        else:
+            for (ii, tt) in enumerate(np.where(self.sig_trajs_)[0]):
+                traj_id_to_cmap_index[tt] = ii
             
         fig, ax = plt.subplots(figsize=(6, 6))
         ax.scatter(df_traj[x_axis].values,
@@ -1474,7 +1498,7 @@ class MultDPRegression:
                 ax.scatter(df_traj[ids_tmp][x_axis].values,
                            df_traj[ids_tmp][y_axis].values,
                            edgecolor='k',
-                           color=cmap(traj_id_to_cmap_index[tt]),
+                           color=cmap(traj_id_to_cmap_index[traj_map_[tt]]),
                            alpha=0.5)
 
                 std = np.sqrt(self.lambda_b_[target_index][tt]/\
@@ -1486,13 +1510,13 @@ class MultDPRegression:
                 n_traj = int(traj_prob_vec[tt]*num_individuals)
                 perc_traj = traj_prob_vec[tt]*100
                 ax.plot(x_dom, y_tmp,
-                        color=cmap(traj_id_to_cmap_index[tt]),
+                        color=cmap(traj_id_to_cmap_index[traj_map_[tt]]),
                         linewidth=3,
                         label='Traj {} (N={}, {:.1f}%)'.\
-                        format(tt, n_traj, perc_traj))
+                        format(traj_map_[tt], n_traj, perc_traj))
                 ax.fill_between(x_dom, y_tmp-2*std, y_tmp+2*std,
-                                color=cmap(traj_id_to_cmap_index[tt]),
-                                alpha=0.3)
+                        color=cmap(traj_id_to_cmap_index[traj_map_[tt]]),
+                        alpha=0.3)
 
         ax.set_xlabel(x_axis, fontsize=16)
         ax.set_ylabel(y_axis, fontsize=16)    
