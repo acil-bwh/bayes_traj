@@ -10,22 +10,26 @@ from argparse import ArgumentParser
 from provenance_tools.write_provenance_data import write_provenance_data
 
 def main():
-    desc = """Produces a scatter plot of the data contained in the input data file
-    as well as plots of random draws from the prior. This is useful to inspect 
-    whether the prior appropriately captures prior belief."""
+    desc = """Produces a scatter plot of the data contained in the input data 
+    file as well as plots of random draws from the prior. This is useful to 
+    inspect whether the prior appropriately captures prior belief."""
     
     parser = ArgumentParser(description=desc)
     parser.add_argument('--data_file', help='Input data file', type=str,
         default=None)
-    parser.add_argument('--prior', help='Input prior file', type=str, default=None)
-    parser.add_argument('--num_draws', help='Number of random draws to take from \
-        prior', type=int, default=10)
-    parser.add_argument('--y_axis', help='Name of the target variable that will \
-        be plotted on the y-axis', type=str, default=None)
-    parser.add_argument('--x_axis', help='Name of the predictor variable that will \
-        be plotted on the x-axis', type=str, default=None)
-    parser.add_argument('--fig_file', help='File name where figure will be saved',
-        type=str, default=None)
+    parser.add_argument('--prior', help='Input prior file', type=str,
+        default=None)
+    parser.add_argument('--num_draws', help='Number of random draws to take \
+        from prior', type=int, default=10)
+    parser.add_argument('--y_axis', help='Name of the target variable that \
+        will be plotted on the y-axis', type=str, default=None)
+    parser.add_argument('--x_axis', help='Name of the predictor variable that \
+        will be plotted on the x-axis', type=str, default=None)
+    parser.add_argument('--hide_resid', help='If set, shaded regions \
+        corresponding to residual spread will not be displayed. This can be \
+        useful to reduce visual clutter', action='store_true')    
+    parser.add_argument('--fig_file', help='File name where figure will be \
+        saved', type=str, default=None)
     
     op = parser.parse_args()
     
@@ -98,7 +102,8 @@ def main():
         y_tmp = np.dot(co, X_tmp.T)
     
         ax.plot(x_dom, y_tmp)
-        ax.fill_between(x_dom, y_tmp-2*std, y_tmp+2*std, alpha=0.3)
+        if not op.hide_resid:
+            ax.fill_between(x_dom, y_tmp-2*std, y_tmp+2*std, alpha=0.3)
     
     ax.set_xlabel(op.x_axis, fontsize=16)
     ax.set_ylabel(op.y_axis, fontsize=16)
