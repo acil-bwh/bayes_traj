@@ -21,6 +21,9 @@ def main():
         trajectory must be at least this value in order for results to be printed \
         for that trajectory. Value should be between 0 and 1 inclusive.', \
         type=float, default=0)
+    parser.add_argument('--hide_ic', help='Use this flag to hide compuation \
+        and display of information criterai (BIC and WAIC2), which can take \
+        several moments to compute.', action="store_true")
     
     op = parser.parse_args()
     
@@ -35,9 +38,13 @@ def main():
         traj_ids = np.where(mm.sig_trajs_)[0]
     
     all_traj_ids = np.where(mm.sig_trajs_)[0]
-    
-    bic = mm.bic()
-    waic2 = compute_waic2(mm)
+
+    if op.hide_ic:
+        bic = None
+        waic2 = None
+    else:
+        bic = mm.bic()
+        waic2 = compute_waic2(mm)
     
     # Compute fit stats
     ave_pps = ave_pp(mm)
@@ -77,17 +84,18 @@ def main():
     print("{}{}".format("No. Groups:".ljust(20), "{}".\
                         format(num_groups).ljust(15)))
 
-    print("{}{}".format("WAIC2:".ljust(20), "{}".\
-                        format(int(waic2)).ljust(10))) 
-    
-    if len(bic) == 2:
-        print("{}{}".format("BIC1:".ljust(20), "{}".\
-                            format(int(bic[0])).ljust(10)))
-        print("{}{}".format("BIC2:".ljust(20), "{}".\
-                            format(int(bic[1])).ljust(10))) 
-    else:
-        print("{}{}".format("BIC:".ljust(20), "{}".\
-                            format(int(bic)).ljust(10)))         
+    if waic2 is not None:
+        print("{}{}".format("WAIC2:".ljust(20), "{}".\
+                            format(int(waic2)).ljust(10))) 
+    if bic is not None:
+        if len(bic) == 2:
+            print("{}{}".format("BIC1:".ljust(20), "{}".\
+                                format(int(bic[0])).ljust(10)))
+            print("{}{}".format("BIC2:".ljust(20), "{}".\
+                                format(int(bic[1])).ljust(10))) 
+        else:
+            print("{}{}".format("BIC:".ljust(20), "{}".\
+                                format(int(bic)).ljust(10)))         
         
     for traj in traj_ids:
         if traj_probs[traj] > op.min_traj_prob:
