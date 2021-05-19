@@ -243,9 +243,9 @@ def main():
     M = len(preds)
     K = float(op.k)
     
-    #-------------------------------------------------------------------------------
+    #---------------------------------------------------------------------------
     # Initialize prior info
-    #-------------------------------------------------------------------------------
+    #---------------------------------------------------------------------------
     prior_info = {}
     
     prior_info['w_mu0'] = {}
@@ -263,14 +263,14 @@ def main():
             prior_info['w_mu0'][tt][pp] = 0
             prior_info['w_var0'][tt][pp] = 5
     
-    # Guesstimate of how big a data sample. Will be used to generate an estimate of
-    # alpha. Will be overwritten if a data file has been specified.
+    # Guesstimate of how big a data sample. Will be used to generate an estimate
+    # of alpha. Will be overwritten if a data file has been specified.
     N = 10000
     prior_info['alpha'] = op.num_trajs/np.log10(N)
     
-    #-------------------------------------------------------------------------------
+    #---------------------------------------------------------------------------
     # Read in and process data and models as availabe
-    #-------------------------------------------------------------------------------
+    #---------------------------------------------------------------------------
     df_traj_model = None
     df_traj_data = None
     df_data = None
@@ -313,9 +313,9 @@ def main():
         elif df_data is not None:
             prior_info_from_df(df_data, tt, preds, op.num_trajs, prior_info)
             
-    #-------------------------------------------------------------------------------
+    #---------------------------------------------------------------------------
     # Override prior settings with user-specified preferences
-    #-------------------------------------------------------------------------------
+    #---------------------------------------------------------------------------
     if op.tar_resid is not None:
         for i in range(len(op.tar_resid)):
             tt = op.tar_resid[i][0].split(',')[0]
@@ -350,21 +350,22 @@ def main():
     
             prior_info['w_var0'][tt][pp] = s**2
     
-    #-------------------------------------------------------------------------------
+    #---------------------------------------------------------------------------
     # Summarize prior info and save to file
-    #-------------------------------------------------------------------------------        
+    #---------------------------------------------------------------------------        
     print('---------- Prior Info ----------')
     print('alpha: {}'.format(prior_info['alpha']))        
     for tt in targets:
         print(" ")
         prec_mean = prior_info['lambda_a0'][tt]/prior_info['lambda_b0'][tt]
         prec_var = prior_info['lambda_a0'][tt]/(prior_info['lambda_b0'][tt]**2)
-        print("{} residual (precision mean, precision variance): ({}, {})".\
+        print("{} residual (precision mean, precision variance): ({:.2e}, {:.2e})".\
               format(tt, prec_mean, prec_var))
         for pp in preds:
             tmp_mean = prior_info['w_mu0'][tt][pp]
             tmp_std = np.sqrt(prior_info['w_var0'][tt][pp])
-            print("{} {} (mean, std): ({}, {})".format(tt, pp, tmp_mean, tmp_std))
+            print("{} {} (mean, std): ({:.2e}, {:.2e})".\
+                  format(tt, pp, tmp_mean, tmp_std))
             
     if op.out_file is not None:                    
         pickle.dump(prior_info, open(op.out_file, 'wb'))
