@@ -354,7 +354,7 @@ def main():
     # Summarize prior info and save to file
     #---------------------------------------------------------------------------        
     print('---------- Prior Info ----------')
-    print('alpha: {}'.format(prior_info['alpha']))        
+    print('alpha: {:.2e}'.format(prior_info['alpha']))        
     for tt in targets:
         print(" ")
         prec_mean = prior_info['lambda_a0'][tt]/prior_info['lambda_b0'][tt]
