@@ -25,6 +25,8 @@ def main():
         will be plotted on the y-axis', type=str, default=None)
     parser.add_argument('--x_axis', help='Name of the predictor variable that \
         will be plotted on the x-axis', type=str, default=None)
+    parser.add_argument('--ylim', help='Comma-separated tuple to set the \
+        limits of display for the y-axis', type=str, default=None)    
     parser.add_argument('--hide_resid', help='If set, shaded regions \
         corresponding to residual spread will not be displayed. This can be \
         useful to reduce visual clutter', action='store_true')    
@@ -107,6 +109,8 @@ def main():
     
     ax.set_xlabel(op.x_axis, fontsize=16)
     ax.set_ylabel(op.y_axis, fontsize=16)
+    if op.ylim is not None:
+        ax.set_ylim(float(op.ylim.split(',')[0]), float(op.ylim.split(',')[1]))
     
     if op.fig_file is not None:
         print("Saving figure...")
