@@ -20,6 +20,8 @@ class MultDPRegression:
     samples, and 'K' is an integer indicating the number of elements in the
     truncated Dirichlet process. We use 'DP' for 'Dirichlet Process'.
 
+    TODO: Update to accomodate binary targets as necessary
+
     Parameters
     ----------
     w_mu0 : array, shape ( M, D )
@@ -129,9 +131,11 @@ class MultDPRegression:
     def fit(self, target_names, predictor_names, df, groupby=None, iters=100,
             R=None, traj_probs=None, traj_probs_weight=None, v_a=None,
             v_b=None, w_mu=None, w_var=None, lambda_a=None, lambda_b=None,
-            batch_size=None, verbose=False):
+            verbose=False):
         """Performs variational inference (coordinate ascent or SVI) given data
         and provided parameters.
+
+        TODO: Update to accomodate binary targets as necessary
 
         Parameters
         ----------
@@ -210,11 +214,6 @@ class MultDPRegression:
             precision of the target variable. If specified, the algorithm will
             be initialized with this matrix.
 
-        batch_size : int, optional
-            The size (number of individuals) of the minibatch to use for 
-            stochastic variational inference. It must be less than the total 
-            number of individuals.
-
         verbose : bool, optional
             If true, a printout of the sum along rows of the R_ matrix will
             be provided during optimization. This sum indicates how many data
@@ -269,14 +268,13 @@ class MultDPRegression:
         if self.R_ is None:
             self.init_R_mat(traj_probs, traj_probs_weight)
 
-        if batch_size is not None:
-            self.fit_svi(batch_size, iters, verbose)
-        else:
-            self.fit_coordinate_ascent(iters, verbose)
+        self.fit_coordinate_ascent(iters, verbose)
 
     def fit_coordinate_ascent(self, iters, verbose):
         """This function contains the iteratrion loop for mean-field 
         variational inference using coordinate ascent
+
+        TODO: Update to accomodate binary targets as necessary
 
         Parameters
         ----------
@@ -294,108 +292,16 @@ class MultDPRegression:
             inc += 1
             
             self.update_v()
-            self.update_w_accel()
-            self.update_lambda_accel() 
-            self.R_ = self.update_z_accel(self.X_, self.Y_)            
+            self.update_w_gaussian()
+            self.update_w_logistic()            
+            self.update_lambda() 
+            self.R_ = self.update_z(self.X_, self.Y_)            
                 
             self.sig_trajs_ = np.max(self.R_, 0) > self.prob_thresh_
 
             if verbose:
                 print("iter {},  {}".format(inc, sum(self.R_, 0)))
 
-    def fit_svi(self, batch_size, iters, verbose):
-        """This function contains the iteratrion loop for stochastic variational 
-       inference.
-
-        Parameters
-        ----------
-        batch_size : int, optional
-            The size (number of individuals) of the minibatch to use for 
-            stochastic variational inference. It must be less than the total 
-            number of individuals.
-
-        iters : int, optional
-            Number of variational inference iterations to run.
-
-        verbose : bool, optional
-            If true, a printout of the sum along rows of the R_ matrix will
-            be provided during optimization. This sum indicates how many data
-            instances are being assigned to each of the K possible
-            trajectories.
-
-        References
-        ----------
-        Hoffman MD, Blei DM, Wang C, Paisley J. Stochastic variational 
-        inference. Journal of Machine Learning Research. 2013 May 1;14(5).
-        """            
-        # Batch size taken to mean number of individuals.
-        if self.gb_ is not None:
-            assert batch_size > 0 & batch_size <= self.gb_.ngroups, \
-                "Batch size misspecified"
-        else:
-            assert batch_size > 0 & batch_size <= self.N_, \
-                "Batch size misspecified"
-        self.batch_size_ = batch_size
-
-        if self.gb_ is not None:
-            assert self.batch_size_ <= self.gb_.ngroups and \
-                self.batch_size_ >= 1, "Batch size error"
-            indicator = np.zeros(self.gb_.ngroups)
-        else:
-            assert self.batch_size_ <= self.N_ and \
-                self.batch_size_ >= 1, "Batch size error"            
-            indicator = np.zeros(self.N_)
-        indicator[0:self.batch_size_] = 1
-                
-        # tau and kappa set to reasonable values as investigated in 
-        tau = 1.
-        kappa = 0.9
-        inc =  0
-        while inc < iters:
-            inc += 1
-            rho = (inc + tau)**(-kappa)
-            
-            # Get batch indices. If the data has been grouped, retrieve the data
-            # indices corresponding to the randomly selected individuals
-            self.batch_indices_ = np.zeros(self.N_, dtype=bool)
-            if self.gb_ is not None:
-                self.batch_subjects_ = np.array(list(self.gb_.groups.keys()))\
-                    [np.where(np.random.permutation(indicator))[0]]
-
-                for ww in self.batch_subjects_:
-                    self.batch_indices_[self.gb_.get_group(ww).index] = True
-            else:
-                self.batch_indices_ = np.random.permutation(indicator) == 1
-            
-            v_a, v_b = self.update_v_batch()             
-            self.v_a_[self.sig_trajs_] = \
-                (1 - rho)*self.v_a_[self.sig_trajs_] + rho*v_a[self.sig_trajs_]
-            self.v_b_[self.sig_trajs_] = \
-                (1 - rho)*self.v_b_[self.sig_trajs_] + rho*v_b[self.sig_trajs_]
-
-            w_mu, w_var = self.update_w_batch(self.lambda_a_, self.lambda_b_)             
-            self.w_mu_[:, :, self.sig_trajs_] = \
-                (1 - rho)*self.w_mu_[:, :, self.sig_trajs_] + \
-                rho*w_mu[:, :, self.sig_trajs_]
-            self.w_var_[:, :, self.sig_trajs_] = \
-                1./((1 - rho)*1./self.w_var_[:, :, self.sig_trajs_] + \
-                    rho*1./w_var[:, :, self.sig_trajs_])
-
-            lambda_a, lambda_b = \
-                self.update_lambda_batch(self.w_mu_, self.w_var_)            
-            self.lambda_a_[:, self.sig_trajs_] = \
-                (1 - rho)*self.lambda_a_[:, self.sig_trajs_] + \
-                rho*lambda_a[:, self.sig_trajs_]
-            self.lambda_b_[:, self.sig_trajs_] = \
-                (1 - rho)*self.lambda_b_[:, self.sig_trajs_] + \
-                rho*lambda_b[:, self.sig_trajs_]
-
-            self.R_[self.batch_indices_, :] = \
-                self.update_z_batch(self.X_, self.Y_)                
-            self.sig_trajs_ = np.max(self.R_, 0) > self.prob_thresh_            
-            
-            if verbose:
-                print("iter {},  {}".format(inc, sum(self.R_, 0)))        
                 
     def update_v(self):
         """Updates the parameters of the Beta distributions for latent
@@ -406,84 +312,8 @@ class MultDPRegression:
         for k in np.arange(0, self.K_):
             self.v_b_[k] = self.alpha_ + np.sum(self.R_[:, k+1:])
 
-    def update_v_batch(self):
-        """Updates the parameters of the Beta distributions for latent
-        variable 'v' in the variational approximation.
-        """
-        v_a = np.zeros(self.K_)
-        v_b = np.zeros(self.K_)        
-        
-        sum_factor = self.N_/np.sum(self.batch_indices_)
-        
-        v_a = 1.0 + sum_factor*np.sum(self.R_[self.batch_indices_, :], 0)
 
-        for k in np.arange(0, self.K_):
-            v_b[k] = self.alpha_ + \
-                sum_factor*np.sum(self.R_[self.batch_indices_, k+1:])
-
-        return v_a, v_b
-                                 
-    def update_z_batch(self, X, Y):
-        """
-        """
-        expec_ln_v = psi(self.v_a_) - psi(self.v_a_ + self.v_b_)
-        expec_ln_1_minus_v = psi(self.v_b_) - psi(self.v_a_ + self.v_b_)
-
-        tmp = np.array(expec_ln_v)
-        for k in range(1, self.K_):
-            tmp[k] += np.sum(expec_ln_1_minus_v[0:k])
-
-        ln_rho = np.ones([self.N_, self.K_])*tmp[newaxis, :]
-
-        for d in range(0, self.D_):
-            sel_ids = ~np.isnan(Y[:, d]) & self.batch_indices_
-
-            tmp = (dot(self.w_mu_[:, d, :].T, \
-                X[sel_ids, :].T)**2).T + \
-                np.sum((X[sel_ids, newaxis, :]**2)*\
-                (self.w_var_[:, d, :].T)[newaxis, :, :], 2)
-
-            ln_rho[sel_ids, :] += \
-              0.5*(psi(self.lambda_a_[d, :]) - \
-                log(self.lambda_b_[d, :]) - \
-                log(2*np.pi) - \
-                (self.lambda_a_[d, :]/self.lambda_b_[d, :])*\
-                (tmp - \
-                 2*Y[sel_ids, d, newaxis]*dot(X[sel_ids, :], \
-                self.w_mu_[:, d, :]) + \
-                Y[sel_ids, d, newaxis]**2))
-
-        # The values of 'ln_rho' will in general have large magnitude, causing
-        # exponentiation to result in overflow. All we really care about is the
-        # normalization of each row. We can use the identity exp(a) =
-        # 10**(a*log10(e)) to put things in base ten, and then subtract from
-        # each row the max value and also clipping the resulting row vector to
-        # lie within -300, 300 to ensure that when we exponentiate we don't
-        # have any overflow issues.
-        rho_10 = ln_rho*np.log10(np.e)
-        rho_10_shift = 10**((rho_10.T - max(rho_10, 1)).T + 300).clip(-300, 300)
-        R = (rho_10_shift.T/sum(rho_10_shift, 1)).T
-
-        # Within a group, all data instances must have the same probability of
-        # belonging to each of the K trajectories
-        if self.gb_ is not None:
-            for g in self.batch_subjects_:
-                tmp_ids = self.gb_.get_group(g).index.values
-                tmp_vec = np.sum(np.log(R[tmp_ids, :] + \
-                                        np.finfo(float).tiny), 0)
-                vec = np.exp(tmp_vec + 700 - np.max(tmp_vec))
-                vec = vec/np.sum(vec)
-
-                # Now update the rows of 'normalized_mat'.
-                R[tmp_ids, :] = vec                
-
-        # Any instance that has miniscule probability of belonging to a
-        # trajectory, set it's probability of belonging to that trajectory to 0
-        R[R <= self.prob_thresh_] = 0
-
-        return R[self.batch_indices_, :]
-
-    def update_z_accel(self, X, Y):
+    def update_z(self, X, Y):
         """
         """
         expec_ln_v = psi(self.v_a_) - psi(self.v_a_ + self.v_b_)
@@ -542,8 +372,15 @@ class MultDPRegression:
         R[R <= self.prob_thresh_] = 0
 
         return R
+
     
-    def update_w_accel(self):
+    def update_w_logistic(self):
+        """
+        """
+        pass
+
+    
+    def update_w_gaussian(self):
         """ Updates the variational distribution over latent variable w.
         """
         mu0_DIV_var0 = self.w_mu0_/self.w_var0_
@@ -576,46 +413,8 @@ class MultDPRegression:
                        self.lambda_b_[d, self.sig_trajs_])*\
                      sum_term + mu0_DIV_var0[m, d])
 
-    def update_w_batch(self, lambda_a, lambda_b):
-        """ Updates the variational distribution over latent variable w.
-        """
-        w_mu = np.array(self.w_mu_)
-        w_var = np.array(self.w_var_)
-        
-        mu0_DIV_var0 = self.w_mu0_/self.w_var0_
-        for m in range(0, self.M_):
-            ids = np.ones(self.M_, dtype=bool)
-            ids[m] = False
-            for d in range(0, self.D_):
-                sel_ids = ~np.isnan(self.Y_[:, d]) & self.batch_indices_
-                sum_factor = self.N_/np.sum(sel_ids)
                 
-                tmp1 = sum_factor*(lambda_a[d, self.sig_trajs_]/\
-                                lambda_b[d, self.sig_trajs_])*\
-                                (np.sum(self.R_[:, self.sig_trajs_, newaxis]\
-                                        [sel_ids, :, :]*\
-                                        self.X_[sel_ids, newaxis, :]**2, 0).T)\
-                                        [:, newaxis, :]
-                
-                w_var[:, :, self.sig_trajs_] = \
-                    (tmp1 + (1.0/self.w_var0_)[:, :, newaxis])**-1
-                
-                sum_term = \
-                    sum_factor*sum(self.R_[sel_ids, :][:, self.sig_trajs_]*\
-                                   self.X_[sel_ids, m, newaxis]*\
-                                   (dot(self.X_[:, ids][sel_ids, :], \
-                                        w_mu[ids, d, :][:, self.sig_trajs_]) - \
-                                    self.Y_[sel_ids, d][:, newaxis]), 0)
-    
-                w_mu[m, d, self.sig_trajs_] = \
-                    w_var[m, d, self.sig_trajs_]*\
-                    (-(lambda_a[d, self.sig_trajs_]/\
-                       lambda_b[d, self.sig_trajs_])*\
-                     sum_term + mu0_DIV_var0[m, d])
-                
-        return w_mu, w_var    
-                
-    def update_lambda_accel(self):
+    def update_lambda(self):
         """Updates the variational distribution over latent variable lambda.
         """    
         for d in range(self.D_):
@@ -639,38 +438,11 @@ class MultDPRegression:
                                 self.w_mu_[:, d, self.sig_trajs_]) + \
                          self.Y_[non_nan_ids, d, newaxis]**2), 0)
 
-    def update_lambda_batch(self, w_mu, w_var):
-        """Updates the variational distribution over latent variable lambda.
-        """
-        lambda_a = np.nan*np.zeros([self.D_, self.K_])
-        lambda_b = np.nan*np.zeros([self.D_, self.K_])
-        
-        for d in range(self.D_):
-            sel_ids = ~np.isnan(self.Y_[:, d]) & self.batch_indices_
-            sum_factor = self.N_/np.sum(sel_ids)
-
-            lambda_a[d, self.sig_trajs_] = self.lambda_a0_[d, newaxis] + \
-                sum_factor*0.5*sum(self.R_[:, self.sig_trajs_][sel_ids, :], 0)\
-                [newaxis, :]
-            
-            tmp = (dot(w_mu[:, d, self.sig_trajs_].T, \
-                       self.X_[sel_ids, :].T)**2).T + \
-                       np.sum((self.X_[sel_ids, newaxis, :]**2)*\
-                              (w_var[:, d, self.sig_trajs_].T)\
-                              [newaxis, :, :], 2)
-    
-            lambda_b[d, self.sig_trajs_] = \
-                self.lambda_b0_[d, newaxis] + \
-                0.5*sum_factor*sum(self.R_[sel_ids, :][:, self.sig_trajs_]*\
-                                   (tmp - 2*self.Y_[sel_ids, d, newaxis]*\
-                                    np.dot(self.X_[sel_ids, :], \
-                                           w_mu[:, d, self.sig_trajs_]) + \
-                                    self.Y_[sel_ids, d, newaxis]**2), 0)
-            
-        return lambda_a, lambda_b
             
     def sample(self, index=None, x=None):
         """sample from the posterior distribution using the input data.
+
+        TODO: Update to accomodate binary targets as necessary
 
         Parameters
         ----------
@@ -738,6 +510,8 @@ class MultDPRegression:
 
         This function implements equation 7.5 of 'Bayesian Data Analysis, Third
         Edition' for a single point.
+
+        TODO: Update to accomodate binary targets as necessary
 
         Parameters
         ----------
@@ -807,6 +581,8 @@ class MultDPRegression:
         """Compute the log-likelihood given expected values of the latent 
         variables.
 
+        TODO: Update to accomodate binary targets as necessary
+
         Returns
         -------
         log_likelihood : float
@@ -835,6 +611,8 @@ class MultDPRegression:
         in the reference. Assumes same number of parameters for each trajectory 
         and for each target dimension.
     
+        TODO: Update to accomodate binary targets as necessary
+
         Returns
         -------
         bic_obs[, bic_groups] : float or tuple
@@ -890,6 +668,8 @@ class MultDPRegression:
         criterion, using the variance of individual terms in the log predictive
         density summed over the n data points.
 
+        TODO: Update to accomodate binary targets as necessary
+
         Parameters
         ----------
         S : integer, optional
@@ -937,6 +717,8 @@ class MultDPRegression:
         values at the specified predictor and target location set to the values
         in expand_vec.
 
+        TODO: Update to accomodate binary targets as necessary
+
         Parameters
         ----------
         mat : array, shape ( M, D, kk )
@@ -977,6 +759,7 @@ class MultDPRegression:
     
     def prune_coef_mat(self, w_mu):
         """
+        TODO: Update to accomodate binary targets as necessary
         """
         tmp_K = w_mu.shape[2]
         R_tmp = np.ones([self.N_, tmp_K])
@@ -1030,6 +813,7 @@ class MultDPRegression:
     def init_traj_params(self):
         """Initializes trajectory parameters. 
 
+        TODO: Update to accomodate binary targets as necessary
         """
         if self.w_var_ is None:
             self.w_var_ = np.zeros([self.M_, self.D_, self.K_])
@@ -1077,6 +861,8 @@ class MultDPRegression:
         """Initializes 'R_', using the stick-breaking construction. Also
         enforces any longitudinal constraints.
 
+        TODO: Update to accomodate binary targets as necessary
+
         Parameters
         ----------
         traj_probs : array, shape ( K ), optional
@@ -1122,6 +908,8 @@ class MultDPRegression:
         """Compute the probability that each data instance belongs to each of
         the 'k' clusters. Note that 'X' and 'Y' can be "new" data; that is,
         data that was not necessarily used to train the model.
+
+        TODO: Update to accomodate binary targets as necessary
 
         Returns
         -------
@@ -1188,6 +976,8 @@ class MultDPRegression:
         """Compute the probability that each data instance belongs to each of
         the 'k' clusters. Note that 'X' and 'Y' can be "new" data; that is,
         data that was not necessarily used to train the model.
+
+        TODO: Update to accomodate binary targets as necessary
 
         Parameters
         ----------
@@ -1259,80 +1049,20 @@ class MultDPRegression:
     def compute_lower_bound(self):
         """Compute the variational lower bound
 
+        NOTE: Currently not implemented.
+
         Returns
         -------
         lower_bound : float
             The variational lower bound
         """
-        term_2 = 0.5*dot(sum(self.R_, 0), sum(psi(self.lambda_a_) - \
-            log(self.lambda_b_), 0))
-
-        term_3 = 0.
-        for d in range(0, self.D_):
-            non_nan_ids = ~np.isnan(self.Y_[:, d])
-            for k in range(0, self.K_):
-                term_3 += (self.lambda_a_[d, k]/self.lambda_b_[d, k])*\
-                  (dot(dot((self.X_[non_nan_ids, :]**2), self.w_var_[:, d, k]),
-                         self.R_[non_nan_ids, k]) + \
-                    sum((self.X_[non_nan_ids, :, newaxis]*\
-                         self.X_[non_nan_ids, newaxis, :])*\
-                           outer(self.w_mu_[:, d, k], self.w_mu_[:, d, k])*\
-                           self.R_[non_nan_ids, k, newaxis, newaxis]) + \
-                           dot(self.R_[non_nan_ids, k], \
-                               self.Y_[non_nan_ids, d]**2) + \
-                      -2*dot(self.R_[non_nan_ids, k]*self.Y_[non_nan_ids, d], \
-                             dot(self.X_[non_nan_ids, :], 
-                            self.w_mu_[:, d, k])))
-        term_3 *= -0.5
-
-        term_6 = np.sum(np.dot(self.R_, psi(self.v_a_) - \
-                               psi(self.v_a_ + self.v_b_)))
-
-        term_7 = 0.
-        for k in range(1, self.K_):
-            term_7 += \
-              sum(self.R_[:, k]*sum(psi(self.v_b_[0:k]) - \
-                                    psi(self.v_a_[0:k] + self.v_b_[0:k])))
-
-        term_8 = (self.alpha_ - 1.)*sum(psi(self.v_b_) - \
-                                        psi(self.v_a_ + self.v_b_))
-
-        term_12 = 0.
-        for k in range(0, self.K_):
-            term_12 += sum(-(0.5/self.w_var0_)*(self.w_var_[:, :, k] + \
-                self.w_mu_[:, :, k]**2 - 2*self.w_mu0_*self.w_mu_[:, :, k]))
-
-        term_15 = np.sum(np.dot(self.lambda_a0_ - 1, \
-                         (psi(self.lambda_a_) - log(self.lambda_b_))))
-
-        term_16 = -np.sum(np.dot(self.lambda_b0_, \
-                          (self.lambda_a_/self.lambda_b_)))
-
-        ids = self.R_ > 0.
-        term_17 = -np.sum(self.R_[ids]*log(self.R_[ids]))
-
-        term_18 = 0.
-        for k in range(0, self.K_):
-            alpha = 1 + np.sum(self.R_, 0)[k]
-            beta = self.alpha_ + np.sum(np.sum(self.R_, 0)[(k+1):self.K_])
-            term_18 += -gammaln(alpha + beta) + gammaln(alpha) + \
-              gammaln(beta) - (alpha - 1)*(psi(alpha) - psi(alpha + beta)) - \
-              (beta - 1)*(psi(beta) - psi(alpha + beta))
-
-        term_19 = 0.5*np.sum(log(self.w_var_))
-
-        term_20 = np.sum(self.lambda_a_ - log(self.lambda_b_) + \
-            gammaln(self.lambda_a_) + (1 - self.lambda_a_)*psi(self.lambda_a_))
-
-        lower_bound = term_2 + term_3 + term_6 + term_7 + term_8 + term_12 + \
-          term_15 + term_16 + term_17 + term_18 + term_19 + term_20
-
-        self.lower_bounds_.append(lower_bound)
-        return lower_bound
-
+        pass
+        
     def to_df(self):
         """Adds to the current data frame columns containing trajectory 
         assignments and probabilities.
+
+        TODO: Update to accomodate binary targets as necessary
 
         Returns
         -------
@@ -1368,6 +1098,8 @@ class MultDPRegression:
         variables not specified to be on the x-axis will be set to their mean
         values for plotting.     
         
+        TODO: Update to accomodate binary target variables as necessary
+
         Parameters
         ----------
         x_axis : str
@@ -1526,204 +1258,4 @@ class MultDPRegression:
         if show:
             plt.show()
 
-        return ax
-    
-#if __name__ == "__main__":
-#    desc = """Run the multiple Dirichlet Process regression algorithm"""
-#
-#    parser = ArgumentParser(description=desc)
-#    parser.add_argument('--data_file', help='csv file containing the data on \
-#                        which to run the algorithm', dest='data_file',
-#                        metavar='<string>', default=None)
-#    parser.add_argument('--out_file', help='Pickle file name for output data.',
-#                        dest='out_file', metavar='<string>', default=None)
-#    parser.add_argument('--preds', help='Comma-separated list of predictors \
-#                        to use. Each predictor must correspond to a column in \
-#                        the data file', dest='preds', metavar='<string>',
-#                        default=None)
-#    parser.add_argument('--targets', help='Comma-separated list of target \
-#                        variables: each must correspond to a column in \
-#                        the data file', dest='targets', metavar='<string>',
-#                        default=None)
-#    parser.add_argument('--sid_col', help='Data file column name \
-#                        corresponding to subject IDs. Repeated entries in \
-#                        this column are interpreted as corresponding to \
-#                        different visits for a given subject. Use of this \
-#                        flag is only necessary if the user wants to impose \
-#                        longitudinal constraints on the algorithm \
-#                        (recommended for best performance). If this flag is \
-#                        not specified, longitudinal constraints will not be \
-#                        used.', dest='sid_col', metavar='<string>',
-#                        default=None)
-#    parser.add_argument('-K', help='Integer indicating the number of elements \
-#                        in the truncated Dirichlet Process.', dest='K',
-#                        metavar='<int>', default=20)
-#    parser.add_argument('--alpha', help='Hyper parameter of the Beta \
-#                        destribution involved in the stick-breaking \
-#                        construction of the Dirichlet Process. Increasing \
-#                        alpha tends to produce more clusters and vice-versa.',
-#                        dest='alpha', metavar='<int>', default=20)
-#    parser.add_argument('--iters', help='Number of variational inference \
-#                        iterations to run.', dest='iters', metavar='<int>',
-#                        default=10000)
-#    parser.add_argument('--w_mu0_file', help='The coefficient for each \
-#                        predictor is drawn from a normal distribution. \
-#                        This is the file name of the M x D matrix of \
-#                        hyperparameters of the mean values of those \
-#                        normal distributions. M is the dimension of the \
-#                        predictor space, and D is the dimension of the \
-#                        target variable space. Values should be separated by \
-#                        commas, and the ordering of the rows and columns \
-#                        must be the same as the ordering of predictors \
-#                        and targets specified on the command line.',
-#                        dest='w_mu0_file', metavar='<string>', default=None)
-#    parser.add_argument('--w_var0_file', help='The coefficient for each \
-#                        predictor is drawn from a normal distribution. \
-#                        This is the file name of the M x D matrix of \
-#                        hyperparameters of the variance values of those \
-#                        normal distributions. M is the dimension of the \
-#                        predictor space, and D is the dimension of the \
-#                        target variable space. Values should be separated by \
-#                        commas, and the ordering of the rows and columns \
-#                        must be the same as the ordering of predictors \
-#                        and targets specified on the command line.',
-#                        dest='w_var0_file', metavar='<string>', default=None)
-#    parser.add_argument('--lambdas0_file', help='File containing the 2 x D \
-#                        dimensional array of hyperparameters for the Gamma \
-#                        priors over the precisions for each of the d target \
-#                        variables. The first row in the file should \
-#                        correspond to the first parameter of the \
-#                        distribution, and the second row of the file should \
-#                        correspond to the second parameter of the \
-#                        distribution. Values should be comma-separated, and \
-#                        ordering of the columns must be the same as the \
-#                        ordering of targets specified on the command line.', 
-#                        dest='lambdas0_file', metavar='<string>', default=None)
-#    parser.add_argument('--R_file', help='Pickle file containing NxK values \
-#                        using the "R" key. These values will be starting point \
-#                        trajectory assignment probabilities for the fitting \
-#                        process. If specified, the value of K will be set to \
-#                        the number of columns in this matrix, and any value \
-#                        set with the -K flag will be ignored. If there is a \
-#                        mismatch between the number of rows in this matrix and \
-#                        the number of data points in the data_file, a value \
-#                        error will be raised. If any row in this matrix \
-#                        contains a nan, the entire row will be replaced with \
-#                        a normalized, K-dimensional random vector.',
-#                        dest='R_file', metavar='<string>', default=None)
-#    parser.add_argument('--v_a_file', help='Pickle file containing K values \
-#                        using the "v_a" key. These are the first values of \
-#                        the posterior Beta distribution describing the \
-#                        latent vector, v, which is involved in the stick-\
-#                        breaking construction of the DP. If this file is \
-#                        specified, you must also specify the --v_b_file. \
-#                        The fitting process will begin with these values.',
-#                        dest='v_a_file', metavar='<string>', default=None)
-#    parser.add_argument('--v_b_file', help='Pickle file containing K values \
-#                        using the "v_b" key. These are the second values of \
-#                        the posterior Beta distribution describing the \
-#                        latent vector, v, which is involved in the stick-\
-#                        breaking construction of the DP. If this file is \
-#                        specified, you must also specify the --v_a_file. \
-#                        The fitting process will begin with these values.',
-#                        dest='v_b_file', metavar='<string>', default=None)
-#    parser.add_argument('--w_mu_file', help='Pickle file containing MxDxK \
-#                        values using the "w_mu" key. M is the dimension of \
-#                        the predictor space, D is the dimension of the target \
-#                        space, and K is the number of elements in the \
-#                        truncated Dirichlet process. These values will be \
-#                        used as the fitting starting point for the predictor \
-#                        coefficients.', dest='w_mu_file', metavar='<string>',
-#                        default=None)
-#    parser.add_argument('--w_var_file', help='Pickle file containing MxDxK \
-#                        values using the "w_var" key. M is the dimension of \
-#                        the predictor space, D is the dimension of the target \
-#                        space, and K is the number of elements in the \
-#                        truncated Dirichlet process. These values will be \
-#                        used as the fitting starting point for the variance \
-#                        values of the distributions over the predictor \
-#                        coefficients.', dest='w_var_file', metavar='<string>',
-#                        default=None)
-#    parser.add_argument('--lambda_a_file', help='Pickle file containing D x K \
-#                        values using the key "lambda_a". D is the dimension \
-#                        of the target space and K is the number of elements \
-#                        in the truncated Dirichlet process. These values will \
-#                        be used as the fitting starting point for the first \
-#                        parameter of the Gamma distributions describing the \
-#                        precision of the target variables. If this file is \
-#                        specified, you should also specify --lambda_a_file.',
-#                        dest='lambda_a_file', metavar='<string>', default=None)
-#    parser.add_argument('--lambda_b_file', help='Pickle file containing D x K \
-#                        values using the key "lambda_b". D is the dimension \
-#                        of the target space and K is the number of elements \
-#                        in the truncated Dirichlet process. These values will \
-#                        be used as the fitting starting point for the second \
-#                        parameter of the Gamma distributions describing the \
-#                        precision of the target variables. If this file is \
-#                        specified, you should also specify --lambda_a_file.',
-#                        dest='lambda_b_file', metavar='<string>', default=None)
-#
-#    op = parser.parse_args()
-#
-#    if op.preds is None:
-#        raise ValueError('Must specify at least one predictor')
-#    if op.targets is None:
-#        raise ValueError('Must specify at least one target variable')
-#    if op.data_file is None:
-#        raise ValueError('Must specify a data file')
-#
-#    preds = op.preds.split(',')
-#    targets = op.targets.split(',')
-#
-#    df = pd.read_csv(op.data_file).dropna(how='any', subset=preds+targets,
-#                                          inplace=False)
-#
-#    K = int(op.K)
-#    X = df[preds].values
-#    Y = df[targets].values
-#    R = None
-#    if op.R_file is not None:
-#        R = pickle.load(open(op.R_file, 'rb'))['R']
-#
-#        if R.shape[0] != df.shape[0]:
-#            raise ValueError("Size mismatch between prior and data matrix")
-#        replacement_rows = np.where(np.isnan(np.sum(R, 1)))[0]
-#
-#        for i in replacement_rows:
-#            vec = np.random.rand(K)
-#            R[i, :] = vec/np.sum(vec)
-#
-#    alpha = float(op.alpha)
-#
-#    graph = None
-#    if op.sid_col is not None:
-#        graph = get_longitudinal_constraints_graph(df[op.sid_col].values)
-#
-#    w_mu0 = pd.read_csv(op.w_mu0_file, header=None).values.T
-#    w_var0 = pd.read_csv(op.w_var0_file, header=None).values.T
-#    lambdas0 = pd.read_csv(op.lambdas0_file, header=None).values
-#    lambda_a0 = lambdas0[0, :]
-#    lambda_b0 = lambdas0[1, :]
-#
-#    v_a = v_b = w_mu = w_var = lambda_a = lambda_b = None
-#
-#    if op.v_a_file is not None:
-#        v_a = pickle.load(open(op.v_a_file, 'rb'))['v_a']
-#    if op.v_b_file is not None:
-#        v_b = pickle.load(open(op.v_b_file, 'rb'))['v_b']
-#    if op.w_mu_file is not None:
-#        w_mu = pickle.load(open(op.w_mu_file, 'rb'))['w_mu']
-#    if op.w_var_file is not None:
-#        w_var = pickle.load(open(op.w_var_file, 'rb'))['w_var']
-#    if op.lambda_a_file is not None:
-#        lambda_a = pickle.load(open(op.lambda_a_file, 'rb'))['lambda_a']
-#    if op.lambda_b_file is not None:
-#        lambda_b = pickle.load(open(op.lambda_b_file, 'rb'))['lambda_b']
-#
-#    mm = MultDPRegression(w_mu0, w_var0, lambda_a0, lambda_b0, alpha,
-#                          K=K)
-#    mm.fit(target_names=targets, predictor_names=preds, R=R, v_a=v_a, v_b=v_b,
-#           w_mu=w_mu, w_var=w_var, lambda_a=lambda_a, lambda_b=lambda_b,
-#           iters=int(op.iters), tol=0.01)
-#
-#    pickle.dump({'mm': mm}, open(op.out_file, "wb"))
+        return ax    
