@@ -377,8 +377,14 @@ class MultDPRegression:
     def update_w_logistic(self):
         """
         """
-        pass
+        # Initialize xi
 
+        # E-step
+
+        # M-step
+
+    
+    
     
     def update_w_gaussian(self):
         """ Updates the variational distribution over latent variable w.
