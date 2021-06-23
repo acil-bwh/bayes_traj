@@ -110,7 +110,8 @@ def main():
     ax.set_xlabel(op.x_axis, fontsize=16)
     ax.set_ylabel(op.y_axis, fontsize=16)
     if op.ylim is not None:
-        ax.set_ylim(float(op.ylim.split(',')[0]), float(op.ylim.split(',')[1]))
+        ax.set_ylim(float(op.ylim.strip('--').split(',')[0]),
+                    float(op.ylim.strip('--').split(',')[1]))
     
     if op.fig_file is not None:
         print("Saving figure...")
