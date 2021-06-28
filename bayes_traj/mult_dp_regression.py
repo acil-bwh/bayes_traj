@@ -107,6 +107,9 @@ class MultDPRegression:
         self.alpha_ = alpha
         self.prob_thresh_ = prob_thresh
 
+        # Keeps track of what data type each dimension is
+        self.target_type_ = {}
+        
         # For recording the lower-bound terms
         self.lower_bounds_ = []
 
@@ -243,8 +246,8 @@ class MultDPRegression:
         assert self.w_mu0_.shape[0] == self.X_.shape[1], \
           "Dimension mismatch between mu_ and X_"
         assert self.X_.shape[0] == self.Y_.shape[0], \
-          "X_ and Y_ do not have the same number of samples"
-
+          "X_ and Y_ do not have the same number of samples"        
+        
         self.N_ = self.X_.shape[0]
         self.M_ = self.X_.shape[1]
         self.D_ = self.Y_.shape[1]
@@ -256,6 +259,14 @@ class MultDPRegression:
         self.v_b_ = v_b
         self.R_ = R
 
+        self.num_binary_targets_ = 0
+        for d in range(self.D_):
+            if set(self.Y_[:, d]).issubset({1.0, 0.0}):
+                self.target_type_[d] = 'binary'
+                self.num_binary_targets_ += 1
+            else:
+                self.target_type_[d] = 'gaussian'
+            
         self.init_traj_params()
 
         if self.v_a_ is None:
@@ -374,15 +385,53 @@ class MultDPRegression:
         return R
 
     
-    def update_w_logistic(self):
+    def update_w_logistic(self, em_iters=10):
         """
+
+        Parameters
+        ----------
+        em_iters : int, optional
+            The number of EM iterations to perform
+
+        References
+        ----------
+        Durante D, Rigon T. Conditionally conjugate mean-field variational 
+        Bayes for logistic models. Statistical science. 2019;34(3):472-85.
         """
-        # Initialize xi
+        # TODO: handle Y nans
+        
+        M_ = 2
+        N_ = 1000
+        sig_mat_0 = 10*np.diag(np.ones(M_)) 
+        mu_0 = np.ones(M_)
+        mu_0 = np.array([-7, 3])
+        
+        # Initialize xi. TODO: best way to initialize?
+        xi = np.ones(N_)
 
-        # E-step
+        for k in np.where(self.sig_trajs_)[0]:
+            d_bin = -1
+            for d in range(self.D_):
+                if self.target_type_[d] == 'binary':
+                    d_bin += 1
+                    for i in range(em_iters):
+                        # E-step
+                        Z_bar = np.diag(0.5*(1/self.xi_[:, d_bin])*\
+                                        np.tanh(0.5*self.xi_[:, d_bin]))
+                 
+                        sig_mat_0 = np.diag(self.w_var0_[:, d])
+                        mu_0 = self.w_mu0_[:, d]
+                    
+                        sig_mat = np.linalg.inv(np.linalg.inv(sig_mat_0) + \
+                                                np.dot(self.X_.T, np.dot(Z_bar, self.X_)))
+                        self.w_var_[:, d, k] = np.diag(sig_mat)
+                        self.w_mu_[:, d, k] = np.dot(sig_mat, np.dot(self.X_.T, (self.Y_[:, d] - 0.5)) + \
+                                    np.dot(np.linalg.inv(sig_mat_0), mu_0))                        
 
-        # M-step
-
+                        # M-step
+                        self.xi_[:, d_bin] = \
+                            np.sqrt(np.diag(np.dot(self.X_, np.dot(sig_mat, self.X_.T))) + \
+                                    np.dot(self.X_, self.w_mu_[:, d, k])**2)
     
     
     
@@ -394,30 +443,31 @@ class MultDPRegression:
             ids = np.ones(self.M_, dtype=bool)
             ids[m] = False
             for d in range(0, self.D_):
-                non_nan_ids = ~np.isnan(self.Y_[:, d])
+                if self.target_type_[d] == 'gaussian':
+                    non_nan_ids = ~np.isnan(self.Y_[:, d])
     
-                tmp1 = (self.lambda_a_[d, self.sig_trajs_]/\
-                        self.lambda_b_[d, self.sig_trajs_])*\
-                        (np.sum(self.R_[:, self.sig_trajs_, newaxis]\
-                                [non_nan_ids, :, :]*\
-                                self.X_[non_nan_ids, newaxis, :]**2, 0).T)\
-                                [:, newaxis, :]
+                    tmp1 = (self.lambda_a_[d, self.sig_trajs_]/\
+                            self.lambda_b_[d, self.sig_trajs_])*\
+                            (np.sum(self.R_[:, self.sig_trajs_, newaxis]\
+                                    [non_nan_ids, :, :]*\
+                                    self.X_[non_nan_ids, newaxis, :]**2, 0).T)\
+                                    [:, newaxis, :]
                 
-                self.w_var_[:, :, self.sig_trajs_] = \
-                    (tmp1 + (1.0/self.w_var0_)[:, :, newaxis])**-1
+                    self.w_var_[:, :, self.sig_trajs_] = \
+                        (tmp1 + (1.0/self.w_var0_)[:, :, newaxis])**-1
                 
-                sum_term = sum(self.R_[non_nan_ids, :][:, self.sig_trajs_]*\
-                               self.X_[non_nan_ids, m, newaxis]*\
-                               (dot(self.X_[:, ids][non_nan_ids, :], \
-                                    self.w_mu_[ids, d, :]\
-                                    [:, self.sig_trajs_]) - \
-                                self.Y_[non_nan_ids, d][:, newaxis]), 0)
+                    sum_term = sum(self.R_[non_nan_ids, :][:, self.sig_trajs_]*\
+                                   self.X_[non_nan_ids, m, newaxis]*\
+                                   (dot(self.X_[:, ids][non_nan_ids, :], \
+                                        self.w_mu_[ids, d, :]\
+                                        [:, self.sig_trajs_]) - \
+                                    self.Y_[non_nan_ids, d][:, newaxis]), 0)
     
-                self.w_mu_[m, d, self.sig_trajs_] = \
-                    self.w_var_[m, d, self.sig_trajs_]*\
-                    (-(self.lambda_a_[d, self.sig_trajs_]/\
-                       self.lambda_b_[d, self.sig_trajs_])*\
-                     sum_term + mu0_DIV_var0[m, d])
+                    self.w_mu_[m, d, self.sig_trajs_] = \
+                        self.w_var_[m, d, self.sig_trajs_]*\
+                        (-(self.lambda_a_[d, self.sig_trajs_]/\
+                           self.lambda_b_[d, self.sig_trajs_])*\
+                         sum_term + mu0_DIV_var0[m, d])
 
                 
     def update_lambda(self):
@@ -773,7 +823,7 @@ class MultDPRegression:
         for k in range(tmp_K):
             for d in range(self.D_):
                 ids = ~np.isnan(self.Y_[:, d])
-                
+
                 mu_tmp = np.dot(self.X_, w_mu[:, d, k])
     
                 R_tmp[ids, k] *= (1/(np.sqrt(2*np.pi*var[d])))*\
@@ -821,6 +871,12 @@ class MultDPRegression:
 
         TODO: Update to accomodate binary targets as necessary
         """
+        # TODO: What is best way to initialize xi?
+        if self.num_binary_targets_ > 0:
+            self.xi_ = np.ones([self.N_, self.num_binary_targets_])
+        else:
+            self.xi_ = None
+        
         if self.w_var_ is None:
             self.w_var_ = np.zeros([self.M_, self.D_, self.K_])
             for k in range(self.K_):

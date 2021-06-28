@@ -7,6 +7,40 @@ import pdb, os
 np.set_printoptions(precision = 10, suppress = True, threshold=1e6,
                     linewidth=300)
 
+def test_update_w_logistic():
+    data_file_name = os.path.split(os.path.realpath(__file__))[0] + \
+        '/../resources/data/binary_data_1.csv'
+    df = pd.read_csv(data_file_name)
+    
+    M = 2
+    D = 1
+    prior_data = {}
+    prior_data['w_mu0'] = np.zeros([M, D])
+    prior_data['w_var0'] = np.ones([M, D])
+    prior_data['lambda_a0'] = np.ones([D])
+    prior_data['lambda_b0'] = np.ones([D])
+    prior_data['alpha'] = 1
+
+    mm = MultDPRegression(prior_data['w_mu0'], prior_data['w_var0'],
+                          prior_data['lambda_a0'], prior_data['lambda_b0'],
+                          prior_data['alpha'], K=1)
+
+    mm.N_ = df.shape[0]
+    mm.target_type_[0] = 'binary'
+    mm.num_binary_targets_ = 1
+    mm.w_var_ = None
+    mm.lambda_a_ = None
+    mm.lambda_b_ = None    
+    mm.X_ = df[['intercept', 'pred']].values
+    mm.Y_ = np.atleast_2d(df.target.values).T
+    mm.gb_ = None
+    
+    mm.init_traj_params()
+    
+    mm.update_w_logistic(1000)
+    pdb.set_trace()
+    
+
 def test_MultDPRegression():
     # Read data from resources dir
     data_file_name = os.path.split(os.path.realpath(__file__))[0] + \
