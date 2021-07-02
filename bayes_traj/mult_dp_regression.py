@@ -397,44 +397,45 @@ class MultDPRegression:
         ----------
         Durante D, Rigon T. Conditionally conjugate mean-field variational 
         Bayes for logistic models. Statistical science. 2019;34(3):472-85.
-        """
-        # TODO: handle Y nans
-        
-        M_ = 2
-        N_ = 1000
-        sig_mat_0 = 10*np.diag(np.ones(M_)) 
-        mu_0 = np.ones(M_)
-        mu_0 = np.array([-7, 3])
-        
-        # Initialize xi. TODO: best way to initialize?
-        xi = np.ones(N_)
+        """        
 
-        for k in np.where(self.sig_trajs_)[0]:
-            d_bin = -1
-            for d in range(self.D_):
-                if self.target_type_[d] == 'binary':
-                    d_bin += 1
+        d_bin = -1
+        for d in range(self.D_):
+            if self.target_type_[d] == 'binary':
+                d_bin += 1
+            
+                for k in np.where(self.sig_trajs_)[0]:
+                    print('--------- {} ----------'.format(k))
+                    non_nan_ids = ~np.isnan(self.Y_[:, d]) & \
+                        (self.R_[:, k] > 0)
+
                     for i in range(em_iters):
+                        print(self.w_mu_[:, 0, k])
                         # E-step
-                        Z_bar = np.diag(0.5*(1/self.xi_[:, d_bin])*\
-                                        np.tanh(0.5*self.xi_[:, d_bin]))
+                        Z_bar = np.diag(0.5*\
+                                        (1/(self.xi_[non_nan_ids, d_bin, k]*\
+                                            self.R_[non_nan_ids, k]))*\
+                            np.tanh(0.5*self.xi_[non_nan_ids, d_bin, k]))
                  
                         sig_mat_0 = np.diag(self.w_var0_[:, d])
                         mu_0 = self.w_mu0_[:, d]
                     
                         sig_mat = np.linalg.inv(np.linalg.inv(sig_mat_0) + \
-                                                np.dot(self.X_.T, np.dot(Z_bar, self.X_)))
+                            np.dot(self.X_[non_nan_ids, :].T, \
+                                   np.dot(Z_bar, self.X_[non_nan_ids, :])))
                         self.w_var_[:, d, k] = np.diag(sig_mat)
-                        self.w_mu_[:, d, k] = np.dot(sig_mat, np.dot(self.X_.T, (self.Y_[:, d] - 0.5)) + \
+                        self.w_mu_[:, d, k] = \
+                            np.dot(sig_mat, np.dot(self.X_[non_nan_ids, :].T,
+                                (self.Y_[non_nan_ids, d] - 0.5)) + \
                                     np.dot(np.linalg.inv(sig_mat_0), mu_0))                        
 
                         # M-step
-                        self.xi_[:, d_bin] = \
-                            np.sqrt(np.diag(np.dot(self.X_, np.dot(sig_mat, self.X_.T))) + \
-                                    np.dot(self.X_, self.w_mu_[:, d, k])**2)
-    
-    
-    
+                        self.xi_[non_nan_ids, d_bin, k] = \
+                            np.sqrt(np.diag(np.dot(self.X_[non_nan_ids, :],
+                                np.dot(sig_mat, self.X_[non_nan_ids, :].T))) + \
+                                np.dot(self.X_[non_nan_ids, :], \
+                                       self.w_mu_[:, d, k])**2)
+                        
     def update_w_gaussian(self):
         """ Updates the variational distribution over latent variable w.
         """
@@ -873,7 +874,7 @@ class MultDPRegression:
         """
         # TODO: What is best way to initialize xi?
         if self.num_binary_targets_ > 0:
-            self.xi_ = np.ones([self.N_, self.num_binary_targets_])
+            self.xi_ = np.ones([self.N_, self.num_binary_targets_, self.K_])
         else:
             self.xi_ = None
         
