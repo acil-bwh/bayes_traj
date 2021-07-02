@@ -11,19 +11,20 @@ def test_update_w_logistic():
     data_file_name = os.path.split(os.path.realpath(__file__))[0] + \
         '/../resources/data/binary_data_1.csv'
     df = pd.read_csv(data_file_name)
-    
+
     M = 2
     D = 1
+    K = 1
     prior_data = {}
-    prior_data['w_mu0'] = np.zeros([M, D])
-    prior_data['w_var0'] = np.ones([M, D])
+    prior_data['w_mu0'] = np.zeros([M, D])    
+    prior_data['w_var0'] = 100*np.ones([M, D])
     prior_data['lambda_a0'] = np.ones([D])
     prior_data['lambda_b0'] = np.ones([D])
     prior_data['alpha'] = 1
 
     mm = MultDPRegression(prior_data['w_mu0'], prior_data['w_var0'],
                           prior_data['lambda_a0'], prior_data['lambda_b0'],
-                          prior_data['alpha'], K=1)
+                          prior_data['alpha'], K=K)
 
     mm.N_ = df.shape[0]
     mm.target_type_[0] = 'binary'
@@ -36,10 +37,86 @@ def test_update_w_logistic():
     mm.gb_ = None
     
     mm.init_traj_params()
+
+    mm.R_ = np.ones([mm.N_, K])
     
-    mm.update_w_logistic(1000)
-    pdb.set_trace()
+    mm.update_w_logistic(25)
+
+    assert np.isclose(mm.w_mu_[0, 0, 0], 2.206, atol=0, rtol=.01), \
+        "Intercept not as expected"
+    assert np.isclose(mm.w_mu_[1, 0, 0], -2.3492, atol=0, rtol=.01), \
+        "Slope not as expected"
+
+    # Check that the function can handle nans
+    mm.Y_[0, 0] = np.nan
+
+    mm.init_traj_params()
+    mm.update_w_logistic(25)
+
+    # The intercept and slope that were used to create this synthetic data were
+    # 2.5 and -2.5, respectively. When running standard logistic regression on
+    # this data, the intercept and slope are found to be 2.2060 and -2.3492 
+    assert np.isclose(mm.w_mu_[0, 0, 0], 2.206, atol=0, rtol=.01), \
+        "Intercept not as expected"
+    assert np.isclose(mm.w_mu_[1, 0, 0], -2.3492, atol=0, rtol=.01), \
+        "Slope not as expected"
+
+def test_update_w_logistic_2():
+    data_file_name = os.path.split(os.path.realpath(__file__))[0] + \
+        '/../resources/data/binary_data_2.csv'
+    df = pd.read_csv(data_file_name)
+
+    # Intercept, slope for group 1: 2.5, -2.5
+    # Intercept, slope for group 1: -4, 4    
     
+    M = 2
+    D = 1
+    K = 2
+    prior_data = {}
+    prior_data['w_mu0'] = np.zeros([M, D])
+    #prior_data['w_mu0'][:, 0] = np.array([-50, 10])
+    
+    prior_data['w_var0'] = 100*np.ones([M, D])
+    prior_data['lambda_a0'] = np.ones([D])
+    prior_data['lambda_b0'] = np.ones([D])
+    prior_data['alpha'] = 1
+
+    mm = MultDPRegression(prior_data['w_mu0'], prior_data['w_var0'],
+                          prior_data['lambda_a0'], prior_data['lambda_b0'],
+                          prior_data['alpha'], K=K)
+
+    mm.N_ = df.shape[0]
+    mm.target_type_[0] = 'binary'
+    mm.num_binary_targets_ = 1
+    mm.w_var_ = None
+    mm.lambda_a_ = None
+    mm.lambda_b_ = None    
+    mm.X_ = df[['intercept', 'pred']].values
+    mm.Y_ = np.atleast_2d(df.target.values).T
+    mm.gb_ = None
+    
+    mm.init_traj_params()
+
+    mm.R_ = np.zeros([mm.N_, K])
+    mm.R_[0:int(mm.N_/2), 0] = 1
+    mm.R_[int(mm.N_/2):-1, 1] = 1                     
+    
+    mm.update_w_logistic(25)
+    
+    # The intercept and slope that were used to create this synthetic data were
+    # 2.5 and -2.5 for the first group and -4 and 4 for the second group. When
+    # running standard logistic regression on this data, the intercept and slope
+    # are found to be 2.3702 and -2.1732 for the first group and -3.8925 and
+    # 4.1095 for the second group    
+    assert np.isclose(mm.w_mu_[0, 0, 0], 2.3702, atol=0, rtol=.01), \
+        "Intercept not as expected"
+    assert np.isclose(mm.w_mu_[1, 0, 0], -2.1732, atol=0, rtol=.01), \
+        "Slope not as expected"
+
+    assert np.isclose(mm.w_mu_[0, 0, 1], -3.8925, atol=0, rtol=.01), \
+        "Intercept not as expected"
+    assert np.isclose(mm.w_mu_[1, 0, 1], 4.1095, atol=0, rtol=.01), \
+        "Slope not as expected"
 
 def test_MultDPRegression():
     # Read data from resources dir
