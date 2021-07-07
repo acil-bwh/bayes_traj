@@ -259,6 +259,15 @@ class MultDPRegression:
         self.v_b_ = v_b
         self.R_ = R
 
+        # w_covmat_ is used for binary target variables. The EM algorithm
+        # that is used to estimate w_mu_ and w_var_ for binary targets
+        # actually gives us a full covariance matrix which we take advantage
+        # of when performing sampling based estimates elsewhere. Although
+        # we only need/have w_covmat_ for binary targets, we allocate space
+        # over all dimensions, D, to make implementation clearer (i.e. when
+        # we iterate over D)
+        self.w_covmat_ = np.nan*np.ones([self.M_, self.M_, self.D_, self.K_])
+        
         self.num_binary_targets_ = 0
         for d in range(self.D_):
             if set(self.Y_[:, d]).issubset({1.0, 0.0}):
@@ -306,7 +315,7 @@ class MultDPRegression:
             self.update_w_gaussian()
             self.update_w_logistic()            
             self.update_lambda() 
-            self.R_ = self.update_z(self.X_, self.Y_)            
+            self.R_ = self.update_z(self.X_, self.Y_)
                 
             self.sig_trajs_ = np.max(self.R_, 0) > self.prob_thresh_
 
@@ -336,23 +345,35 @@ class MultDPRegression:
 
         ln_rho = np.ones([self.N_, self.K_])*tmp[newaxis, :]
 
+        if self.num_binary_targets_ > 0:
+            num_samples = 20 # Arbitrary. Should be "big enough"
+            mc_term = np.zeros([self.N_, self.K_])
         for d in range(0, self.D_):
             non_nan_ids = ~np.isnan(Y[:, d])
+            if self.target_type_[d] == 'gaussian':                
+                tmp = (dot(self.w_mu_[:, d, :].T, \
+                    X[non_nan_ids, :].T)**2).T + \
+                    np.sum((X[non_nan_ids, newaxis, :]**2)*\
+                    (self.w_var_[:, d, :].T)[newaxis, :, :], 2)
 
-            tmp = (dot(self.w_mu_[:, d, :].T, \
-                X[non_nan_ids, :].T)**2).T + \
-                np.sum((X[non_nan_ids, newaxis, :]**2)*\
-                (self.w_var_[:, d, :].T)[newaxis, :, :], 2)
+                ln_rho[non_nan_ids, :] += \
+                  0.5*(psi(self.lambda_a_[d, :]) - \
+                    log(self.lambda_b_[d, :]) - \
+                    log(2*np.pi) - \
+                    (self.lambda_a_[d, :]/self.lambda_b_[d, :])*\
+                    (tmp - \
+                     2*Y[non_nan_ids, d, newaxis]*dot(X[non_nan_ids, :], \
+                    self.w_mu_[:, d, :]) + \
+                    Y[non_nan_ids, d, newaxis]**2))
+            elif self.target_type_[d] == 'binary':
+                for k in range(self.K_):
+                    mc_term[:, k] = np.mean(np.log(1 + \
+                        np.exp(np.dot(self.X_, \
+                        np.random.multivariate_normal(self.w_mu_[:, d, k], \
+                            self.w_covmat_[:, :, d, k], num_samples).T))), 1)
 
-            ln_rho[non_nan_ids, :] += \
-              0.5*(psi(self.lambda_a_[d, :]) - \
-                log(self.lambda_b_[d, :]) - \
-                log(2*np.pi) - \
-                (self.lambda_a_[d, :]/self.lambda_b_[d, :])*\
-                (tmp - \
-                 2*Y[non_nan_ids, d, newaxis]*dot(X[non_nan_ids, :], \
-                self.w_mu_[:, d, :]) + \
-                Y[non_nan_ids, d, newaxis]**2))
+                ln_rho[non_nan_ids, :] += Y[non_nan_ids, d, newaxis]*\
+                    dot(X[non_nan_ids, :], self.w_mu_[:, d, :]) - mc_term                
 
         # The values of 'ln_rho' will in general have large magnitude, causing
         # exponentiation to result in overflow. All we really care about is the
@@ -419,20 +440,23 @@ class MultDPRegression:
                  
                         sig_mat_0 = np.diag(self.w_var0_[:, d])
                         mu_0 = self.w_mu0_[:, d]
-                    
-                        sig_mat = np.linalg.inv(np.linalg.inv(sig_mat_0) + \
+
+                        self.w_covmat_[:, :, d, k] = \
+                            np.linalg.inv(np.linalg.inv(sig_mat_0) + \
                             np.dot(self.X_[non_nan_ids, :].T, \
                                    np.dot(Z_bar, self.X_[non_nan_ids, :])))
-                        self.w_var_[:, d, k] = np.diag(sig_mat)
+                        self.w_var_[:, d, k] = \
+                            np.diag(self.w_covmat_[:, :, d, k])
                         self.w_mu_[:, d, k] = \
-                            np.dot(sig_mat, np.dot(self.X_[non_nan_ids, :].T,
+                            np.dot(self.w_covmat_[:, :, d, k], \
+                                   np.dot(self.X_[non_nan_ids, :].T,
                                 (self.Y_[non_nan_ids, d] - 0.5)) + \
-                                    np.dot(np.linalg.inv(sig_mat_0), mu_0))                        
-
+                                    np.dot(np.linalg.inv(sig_mat_0), mu_0))
                         # M-step
                         self.xi_[non_nan_ids, d_bin, k] = \
                             np.sqrt(np.diag(np.dot(self.X_[non_nan_ids, :],
-                                np.dot(sig_mat, self.X_[non_nan_ids, :].T))) + \
+                                np.dot(self.w_covmat_[:, :, d, k], \
+                                       self.X_[non_nan_ids, :].T))) + \
                                 np.dot(self.X_[non_nan_ids, :], \
                                        self.w_mu_[:, d, k])**2)
                         
