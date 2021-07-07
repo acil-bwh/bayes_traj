@@ -404,7 +404,6 @@ class MultDPRegression:
         R[R <= self.prob_thresh_] = 0
 
         return R
-
     
     def update_w_logistic(self, em_iters=10):
         """
