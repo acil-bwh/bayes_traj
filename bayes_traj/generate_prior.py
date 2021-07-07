@@ -12,8 +12,9 @@ def prior_info_from_df(df, target_name, preds, num_trajs, prior_info):
     """
     """
     prior_info['alpha'] = num_trajs/np.log10(df.shape[0])
-        
-    if set(df[target_name].values).issubset({1.0, 0.0}):
+
+    nonnan_ids = ~np.isnan(df[target_name].values)
+    if set(df[target_name].values[nonnan_ids]).issubset({1.0, 0.0}):
         prior_info_from_df_binary(df, target_name, preds,
                                     num_trajs, prior_info)
     else:
@@ -92,7 +93,8 @@ def prior_info_from_df_traj(df_traj, target_name, preds, prior_info,
     """
     prior_info['alpha'] = traj_ids.shape[0]/np.log10(df_traj.shape[0])
 
-    if set(df[target_name].values).issubset({1.0, 0.0}):
+    nonnan_ids = ~np.isnan(df[target_name].values)
+    if set(df[target_name].values[nonnan_ids).issubset({1.0, 0.0}):
         prior_info_from_df_traj_binary(df, target_name, preds,
                                     num_trajs, prior_info)
     else:
@@ -286,8 +288,9 @@ def prior_info_from_model(target_name, mm, prior_info, traj_ids=None):
             np.mean(np.hstack(samples))
         prior_info['w_var0'][target_name][mm.predictor_names_[m]] = \
             np.var(np.hstack(samples))  
-    
-    if set(mm.Y_[:, model_target_index]).issubset({1.0, 0.0}):
+
+    nonnan_ids = ~np.isnan(mm.Y_[:, model_target_index])
+    if set(mm.Y_[nonnan_ids, model_target_index]).issubset({1.0, 0.0}):
         # The target is binary. These parameters don't apply
         prior_info['lambda_a0'][target_name] = None
         prior_info['lambda_b0'][target_name] = None
