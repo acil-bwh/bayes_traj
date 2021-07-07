@@ -29,13 +29,19 @@ def main():
         limits of display for the y-axis', type=str, default=None)    
     parser.add_argument('--hide_resid', help='If set, shaded regions \
         corresponding to residual spread will not be displayed. This can be \
-        useful to reduce visual clutter', action='store_true')    
+        useful to reduce visual clutter. Only relevant for continuous target \
+        variables.', action='store_true')    
     parser.add_argument('--fig_file', help='File name where figure will be \
         saved', type=str, default=None)
     
     op = parser.parse_args()
     
     df = pd.read_csv(op.data_file)
+
+    nonnan_ids = ~np.isnan(df[op.y_axis].values)
+    target_type = 'gaussian'
+    if set(df[op.y_axis].values[nonnan_ids]).issubset({1.0, 0.0}):
+        target_type = 'binary'        
     
     if op.prior is not None:
         with open(op.prior, 'rb') as f:
@@ -54,26 +60,31 @@ def main():
             prior_data['lambda_b0'] = np.ones([D])
             
             for (d, target) in enumerate(targets):
-                prior_data['lambda_a0'][d] = prior_file_info['lambda_a0'][target]
-                prior_data['lambda_b0'][d] = prior_file_info['lambda_b0'][target]            
+                prior_data['lambda_a0'][d] = \
+                    prior_file_info['lambda_a0'][target]
+                prior_data['lambda_b0'][d] = \
+                    prior_file_info['lambda_b0'][target]            
                 
                 for (m, pred) in enumerate(preds):
-                    prior_data['w_mu0'][m, d] = prior_file_info['w_mu0'][target][pred]
-                    prior_data['w_var0'][m, d] = prior_file_info['w_var0'][target][pred]
+                    prior_data['w_mu0'][m, d] = \
+                        prior_file_info['w_mu0'][target][pred]
+                    prior_data['w_var0'][m, d] = \
+                        prior_file_info['w_var0'][target][pred]
     
     fig, ax = plt.subplots(figsize=(8, 8))                
     ax.scatter(df[op.x_axis].values, df[op.y_axis].values, facecolor='none',
                 edgecolor='k', alpha=0.2)
     
     num_dom_locs = 100
-    x_dom = np.linspace(np.min(df[op.x_axis].values), np.max(df[op.x_axis].values),
-                        num_dom_locs)
+    x_dom = np.linspace(np.min(df[op.x_axis].values), \
+                        np.max(df[op.x_axis].values), num_dom_locs)
     
     for nn in range(op.num_draws):
-        target_index = np.where(np.array(targets) == op.y_axis)[0][0]    
-        scale = 1./prior_data['lambda_b0'][target_index]
-        shape = prior_data['lambda_a0'][target_index]
-        std = np.sqrt(1./np.random.gamma(shape, scale, size=1))
+        target_index = np.where(np.array(targets) == op.y_axis)[0][0]
+        if target_type == 'gaussian':
+            scale = 1./prior_data['lambda_b0'][target_index]
+            shape = prior_data['lambda_a0'][target_index]
+            std = np.sqrt(1./np.random.gamma(shape, scale, size=1))
         
         co = sample_cos(prior_data['w_mu0'],
                         prior_data['w_var0'])[:, target_index, 0]
@@ -92,19 +103,24 @@ def main():
             elif len(tmp_int) > 1:
                 if op.x_axis in tmp_int:                
                     X_tmp[:, inc] = \
-                        x_dom**np.mean(df[tmp_int[np.where(np.array(tmp_int) != \
-                                                    op.x_axis)[0][0]]].values)
+                        x_dom**np.mean(df[tmp_int[np.where(np.array(tmp_int) \
+                                    != op.x_axis)[0][0]]].values)
                 else:
-                    X_tmp[:, inc] = np.mean(df[tmp_int[0]])*np.mean(df[tmp_int[1]])
+                    X_tmp[:, inc] = np.mean(df[tmp_int[0]])*\
+                        np.mean(df[tmp_int[1]])
             elif pp == op.x_axis:
                 X_tmp[:, inc] = x_dom
             else:
                 X_tmp[:, inc] = np.mean(df[tmp_pow[0]].values)
-                    
-        y_tmp = np.dot(co, X_tmp.T)
-    
+
+        if target_type == 'gaussian':
+            y_tmp = np.dot(co, X_tmp.T)
+        elif target_type == 'binary':
+            y_tmp = np.exp(np.dot(co, X_tmp.T))/\
+                (1 + np.exp(np.dot(co, X_tmp.T)))
+        
         ax.plot(x_dom, y_tmp)
-        if not op.hide_resid:
+        if target_type == 'gaussian' and not op.hide_resid:
             ax.fill_between(x_dom, y_tmp-2*std, y_tmp+2*std, alpha=0.3)
     
     ax.set_xlabel(op.x_axis, fontsize=16)
