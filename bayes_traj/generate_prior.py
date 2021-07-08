@@ -94,7 +94,7 @@ def prior_info_from_df_traj(df_traj, target_name, preds, prior_info,
     prior_info['alpha'] = traj_ids.shape[0]/np.log10(df_traj.shape[0])
 
     nonnan_ids = ~np.isnan(df[target_name].values)
-    if set(df[target_name].values[nonnan_ids].issubset({1.0, 0.0}):
+    if set(df[target_name].values[nonnan_ids]).issubset({1.0, 0.0}):
         prior_info_from_df_traj_binary(df, target_name, preds,
                                     num_trajs, prior_info)
     else:
