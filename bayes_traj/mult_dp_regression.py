@@ -3,14 +3,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 from numpy import abs, dot, mean, log, sum, exp, tile, max, sum, isnan, diag, \
      sqrt, pi, newaxis, outer, genfromtxt, where
-from numpy.random import multivariate_normal, randn, gamma
+from numpy.random import multivariate_normal, randn, gamma, binomial
 from bayes_traj.utils import sample_cos
 from scipy.optimize import minimize_scalar
 from scipy.special import psi, gammaln, logsumexp
 from scipy.stats import norm
 import pandas as pd
 import pdb, sys, pickle, time, warnings
-
 
 class MultDPRegression:
     """Uses Dirichlet process mixture modeling to identify mixtures of
@@ -19,8 +18,6 @@ class MultDPRegression:
     predictors with dimension 'M'. 'N' signifies the number of data
     samples, and 'K' is an integer indicating the number of elements in the
     truncated Dirichlet process. We use 'DP' for 'Dirichlet Process'.
-
-    TODO: Update to accomodate binary targets as necessary
 
     Parameters
     ----------
@@ -88,12 +85,14 @@ class MultDPRegression:
     lambda_a : array, shape ( D, K ), optional
         For component 'K' and target dimension 'D', this is the first parameter
         of the posterior Gamma distribution describing the precision of the
-        target variable.
+        target variable. Only relevant for continuous (Gaussian) target 
+        variables.
 
     lambda_b : array, shape ( D, K ), optional
         For component 'K' and target dimension 'D', this is the second parameter
         of the posterior Gamma distribution describing the precision of the
-        target variable.
+        target variable. Only relevant for continuous (Gaussian) target 
+        variables.
     """
     def __init__(self, w_mu0, w_var0, lambda_a0, lambda_b0, alpha, K=10,
                  prob_thresh=0.001):
@@ -137,8 +136,6 @@ class MultDPRegression:
             verbose=False):
         """Performs variational inference (coordinate ascent or SVI) given data
         and provided parameters.
-
-        TODO: Update to accomodate binary targets as necessary
 
         Parameters
         ----------
@@ -209,13 +206,15 @@ class MultDPRegression:
             For component 'K' and target dimension 'D', this is the first
             parameter of the posterior Gamma distribution describing the
             precision of the target variable. If specified, the algorithm will
-            be initialized with this matrix.
+            be initialized with this matrix. Only relevant for continuous 
+           (Gaussian) target variables.
 
         lambda_b : array, shape ( D, K ), optional
             For component 'K' and target dimension 'D', this is the second
             parameter of the posterior Gamma distribution describing the
             precision of the target variable. If specified, the algorithm will
-            be initialized with this matrix.
+            be initialized with this matrix. Only relevant for continuous 
+           (Gaussian) target variables.
 
         verbose : bool, optional
             If true, a printout of the sum along rows of the R_ matrix will
@@ -290,11 +289,10 @@ class MultDPRegression:
 
         self.fit_coordinate_ascent(iters, verbose)
 
+        
     def fit_coordinate_ascent(self, iters, verbose):
         """This function contains the iteratrion loop for mean-field 
         variational inference using coordinate ascent
-
-        TODO: Update to accomodate binary targets as necessary
 
         Parameters
         ----------
@@ -312,9 +310,11 @@ class MultDPRegression:
             inc += 1
             
             self.update_v()
-            self.update_w_gaussian()
-            self.update_w_logistic()            
-            self.update_lambda() 
+            if self.num_binary_targets_ > 0:
+                self.update_w_logistic()            
+            if self.D_ - self.num_binary_targets_ > 0:
+                self.update_w_gaussian()
+                self.update_lambda() 
             self.R_ = self.update_z(self.X_, self.Y_)
                 
             self.sig_trajs_ = np.max(self.R_, 0) > self.prob_thresh_
@@ -406,7 +406,8 @@ class MultDPRegression:
         return R
     
     def update_w_logistic(self, em_iters=10):
-        """
+        """Uses an EM algorithm based on the approach in the reference to update
+        the coefficient distributions corresponding to binary targets.
 
         Parameters
         ----------
@@ -418,19 +419,16 @@ class MultDPRegression:
         Durante D, Rigon T. Conditionally conjugate mean-field variational 
         Bayes for logistic models. Statistical science. 2019;34(3):472-85.
         """        
-
         d_bin = -1
         for d in range(self.D_):
             if self.target_type_[d] == 'binary':
                 d_bin += 1
             
                 for k in np.where(self.sig_trajs_)[0]:
-                    print('--------- {} ----------'.format(k))
                     non_nan_ids = ~np.isnan(self.Y_[:, d]) & \
                         (self.R_[:, k] > 0)
 
                     for i in range(em_iters):
-                        print(self.w_mu_[:, 0, k])
                         # E-step
                         Z_bar = np.diag(0.5*\
                                         (1/(self.xi_[non_nan_ids, d_bin, k]*\
@@ -460,7 +458,8 @@ class MultDPRegression:
                                        self.w_mu_[:, d, k])**2)
                         
     def update_w_gaussian(self):
-        """ Updates the variational distribution over latent variable w.
+        """ Updates the variational distributions over predictor coefficients 
+        corresponding to continuous (Gaussian) target variables. 
         """
         mu0_DIV_var0 = self.w_mu0_/self.w_var0_
         for m in range(0, self.M_):
@@ -522,8 +521,6 @@ class MultDPRegression:
     def sample(self, index=None, x=None):
         """sample from the posterior distribution using the input data.
 
-        TODO: Update to accomodate binary targets as necessary
-
         Parameters
         ----------
         index : int, optional
@@ -564,23 +561,44 @@ class MultDPRegression:
         for n in indices:
             z = np.random.multinomial(1, self.R_[n, :]/np.sum(self.R_[n, :]))
             for d in range(0, self.D_):
-                co = multivariate_normal(self.w_mu_[:, d, z.astype(bool)][:, 0],
-                    diag(self.w_var_[:, d, z.astype(bool)][:, 0]), 1)
-                if x is not None:
-                    mu = dot(co, x)
-                else:
-                    mu = dot(co, self.X_[n, :])
+                if self.target_type_[d] == 'gaussian':
 
-                # Draw a precision value from the gamma distribution. Note
-                # that numpy uses a slightly different parameterization
-                scale = 1./self.lambda_b_[d, z.astype(bool)]
-                shape = self.lambda_a_[d, z.astype(bool)]
-                var = 1./gamma(shape, scale, size=1)
+                    # Draw a precision value from the gamma distribution. Note
+                    # that numpy uses a slightly different parameterization
+                    scale = 1./self.lambda_b_[d, z.astype(bool)]
+                    shape = self.lambda_a_[d, z.astype(bool)]
+                    var = 1./gamma(shape, scale, size=1)
+                    
+                    co = multivariate_normal(\
+                        self.w_mu_[:, d, z.astype(bool)][:, 0],
+                        diag(self.w_var_[:, d, z.astype(bool)][:, 0]), 1)
 
-                if index is None:
-                    y_rep[n, d] = sqrt(var)*randn(1) + mu
+                    if x is not None:
+                        mu = dot(co, x)
+                    else:
+                        mu = dot(co, self.X_[n, :])
+
+                    if index is None:
+                        y_rep[n, d] = sqrt(var)*randn(1) + mu
+                    else:
+                        y_rep[0, d] = sqrt(var)*randn(1) + mu                    
                 else:
-                    y_rep[0, d] = sqrt(var)*randn(1) + mu
+                    # Target assumed to be binary
+                    co = multivariate_normal(\
+                        self.w_mu_[:, d, z.astype(bool)][:, 0],
+                        self.w_covmat_[:, :, d, z.astype(bool)][:, 0], 1)
+
+                    if x is not None:
+                        mu = dot(co, x)
+                    else:
+                        mu = dot(co, self.X_[n, :])
+
+                    if index is None:
+                        y_rep[n, d] = binomial(1, np.exp(mu)/\
+                                               (1 + np.exp(mu)), 1)
+                    else:
+                        y_rep[0, d] = binomial(1, np.exp(mu)/\
+                                               (1 + np.exp(mu)), 1)
 
         return y_rep
 
@@ -588,10 +606,10 @@ class MultDPRegression:
         """Compute the log pointwise predictive density (lppd) at a specified
         point.
 
+        # TODO: test binary implementation
+
         This function implements equation 7.5 of 'Bayesian Data Analysis, Third
         Edition' for a single point.
-
-        TODO: Update to accomodate binary targets as necessary
 
         Parameters
         ----------
@@ -631,27 +649,41 @@ class MultDPRegression:
             if x.shape[0] != self.M_:
                 raise ValueError('x has incorrect dimension')
 
-        log_dens = 0.0
         accums = np.zeros([self.D_, S])
         for s in range(0, S):  
             z = np.random.multinomial(1, self.R_[index, :])
             for d in range(0, self.D_):
-                co = multivariate_normal(self.w_mu_[:, d, z.astype(bool)][:, 0],
-                    diag(self.w_var_[:, d, z.astype(bool)][:, 0]), 1)
-                if x is not None:
-                    mu = dot(co, x)
+                if self.target_type_[d] == 'gaussian':
+                    co = multivariate_normal(\
+                        self.w_mu_[:, d, z.astype(bool)][:, 0],
+                            diag(self.w_var_[:, d, z.astype(bool)][:, 0]), 1)
+                    if x is not None:
+                        mu = dot(co, x)
+                    else:
+                        mu = dot(co, self.X_[index, :])
+
+                    # Draw a precision value from the gamma distribution. Note
+                    # that numpy uses a slightly different parameterization
+                    scale = 1./self.lambda_b_[d, z.astype(bool)]
+                    shape = self.lambda_a_[d, z.astype(bool)]
+                    var = 1./gamma(shape, scale, size=1)
+
+                    accums[d, s] = np.clip((1/sqrt(var*2*np.pi))*\
+                      exp((-(0.5/var)*(y[d] - mu)**2).astype('float64')),
+                      1e-300, 1e300)                   
                 else:
-                    mu = dot(co, self.X_[index, :])
+                    # Target assumed binary
+                    co = multivariate_normal(\
+                        self.w_mu_[:, d, z.astype(bool)][:, 0],
+                            self.w_covmat_[:, :, d, z.astype(bool)], 1)
+                    if x is not None:
+                        mu = dot(co, x)
+                    else:
+                        mu = dot(co, self.X_[index, :])
 
-                # Draw a precision value from the gamma distribution. Note
-                # that numpy uses a slightly different parameterization
-                scale = 1./self.lambda_b_[d, z.astype(bool)]
-                shape = self.lambda_a_[d, z.astype(bool)]
-                var = 1./gamma(shape, scale, size=1)
-
-                accums[d, s] = np.clip((1/sqrt(var*2*np.pi))*\
-                  exp((-(0.5/var)*(y[d] - mu)**2).astype('float64')),
-                  1e-300, 1e300)
+                    accums[d, s] = \
+                        np.clip((np.exp(mu)**y[d])/(1 + np.exp(mu)),
+                                1e-300, 1e300)
 
         log_dens = np.sum(np.log(np.mean(accums, 1)))
 
@@ -661,7 +693,7 @@ class MultDPRegression:
         """Compute the log-likelihood given expected values of the latent 
         variables.
 
-        TODO: Update to accomodate binary targets as necessary
+        TODO: Test implementation of binary targets
 
         Returns
         -------
@@ -672,15 +704,21 @@ class MultDPRegression:
         for k in range(self.K_):
             tmp_d = np.ones(self.N_)
             for d in range(self.D_):
-                mu = np.dot(self.X_, self.w_mu_[:, d, k])
-                v = self.lambda_b_[d, k]/self.lambda_a_[d, k]
-                co = 1/sqrt(2.*np.pi*v)
-
                 # Some of the target variables can be missing (NaNs). Exclude
                 # these from the computation.
                 ids = ~np.isnan(self.Y_[:, d])
-                tmp_d[ids] *= co*np.exp(-((self.Y_[ids, d]-mu[ids])**2)/(2.*v))
-            
+                mu = np.dot(self.X_, self.w_mu_[:, d, k])
+                
+                if self.target_type_[d] == 'gaussian':
+                    v = self.lambda_b_[d, k]/self.lambda_a_[d, k]
+                    co = 1/sqrt(2.*np.pi*v)
+
+                    tmp_d[ids] *= co*np.exp(-((self.Y_[ids, d]-\
+                                               mu[ids])**2)/(2.*v))
+                else:
+                    # Target assumed to be binary
+                    tmp_d[ids] *= (np.exp(mu)**self.Y_[ids, d])/(1 + np.exp(mu))
+                    
             tmp_k += self.R_[:, k]*tmp_d
         log_likelihood = np.sum(np.log(tmp_k))
                 
@@ -691,8 +729,6 @@ class MultDPRegression:
         in the reference. Assumes same number of parameters for each trajectory 
         and for each target dimension.
     
-        TODO: Update to accomodate binary targets as necessary
-
         Returns
         -------
         bic_obs[, bic_groups] : float or tuple
@@ -748,7 +784,7 @@ class MultDPRegression:
         criterion, using the variance of individual terms in the log predictive
         density summed over the n data points.
 
-        TODO: Update to accomodate binary targets as necessary
+        TODO: Test implementation of binary target accomodation
 
         Parameters
         ----------
@@ -768,19 +804,27 @@ class MultDPRegression:
         accum = np.zeros([self.N_, self.D_, S])
         for k in np.where(self.sig_trajs_)[0]:
             for d in range(0, self.D_):
-                co = multivariate_normal(self.w_mu_[:, d, k],
-                    diag(self.w_var_[:, d, k]), S)
-                mu = dot(co, self.X_.T)
+                if self.target_type_[d] == 'gaussian':
+                    co = multivariate_normal(self.w_mu_[:, d, k],
+                        diag(self.w_var_[:, d, k]), S)
+                    mu = dot(co, self.X_.T)
 
-                # Draw a precision value from the gamma distribution. Note
-                # that numpy uses a slightly different parameterization
-                scale = 1./self.lambda_b_[d, k]
-                shape = self.lambda_a_[d, k]
-                var = 1./gamma(shape, scale, size=1)
+                    # Draw a precision value from the gamma distribution. Note
+                    # that numpy uses a slightly different parameterization
+                    scale = 1./self.lambda_b_[d, k]
+                    shape = self.lambda_a_[d, k]
+                    var = 1./gamma(shape, scale, size=1)
 
-                prob = ((1/sqrt(2*np.pi*var))[:, newaxis]*\
-                    exp(-(1/(2*var))[:, newaxis]*(mu - self.Y_[:, d])**2)).T
-
+                    prob = ((1/sqrt(2*np.pi*var))[:, newaxis]*\
+                        exp(-(1/(2*var))[:, newaxis]*\
+                            (mu - self.Y_[:, d])**2)).T
+                else:
+                    # Target assumed to be binary
+                    co = multivariate_normal(self.w_mu_[:, d, k],
+                        self.w_covmat_[:, :, d, k], S)
+                    mu = dot(co, self.X_.T)
+                    prob = (np.exp(mu)**self.Y_[:, d])/(1 + np.exp(mu))
+                    
                 accum[:, d, :] += self.R_[:, k][:, newaxis]*prob
 
         lppd = np.nansum(log(np.nanmean(accum, axis=2)))
@@ -796,8 +840,6 @@ class MultDPRegression:
         in a matrix and returns a larger matrix (along the k-dimension) with
         values at the specified predictor and target location set to the values
         in expand_vec.
-
-        TODO: Update to accomodate binary targets as necessary
 
         Parameters
         ----------
@@ -839,20 +881,26 @@ class MultDPRegression:
     
     def prune_coef_mat(self, w_mu):
         """
-        TODO: Update to accomodate binary targets as necessary
+        TODO: Test implementation of binary target accomodation
         """
         tmp_K = w_mu.shape[2]
         R_tmp = np.ones([self.N_, tmp_K])
-        var = self.lambda_b0_/self.lambda_a0_
+
         for k in range(tmp_K):
             for d in range(self.D_):
                 ids = ~np.isnan(self.Y_[:, d])
 
                 mu_tmp = np.dot(self.X_, w_mu[:, d, k])
-    
-                R_tmp[ids, k] *= (1/(np.sqrt(2*np.pi*var[d])))*\
-                    np.exp(-((self.Y_[ids, d] - mu_tmp[ids])**2)/(2*var[d]))
-    
+
+                if self.target_type_[d] == 'gaussian':
+                    var = self.lambda_b0_/self.lambda_a0_
+                    R_tmp[ids, k] *= (1/(np.sqrt(2*np.pi*var[d])))*\
+                        np.exp(-((self.Y_[ids, d] - mu_tmp[ids])**2)/(2*var[d]))
+                else:
+                    # Target assumed binary
+                    R_tmp[ids, k] *= (np.exp(mu_tmp[ids])**self.Y_[ids, d])/\
+                        (1 + np.exp(mu_tmp[ids]))
+                    
         zero_ids = np.sum(R_tmp, 1) == 0
         R_tmp[zero_ids] = np.ones([np.sum(zero_ids), tmp_K])/tmp_K
         R = np.array((R_tmp.T/np.sum(R_tmp, 1)).T)
@@ -892,8 +940,6 @@ class MultDPRegression:
         
     def init_traj_params(self):
         """Initializes trajectory parameters. 
-
-        TODO: Update to accomodate binary targets as necessary
         """
         # TODO: What is best way to initialize xi?
         if self.num_binary_targets_ > 0:
@@ -947,8 +993,6 @@ class MultDPRegression:
         """Initializes 'R_', using the stick-breaking construction. Also
         enforces any longitudinal constraints.
 
-        TODO: Update to accomodate binary targets as necessary
-
         Parameters
         ----------
         traj_probs : array, shape ( K ), optional
@@ -968,7 +1012,7 @@ class MultDPRegression:
 
         # Each trajectory gets equal weight
         vec = np.ones(self.K_)/self.K_
-        
+
         if (traj_probs is None and traj_probs_weight is not None) or \
            (traj_probs_weight is None and traj_probs is not None):
             warnings.warn('Both traj_probs and traj_probs_weight \
@@ -995,7 +1039,7 @@ class MultDPRegression:
         the 'k' clusters. Note that 'X' and 'Y' can be "new" data; that is,
         data that was not necessarily used to train the model.
 
-        TODO: Update to accomodate binary targets as necessary
+        TODO: Test implementation of binary data accomodation
 
         Returns
         -------
@@ -1031,11 +1075,17 @@ class MultDPRegression:
         for k in range(self.K_):
             for d in range(D):
                 ids = ~np.isnan(Y[:, d])
-                var_tmp = self.lambda_b_[d, k]/self.lambda_a_[d, k]
                 mu_tmp = np.dot(X, self.w_mu_[:, d, k])
 
-                R_tmp[ids, k] *= (1/(np.sqrt(2*np.pi*var_tmp)))*\
-                    np.exp(-((Y[ids, d] - mu_tmp[ids])**2)/(2*var_tmp))
+                if self.target_type_[d] == 'gaussian':
+                    var_tmp = self.lambda_b_[d, k]/self.lambda_a_[d, k]
+                    R_tmp[ids, k] *= (1/(np.sqrt(2*np.pi*var_tmp)))*\
+                        np.exp(-((Y[ids, d] - mu_tmp[ids])**2)/(2*var_tmp))
+                else:
+                    # Target assumed binary
+                    R_tmp[ids, k] *= (np.exp(mu_tmp[ids])**Y[ids, d])/\
+                        (1 + np.exp(mu_tmp[ids]))
+                    
             R_tmp[:, k] *= traj_probs[k]
 
         zero_ids = np.sum(R_tmp, 1) == 0
@@ -1063,7 +1113,7 @@ class MultDPRegression:
         the 'k' clusters. Note that 'X' and 'Y' can be "new" data; that is,
         data that was not necessarily used to train the model.
 
-        TODO: Update to accomodate binary targets as necessary
+        TODO: Test implementation of binary target accomodation
 
         Parameters
         ----------
@@ -1097,11 +1147,17 @@ class MultDPRegression:
         for k in range(self.K_):
             for d in range(D):
                 ids = ~np.isnan(Y[:, d])
-                var_tmp = self.lambda_b_[d, k]/self.lambda_a_[d, k]
                 mu_tmp = np.dot(X, self.w_mu_[:, d, k])
 
-                R_tmp[ids, k] *= (1/(np.sqrt(2*np.pi*var_tmp)))*\
-                    np.exp(-((Y[ids, d] - mu_tmp[ids])**2)/(2*var_tmp))
+                if self.target_type_[d] == 'gaussian':
+                    var_tmp = self.lambda_b_[d, k]/self.lambda_a_[d, k]                    
+                    R_tmp[ids, k] *= (1/(np.sqrt(2*np.pi*var_tmp)))*\
+                        np.exp(-((Y[ids, d] - mu_tmp[ids])**2)/(2*var_tmp))
+                else:
+                    # Target assumed binary
+                    R_tmp[ids, k] *= (np.exp(mu_tmp[ids])**Y[ids, d])/\
+                        (1 + np.exp(mu_tmp[ids]))
+                    
             R_tmp[:, k] *= traj_probs[k]
 
         zero_ids = np.sum(R_tmp, 1) == 0
@@ -1121,7 +1177,7 @@ class MultDPRegression:
                 # Now update the rows of 'normalized_mat'.
                 R[tmp_ids, :] = vec                
 
-        # Now augment the data frame with trajectory info
+        # Now augment the dataframe with trajectory info
         traj = []
         for i in range(N):
             traj.append(np.where(np.max(R[i, :]) == R[i, :])[0][0])
@@ -1147,8 +1203,6 @@ class MultDPRegression:
     def to_df(self):
         """Adds to the current data frame columns containing trajectory 
         assignments and probabilities.
-
-        TODO: Update to accomodate binary targets as necessary
 
         Returns
         -------
@@ -1229,7 +1283,7 @@ class MultDPRegression:
             traj_prob_vec = np.sum(R_per_individual, 0)/np.sum(R_per_individual)
         else:
             num_individuals = self.N_
-            traj_prob_vec = np.sum(mm.R_, 0)/np.sum(mm.R_)
+            traj_prob_vec = np.sum(self.R_, 0)/np.sum(self.R_)
         
         df_traj = self.to_df()
             
@@ -1319,22 +1373,27 @@ class MultDPRegression:
                            color=cmap(traj_id_to_cmap_index[traj_map_[tt]]),
                            alpha=0.5)
 
-                std = np.sqrt(self.lambda_b_[target_index][tt]/\
-                              self.lambda_a_[target_index][tt])
-            
-                co = self.w_mu_[:, target_index, tt]
-                y_tmp = np.dot(co, X_tmp.T)
-
                 n_traj = int(traj_prob_vec[tt]*num_individuals)
                 perc_traj = traj_prob_vec[tt]*100
+
+                co = self.w_mu_[:, target_index, tt]
+                if self.target_type_[target_index] == 'gaussian':
+                    std = np.sqrt(self.lambda_b_[target_index][tt]/\
+                                  self.lambda_a_[target_index][tt])
+                    y_tmp = np.dot(co, X_tmp.T)
+                    ax.fill_between(x_dom, y_tmp-2*std, y_tmp+2*std,
+                            color=cmap(traj_id_to_cmap_index[traj_map_[tt]]),
+                            alpha=0.3)
+                else:
+                    # Target assumed binary
+                    y_tmp = np.exp(np.dot(co, X_tmp.T))/\
+                        (1 + np.exp(np.dot(co, X_tmp.T)))
+                    
                 ax.plot(x_dom, y_tmp,
                         color=cmap(traj_id_to_cmap_index[traj_map_[tt]]),
                         linewidth=3,
                         label='Traj {} (N={}, {:.1f}%)'.\
                         format(traj_map_[tt], n_traj, perc_traj))
-                ax.fill_between(x_dom, y_tmp-2*std, y_tmp+2*std,
-                        color=cmap(traj_id_to_cmap_index[traj_map_[tt]]),
-                        alpha=0.3)
 
         ax.set_xlabel(x_axis, fontsize=16)
         ax.set_ylabel(y_axis, fontsize=16)    
