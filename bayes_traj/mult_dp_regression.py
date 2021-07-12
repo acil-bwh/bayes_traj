@@ -311,7 +311,7 @@ class MultDPRegression:
             
             self.update_v()
             if self.num_binary_targets_ > 0:
-                self.update_w_logistic()            
+                self.update_w_logistic(em_iters=1)
             if self.D_ - self.num_binary_targets_ > 0:
                 self.update_w_gaussian()
                 self.update_lambda() 
@@ -405,7 +405,7 @@ class MultDPRegression:
 
         return R
     
-    def update_w_logistic(self, em_iters=10):
+    def update_w_logistic(self, em_iters=1):
         """Uses an EM algorithm based on the approach in the reference to update
         the coefficient distributions corresponding to binary targets.
 
@@ -425,16 +425,16 @@ class MultDPRegression:
                 d_bin += 1
             
                 for k in np.where(self.sig_trajs_)[0]:
-                    non_nan_ids = ~np.isnan(self.Y_[:, d]) & \
-                        (self.R_[:, k] > 0)
+                    non_nan_ids = ~np.isnan(self.Y_[:, d]) #& \
+                       # (self.R_[:, k] > 0)
 
                     for i in range(em_iters):
                         # E-step
-                        Z_bar = np.diag(0.5*\
-                                        (1/(self.xi_[non_nan_ids, d_bin, k]*\
-                                            self.R_[non_nan_ids, k]))*\
+                        #print(self.w_mu_[:, d, k])
+                        Z_bar = np.diag(0.5*self.R_[non_nan_ids, k]*\
+                                        (1/self.xi_[non_nan_ids, d_bin, k])*\
                             np.tanh(0.5*self.xi_[non_nan_ids, d_bin, k]))
-                 
+                        
                         sig_mat_0 = np.diag(self.w_var0_[:, d])
                         mu_0 = self.w_mu0_[:, d]
 
@@ -444,11 +444,20 @@ class MultDPRegression:
                                    np.dot(Z_bar, self.X_[non_nan_ids, :])))
                         self.w_var_[:, d, k] = \
                             np.diag(self.w_covmat_[:, :, d, k])
+                        #self.w_mu_[:, d, k] = \
+                        #    np.dot(self.w_covmat_[:, :, d, k], \
+                        #           np.dot(self.X_[non_nan_ids, :].T,
+                        #        (self.Y_[non_nan_ids, d] - 0.5)) + \
+                        #            np.dot(np.linalg.inv(sig_mat_0), mu_0))
+
+                        # DEB:
                         self.w_mu_[:, d, k] = \
                             np.dot(self.w_covmat_[:, :, d, k], \
                                    np.dot(self.X_[non_nan_ids, :].T,
-                                (self.Y_[non_nan_ids, d] - 0.5)) + \
+                                self.R_[non_nan_ids, k]*(self.Y_[non_nan_ids, d] - 0.5)) + \
                                     np.dot(np.linalg.inv(sig_mat_0), mu_0))
+                        
+                        
                         # M-step
                         self.xi_[non_nan_ids, d_bin, k] = \
                             np.sqrt(np.diag(np.dot(self.X_[non_nan_ids, :],
