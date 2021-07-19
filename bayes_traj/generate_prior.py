@@ -11,17 +11,16 @@ from provenance_tools.write_provenance_data import write_provenance_data
 def prior_info_from_df(df, target_name, preds, num_trajs, prior_info):
     """
     """
-    prior_info['alpha'] = num_trajs/np.log10(df.shape[0])
+    prior_info['alpha'] = np.mean(num_trajs)/np.log10(df.shape[0])
 
     nonnan_ids = ~np.isnan(df[target_name].values)
     if set(df[target_name].values[nonnan_ids]).issubset({1.0, 0.0}):
-        prior_info_from_df_binary(df, target_name, preds,
-                                    num_trajs, prior_info)
+        prior_info_from_df_binary(df, target_name, preds, prior_info)
     else:
         prior_info_from_df_gaussian(df, target_name, preds,
                                     num_trajs, prior_info)
 
-def prior_info_from_df_binary(df, target_name, preds, num_trajs, prior_info):
+def prior_info_from_df_binary(df, target_name, preds, prior_info):
     """
     """
     prior_info['lambda_b0'][target_name] = None
@@ -44,16 +43,21 @@ def prior_info_from_df_gaussian(df, target_name, preds, num_trajs, prior_info):
     sel_ids = np.zeros(res_tmp.resid.shape[0], dtype=bool)
     sel_ids[0:int(res_tmp.resid.shape[0]/2.)] = True
     
-    prec_vec = []
-    for i in range(100):
-        sel_ids = np.random.permutation(sel_ids)
-        prec_vec.append(1./np.var(res_tmp.resid.values[sel_ids]))
+    #prec_vec = []
+    #for i in range(100):
+    #    sel_ids = np.random.permutation(sel_ids)
+    #    prec_vec.append(1./np.var(res_tmp.resid.values[sel_ids]))
 
-    gamma_mean = np.mean(prec_vec)
-    gamma_var = np.var(prec_vec)
+    gamma_mean = np.mean(num_trajs)
+    gamma_var = ((np.max(num_trajs) - np.min(num_trajs))/4)**2
+    #gamma_mean = np.mean(prec_vec)
+    #gamma_var = np.var(prec_vec)
+
+    #prior_info['lambda_b0'][target_name] = gamma_mean/gamma_var
+    #prior_info['lambda_a0'][target_name] = num_trajs*gamma_mean**2/gamma_var
 
     prior_info['lambda_b0'][target_name] = gamma_mean/gamma_var
-    prior_info['lambda_a0'][target_name] = num_trajs*gamma_mean**2/gamma_var
+    prior_info['lambda_a0'][target_name] = gamma_mean**2/gamma_var
 
     samples = np.random.multivariate_normal(res_tmp.params.values,
                                             np.diag(res_tmp.HC0_se.values**2),
@@ -347,7 +351,10 @@ def main():
         to the predictor and target names specified on the command line.',
         type=str, default=None)
     parser.add_argument('--num_trajs', help='Rough estimate of the number of \
-        trajectories expected in the data set.', type=int, default=2)
+        trajectories expected in the data set. Can be specified as a single \
+        value or as a dash-separated range, such as 4-6. If a single value is \
+        specified, a range will be assumed as -1 to +1 the specified value.',
+        type=str, default='3')
     parser.add_argument('--model', help='Pickled bayes_traj model that \
         has been fit to data and from which information will be extracted to \
         produce an updated prior file', type=str, default=None)
@@ -374,7 +381,20 @@ def main():
     D = len(targets)
     M = len(preds)
     K = float(op.k)
-    
+
+    #---------------------------------------------------------------------------
+    # Set the number of trajs
+    #---------------------------------------------------------------------------
+    num_trajs = np.zeros(2, dtype='float')
+    tmp = op.num_trajs.split('-')
+
+    if len(tmp) > 1:
+        num_trajs[0] = float(op.num_trajs.split('-')[0])
+        num_trajs[1] = float(op.num_trajs.split('-')[1])        
+    else:
+        num_trajs[0] = np.max([0.001, float(tmp[0]) - 1])
+        num_trajs[1] = float(tmp[0]) + 1        
+
     #---------------------------------------------------------------------------
     # Initialize prior info
     #---------------------------------------------------------------------------
@@ -398,7 +418,7 @@ def main():
     # Guesstimate of how big a data sample. Will be used to generate an estimate
     # of alpha. Will be overwritten if a data file has been specified.
     N = 10000
-    prior_info['alpha'] = op.num_trajs/np.log10(N)
+    prior_info['alpha'] = np.mean(num_trajs)/np.log10(N)
     
     #---------------------------------------------------------------------------
     # Read in and process data and models as availabe
@@ -443,7 +463,7 @@ def main():
                 prior_info_from_df_traj(df_traj_model, tt, preds, prior_info,
                                         model_trajs)
         elif df_data is not None:
-            prior_info_from_df(df_data, tt, preds, op.num_trajs, prior_info)
+            prior_info_from_df(df_data, tt, preds, num_trajs, prior_info)
             
     #---------------------------------------------------------------------------
     # Override prior settings with user-specified preferences
