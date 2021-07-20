@@ -39,6 +39,11 @@ class MultDPRegression:
         For each target dimension 'd' (of 'D'), this is the second parameter of
         the Gamma prior over the precision for that target dimension.
 
+    prec_prior_weight : float
+        Value > 0 by which to scale the Gamma priors of the residual 
+        precisions. The higher the value, the more weight that is given to the
+        prior.
+
     alpha : float
         Hyper parameter of the Beta destribution involved in the stick-breaking
         construction of the Dirichlet Process. Increasing 'alpha' tends to
@@ -94,12 +99,13 @@ class MultDPRegression:
         target variable. Only relevant for continuous (Gaussian) target 
         variables.
     """
-    def __init__(self, w_mu0, w_var0, lambda_a0, lambda_b0, alpha, K=10,
-                 prob_thresh=0.001):
+    def __init__(self, w_mu0, w_var0, lambda_a0, lambda_b0, prec_prior_weight,
+                 alpha, K=10, prob_thresh=0.001):
         self.w_mu0_ = w_mu0
         self.w_var0_ = w_var0
         self.lambda_a0_ = lambda_a0
         self.lambda_b0_ = lambda_b0
+        self.prec_prior_weight_ = prec_prior_weight
         self.K_ = K
         self.M_ = self.w_mu0_.shape[0]
         self.D_ = self.w_mu0_.shape[1]
@@ -276,6 +282,19 @@ class MultDPRegression:
                 self.target_type_[d] = 'gaussian'
             
         self.init_traj_params()
+
+        # The prior over the residual precision can get overwhelmed by the
+        # data -- so much so that residual precision posteriors can wind up
+        # in regimes that have near-zero mass in the prior. Given this, we
+        # scale the prior params (essentially lowering the variance of the
+        # prior) by an amount proportional to the number of subjects in the
+        # data set. Note that this step needs to be done AFTER
+        # init_traj_params, which uses the original prior to randomly
+        # initialize trajectory precisions.
+        self.lambda_a0_ *= self.prec_prior_weight_*\
+            (self.gb_.ngroups if self.gb_ is not None else self.N_)
+        self.lambda_b0_ *= self.prec_prior_weight_*\
+            (self.gb_.ngroups if self.gb_ is not None else self.N_)        
 
         if self.v_a_ is None:
             self.v_a_ = np.ones(self.K_)
@@ -961,16 +980,19 @@ class MultDPRegression:
             for k in range(self.K_):
                 self.w_var_[:, :, k] = np.array(self.w_var0_)
             
-        if self.lambda_a_ is None:
-            self.lambda_a_ = np.ones([self.D_, self.K_])
-            for k in range(self.K_):
-                self.lambda_a_[:, k] = np.array(self.lambda_a0_)
-            
-        if self.lambda_b_ is None:
-            self.lambda_b_ = np.ones([self.D_, self.K_])
-            for k in range(self.K_):
-                self.lambda_b_[:, k] = np.array(self.lambda_b0_)            
-            
+        if self.lambda_a_ is None and self.lambda_b_ is None:
+            if self.gb_ is not None:
+                scale_factor = self.gb_.ngroups
+            else:
+                scale_factor = self.N_
+            self.lambda_a_ = scale_factor*np.ones([self.D_, self.K_])
+            self.lambda_b_ = scale_factor*np.ones([self.D_, self.K_])
+            for d in range(self.D_):
+                # Generate a random sample from the prior
+                scale = 1./self.lambda_b0_[d]
+                shape = self.lambda_a0_[d]                                
+                self.lambda_a_[d, :] *= gamma(shape, scale, size=self.K_)
+
         w_mu_tmp = np.zeros([self.M_, self.D_, 1])
         w_mu_tmp[:, :, 0] = self.w_mu0_
                     
