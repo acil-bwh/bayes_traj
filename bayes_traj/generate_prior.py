@@ -38,18 +38,23 @@ def prior_info_from_df_binary(df, target_name, preds, prior_info):
 def prior_info_from_df_gaussian(df, target_name, preds, num_trajs, prior_info):
     """
     """
+    # We make the naive assumption that variance of the OLS residuals is evenly
+    # divided by each trajectory subgroup, and that these variances are
+    # additive (the total residual variance = the sum of the residual variance
+    # across the trajectory subgroups)
     res_tmp = sm.OLS(df[target_name], df[preds], missing='drop').fit()
 
-    sel_ids = np.zeros(res_tmp.resid.shape[0], dtype=bool)
-    sel_ids[0:int(res_tmp.resid.shape[0]/2.)] = True
+    precs = num_trajs/np.var(res_tmp.resid.values)
     
+    #sel_ids = np.zeros(res_tmp.resid.shape[0], dtype=bool)
+    #sel_ids[0:int(res_tmp.resid.shape[0]/2.)] = True
     #prec_vec = []
     #for i in range(100):
     #    sel_ids = np.random.permutation(sel_ids)
     #    prec_vec.append(1./np.var(res_tmp.resid.values[sel_ids]))
 
-    gamma_mean = np.mean(num_trajs)
-    gamma_var = ((np.max(num_trajs) - np.min(num_trajs))/4)**2
+    gamma_mean = np.mean(precs)
+    gamma_var = ((np.max(precs) - np.min(precs))/4)**2
     #gamma_mean = np.mean(prec_vec)
     #gamma_var = np.var(prec_vec)
 
