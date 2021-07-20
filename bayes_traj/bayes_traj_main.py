@@ -43,6 +43,10 @@ def main():
         dest='out_csv', metavar='<string>', type=str, default=None)
     parser.add_argument('--prior', help='Input pickle file containing prior \
         settings', metavar='<string>', required=True)
+    parser.add_argument('--prec_prior_weight', help='A floating point value \
+        indicating how much weight to put on the prior over the residual \
+        precisions. Higher values mean that more weight will be given to the \
+        prior', metavar='<float>', type=float, default=0.25)    
     parser.add_argument('--alpha', help='If specified, over-rides the value in the \
         prior file', dest='alpha', metavar=float, default=None)
     parser.add_argument('--out_model', help='Pickle file name. If specified, \
@@ -164,7 +168,7 @@ def main():
                   format(r, best_waic2))
         mm = MultDPRegression(prior_data['w_mu0'], prior_data['w_var0'],
                               prior_data['lambda_a0'], prior_data['lambda_b0'],
-                              prior_data['alpha'], K=K)
+                              op.prec_prior_weight, prior_data['alpha'], K=K)
     
         mm.fit(target_names=targets, predictor_names=preds, df=df,
                groupby=op.groupby, iters=iters, verbose=op.verbose,           
