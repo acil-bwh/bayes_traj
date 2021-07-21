@@ -851,8 +851,8 @@ class MultDPRegression:
                     co = multivariate_normal(self.w_mu_[:, d, k],
                         self.w_covmat_[:, :, d, k], S)
                     mu = dot(co, self.X_.T)
-                    prob = (np.exp(mu)**self.Y_[:, d])/(1 + np.exp(mu))
-                    
+                    prob = ((np.exp(mu)**self.Y_[:, d])/(1 + np.exp(mu))).T
+
                 accum[:, d, :] += self.R_[:, k][:, newaxis]*prob
 
         lppd = np.nansum(log(np.nanmean(accum, axis=2)))
