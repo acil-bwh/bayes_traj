@@ -6,7 +6,6 @@ import pickle
 from argparse import ArgumentParser
 from provenance_tools.write_provenance_data import write_provenance_data
 from bayes_traj.fit_stats import ave_pp, odds_correct_classification, \
-    compute_waic2
 
 def main():
     desc = """"""
@@ -44,7 +43,7 @@ def main():
         waic2 = None
     else:
         bic = mm.bic()
-        waic2 = compute_waic2(mm)
+        waic2 = mm.compute_waic2()
     
     # Compute fit stats
     ave_pps = ave_pp(mm)
