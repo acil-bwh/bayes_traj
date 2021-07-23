@@ -280,7 +280,7 @@ class MultDPRegression:
                 self.num_binary_targets_ += 1
             else:
                 self.target_type_[d] = 'gaussian'
-            
+        print("Initializing paramters...")
         self.init_traj_params()
 
         # The prior over the residual precision can get overwhelmed by the
@@ -327,15 +327,13 @@ class MultDPRegression:
         inc = 0
         while inc < iters:
             inc += 1
-            
             self.update_v()
             if self.num_binary_targets_ > 0:
                 self.update_w_logistic(em_iters=1)
             if self.D_ - self.num_binary_targets_ > 0:
                 self.update_w_gaussian()
-                self.update_lambda() 
+                self.update_lambda()
             self.R_ = self.update_z(self.X_, self.Y_)
-                
             self.sig_trajs_ = np.max(self.R_, 0) > self.prob_thresh_
 
             if verbose:
