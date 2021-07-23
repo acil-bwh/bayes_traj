@@ -24,7 +24,8 @@ def test_update_w_logistic():
 
     mm = MultDPRegression(prior_data['w_mu0'], prior_data['w_var0'],
                           prior_data['lambda_a0'], prior_data['lambda_b0'],
-                          prior_data['alpha'], K=K)
+                          prec_prior_weight=1/df.shape[0],
+                          alpha=prior_data['alpha'], K=K)
 
     mm.N_ = df.shape[0]
     mm.target_type_[0] = 'binary'
@@ -84,6 +85,7 @@ def test_update_w_logistic_2():
 
     mm = MultDPRegression(prior_data['w_mu0'], prior_data['w_var0'],
                           prior_data['lambda_a0'], prior_data['lambda_b0'],
+                          1/df.shape[0],
                           prior_data['alpha'], K=K)
 
     mm.N_ = df.shape[0]
@@ -145,6 +147,7 @@ def test_update_z_logistic():
 
     mm = MultDPRegression(prior_data['w_mu0'], prior_data['w_var0'],
                           prior_data['lambda_a0'], prior_data['lambda_b0'],
+                          1/df.shape[0],
                           prior_data['alpha'], K=K)
 
     mm.N_ = df.shape[0]
