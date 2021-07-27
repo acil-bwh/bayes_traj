@@ -6,7 +6,6 @@ import pickle
 from argparse import ArgumentParser
 from provenance_tools.write_provenance_data import write_provenance_data
 from bayes_traj.fit_stats import ave_pp, odds_correct_classification, \
-    compute_waic2
 
 def main():
     desc = """"""
@@ -44,7 +43,7 @@ def main():
         waic2 = None
     else:
         bic = mm.bic()
-        waic2 = compute_waic2(mm)
+        waic2 = mm.compute_waic2()
     
     # Compute fit stats
     ave_pps = ave_pp(mm)
@@ -108,10 +107,10 @@ def main():
                 num_groups_in_traj = df_traj[df_traj.traj.values == traj].\
                     groupby(groupby_col).ngroups
             else:
-                num_groups_in_traj = num_obs
+                num_groups_in_traj = num_obs_in_traj
                 
             perc = 100*num_groups_in_traj/num_groups
-                
+
             print("{}{}".format("No. Observations:".ljust(35), "{}".\
                                 format(num_obs_in_traj).rjust(15)))
             print("{}{}".format("No. Groups:".ljust(35), "{}".\
@@ -132,12 +131,19 @@ def main():
                 prec_mean = mm.lambda_a_[ii, traj]/mm.lambda_b_[ii, traj]
                 prec_var = mm.lambda_a_[ii, traj]/(mm.lambda_b_[ii, traj]**2)
                 resid_std = np.sqrt(1/prec_mean)
-                space = " "*(first_col_width - len(tar))
-                print("{}{}{}{}{}".format(tar, space,
-                                          "{:.2f}".format(resid_std).center(20),
-                                          "{:.2f}".format(prec_mean).center(20),
-                                          "{:.4f}".format(prec_var).center(20)))
-        
+                if mm.target_type_[ii] == 'binary':
+                    space = " "*(first_col_width - len(tar))
+                    print("{}{}{}{}{}".format(tar, space,
+                                        "NA".center(20),
+                                        "NA".center(20),
+                                        "NA".center(20)))
+                else:
+                    space = " "*(first_col_width - len(tar))
+                    print("{}{}{}{}{}".format(tar, space,
+                                        "{:.2f}".format(resid_std).center(20),
+                                        "{:.2f}".format(prec_mean).center(20),
+                                        "{:.4f}".format(prec_var).center(20)))
+                    
             print("")
             print("{}{}{}{}".format(" "*first_col_width, "coef".center(20),
                                     "STD".center(20),

@@ -3,14 +3,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 from numpy import abs, dot, mean, log, sum, exp, tile, max, sum, isnan, diag, \
      sqrt, pi, newaxis, outer, genfromtxt, where
-from numpy.random import multivariate_normal, randn, gamma
+from numpy.random import multivariate_normal, randn, gamma, binomial
 from bayes_traj.utils import sample_cos
 from scipy.optimize import minimize_scalar
 from scipy.special import psi, gammaln, logsumexp
 from scipy.stats import norm
 import pandas as pd
 import pdb, sys, pickle, time, warnings
-
 
 class MultDPRegression:
     """Uses Dirichlet process mixture modeling to identify mixtures of
@@ -39,6 +38,11 @@ class MultDPRegression:
     lambda_b0 : array, shape ( D )
         For each target dimension 'd' (of 'D'), this is the second parameter of
         the Gamma prior over the precision for that target dimension.
+
+    prec_prior_weight : float
+        Value > 0 by which to scale the Gamma priors of the residual 
+        precisions. The higher the value, the more weight that is given to the
+        prior.
 
     alpha : float
         Hyper parameter of the Beta destribution involved in the stick-breaking
@@ -86,25 +90,31 @@ class MultDPRegression:
     lambda_a : array, shape ( D, K ), optional
         For component 'K' and target dimension 'D', this is the first parameter
         of the posterior Gamma distribution describing the precision of the
-        target variable.
+        target variable. Only relevant for continuous (Gaussian) target 
+        variables.
 
     lambda_b : array, shape ( D, K ), optional
         For component 'K' and target dimension 'D', this is the second parameter
         of the posterior Gamma distribution describing the precision of the
-        target variable.
+        target variable. Only relevant for continuous (Gaussian) target 
+        variables.
     """
-    def __init__(self, w_mu0, w_var0, lambda_a0, lambda_b0, alpha, K=10,
-                 prob_thresh=0.001):
+    def __init__(self, w_mu0, w_var0, lambda_a0, lambda_b0, prec_prior_weight,
+                 alpha, K=10, prob_thresh=0.001):
         self.w_mu0_ = w_mu0
         self.w_var0_ = w_var0
         self.lambda_a0_ = lambda_a0
         self.lambda_b0_ = lambda_b0
+        self.prec_prior_weight_ = prec_prior_weight
         self.K_ = K
         self.M_ = self.w_mu0_.shape[0]
         self.D_ = self.w_mu0_.shape[1]
         self.alpha_ = alpha
         self.prob_thresh_ = prob_thresh
 
+        # Keeps track of what data type each dimension is
+        self.target_type_ = {}
+        
         # For recording the lower-bound terms
         self.lower_bounds_ = []
 
@@ -129,7 +139,7 @@ class MultDPRegression:
     def fit(self, target_names, predictor_names, df, groupby=None, iters=100,
             R=None, traj_probs=None, traj_probs_weight=None, v_a=None,
             v_b=None, w_mu=None, w_var=None, lambda_a=None, lambda_b=None,
-            batch_size=None, verbose=False):
+            verbose=False):
         """Performs variational inference (coordinate ascent or SVI) given data
         and provided parameters.
 
@@ -202,18 +212,15 @@ class MultDPRegression:
             For component 'K' and target dimension 'D', this is the first
             parameter of the posterior Gamma distribution describing the
             precision of the target variable. If specified, the algorithm will
-            be initialized with this matrix.
+            be initialized with this matrix. Only relevant for continuous 
+           (Gaussian) target variables.
 
         lambda_b : array, shape ( D, K ), optional
             For component 'K' and target dimension 'D', this is the second
             parameter of the posterior Gamma distribution describing the
             precision of the target variable. If specified, the algorithm will
-            be initialized with this matrix.
-
-        batch_size : int, optional
-            The size (number of individuals) of the minibatch to use for 
-            stochastic variational inference. It must be less than the total 
-            number of individuals.
+            be initialized with this matrix. Only relevant for continuous 
+           (Gaussian) target variables.
 
         verbose : bool, optional
             If true, a printout of the sum along rows of the R_ matrix will
@@ -244,8 +251,8 @@ class MultDPRegression:
         assert self.w_mu0_.shape[0] == self.X_.shape[1], \
           "Dimension mismatch between mu_ and X_"
         assert self.X_.shape[0] == self.Y_.shape[0], \
-          "X_ and Y_ do not have the same number of samples"
-
+          "X_ and Y_ do not have the same number of samples"        
+        
         self.N_ = self.X_.shape[0]
         self.M_ = self.X_.shape[1]
         self.D_ = self.Y_.shape[1]
@@ -257,7 +264,37 @@ class MultDPRegression:
         self.v_b_ = v_b
         self.R_ = R
 
+        # w_covmat_ is used for binary target variables. The EM algorithm
+        # that is used to estimate w_mu_ and w_var_ for binary targets
+        # actually gives us a full covariance matrix which we take advantage
+        # of when performing sampling based estimates elsewhere. Although
+        # we only need/have w_covmat_ for binary targets, we allocate space
+        # over all dimensions, D, to make implementation clearer (i.e. when
+        # we iterate over D)
+        self.w_covmat_ = np.nan*np.ones([self.M_, self.M_, self.D_, self.K_])
+        
+        self.num_binary_targets_ = 0
+        for d in range(self.D_):
+            if set(self.Y_[:, d]).issubset({1.0, 0.0}):
+                self.target_type_[d] = 'binary'
+                self.num_binary_targets_ += 1
+            else:
+                self.target_type_[d] = 'gaussian'
+        print("Initializing paramters...")
         self.init_traj_params()
+
+        # The prior over the residual precision can get overwhelmed by the
+        # data -- so much so that residual precision posteriors can wind up
+        # in regimes that have near-zero mass in the prior. Given this, we
+        # scale the prior params (essentially lowering the variance of the
+        # prior) by an amount proportional to the number of subjects in the
+        # data set. Note that this step needs to be done AFTER
+        # init_traj_params, which uses the original prior to randomly
+        # initialize trajectory precisions.
+        self.lambda_a0_ *= self.prec_prior_weight_*\
+            (self.gb_.ngroups if self.gb_ is not None else self.N_)
+        self.lambda_b0_ *= self.prec_prior_weight_*\
+            (self.gb_.ngroups if self.gb_ is not None else self.N_)        
 
         if self.v_a_ is None:
             self.v_a_ = np.ones(self.K_)
@@ -269,11 +306,9 @@ class MultDPRegression:
         if self.R_ is None:
             self.init_R_mat(traj_probs, traj_probs_weight)
 
-        if batch_size is not None:
-            self.fit_svi(batch_size, iters, verbose)
-        else:
-            self.fit_coordinate_ascent(iters, verbose)
+        self.fit_coordinate_ascent(iters, verbose)
 
+        
     def fit_coordinate_ascent(self, iters, verbose):
         """This function contains the iteratrion loop for mean-field 
         variational inference using coordinate ascent
@@ -292,110 +327,18 @@ class MultDPRegression:
         inc = 0
         while inc < iters:
             inc += 1
-            
             self.update_v()
-            self.update_w_accel()
-            self.update_lambda_accel() 
-            self.R_ = self.update_z_accel(self.X_, self.Y_)            
-                
+            if self.num_binary_targets_ > 0:
+                self.update_w_logistic(em_iters=1)
+            if self.D_ - self.num_binary_targets_ > 0:
+                self.update_w_gaussian()
+                self.update_lambda()
+            self.R_ = self.update_z(self.X_, self.Y_)
             self.sig_trajs_ = np.max(self.R_, 0) > self.prob_thresh_
 
             if verbose:
                 print("iter {},  {}".format(inc, sum(self.R_, 0)))
 
-    def fit_svi(self, batch_size, iters, verbose):
-        """This function contains the iteratrion loop for stochastic variational 
-       inference.
-
-        Parameters
-        ----------
-        batch_size : int, optional
-            The size (number of individuals) of the minibatch to use for 
-            stochastic variational inference. It must be less than the total 
-            number of individuals.
-
-        iters : int, optional
-            Number of variational inference iterations to run.
-
-        verbose : bool, optional
-            If true, a printout of the sum along rows of the R_ matrix will
-            be provided during optimization. This sum indicates how many data
-            instances are being assigned to each of the K possible
-            trajectories.
-
-        References
-        ----------
-        Hoffman MD, Blei DM, Wang C, Paisley J. Stochastic variational 
-        inference. Journal of Machine Learning Research. 2013 May 1;14(5).
-        """            
-        # Batch size taken to mean number of individuals.
-        if self.gb_ is not None:
-            assert batch_size > 0 & batch_size <= self.gb_.ngroups, \
-                "Batch size misspecified"
-        else:
-            assert batch_size > 0 & batch_size <= self.N_, \
-                "Batch size misspecified"
-        self.batch_size_ = batch_size
-
-        if self.gb_ is not None:
-            assert self.batch_size_ <= self.gb_.ngroups and \
-                self.batch_size_ >= 1, "Batch size error"
-            indicator = np.zeros(self.gb_.ngroups)
-        else:
-            assert self.batch_size_ <= self.N_ and \
-                self.batch_size_ >= 1, "Batch size error"            
-            indicator = np.zeros(self.N_)
-        indicator[0:self.batch_size_] = 1
-                
-        # tau and kappa set to reasonable values as investigated in 
-        tau = 1.
-        kappa = 0.9
-        inc =  0
-        while inc < iters:
-            inc += 1
-            rho = (inc + tau)**(-kappa)
-            
-            # Get batch indices. If the data has been grouped, retrieve the data
-            # indices corresponding to the randomly selected individuals
-            self.batch_indices_ = np.zeros(self.N_, dtype=bool)
-            if self.gb_ is not None:
-                self.batch_subjects_ = np.array(list(self.gb_.groups.keys()))\
-                    [np.where(np.random.permutation(indicator))[0]]
-
-                for ww in self.batch_subjects_:
-                    self.batch_indices_[self.gb_.get_group(ww).index] = True
-            else:
-                self.batch_indices_ = np.random.permutation(indicator) == 1
-            
-            v_a, v_b = self.update_v_batch()             
-            self.v_a_[self.sig_trajs_] = \
-                (1 - rho)*self.v_a_[self.sig_trajs_] + rho*v_a[self.sig_trajs_]
-            self.v_b_[self.sig_trajs_] = \
-                (1 - rho)*self.v_b_[self.sig_trajs_] + rho*v_b[self.sig_trajs_]
-
-            w_mu, w_var = self.update_w_batch(self.lambda_a_, self.lambda_b_)             
-            self.w_mu_[:, :, self.sig_trajs_] = \
-                (1 - rho)*self.w_mu_[:, :, self.sig_trajs_] + \
-                rho*w_mu[:, :, self.sig_trajs_]
-            self.w_var_[:, :, self.sig_trajs_] = \
-                1./((1 - rho)*1./self.w_var_[:, :, self.sig_trajs_] + \
-                    rho*1./w_var[:, :, self.sig_trajs_])
-
-            lambda_a, lambda_b = \
-                self.update_lambda_batch(self.w_mu_, self.w_var_)            
-            self.lambda_a_[:, self.sig_trajs_] = \
-                (1 - rho)*self.lambda_a_[:, self.sig_trajs_] + \
-                rho*lambda_a[:, self.sig_trajs_]
-            self.lambda_b_[:, self.sig_trajs_] = \
-                (1 - rho)*self.lambda_b_[:, self.sig_trajs_] + \
-                rho*lambda_b[:, self.sig_trajs_]
-
-            self.R_[self.batch_indices_, :] = \
-                self.update_z_batch(self.X_, self.Y_)                
-            self.sig_trajs_ = np.max(self.R_, 0) > self.prob_thresh_            
-            
-            if verbose:
-                print("iter {},  {}".format(inc, sum(self.R_, 0)))        
                 
     def update_v(self):
         """Updates the parameters of the Beta distributions for latent
@@ -406,24 +349,8 @@ class MultDPRegression:
         for k in np.arange(0, self.K_):
             self.v_b_[k] = self.alpha_ + np.sum(self.R_[:, k+1:])
 
-    def update_v_batch(self):
-        """Updates the parameters of the Beta distributions for latent
-        variable 'v' in the variational approximation.
-        """
-        v_a = np.zeros(self.K_)
-        v_b = np.zeros(self.K_)        
-        
-        sum_factor = self.N_/np.sum(self.batch_indices_)
-        
-        v_a = 1.0 + sum_factor*np.sum(self.R_[self.batch_indices_, :], 0)
 
-        for k in np.arange(0, self.K_):
-            v_b[k] = self.alpha_ + \
-                sum_factor*np.sum(self.R_[self.batch_indices_, k+1:])
-
-        return v_a, v_b
-                                 
-    def update_z_batch(self, X, Y):
+    def update_z(self, X, Y):
         """
         """
         expec_ln_v = psi(self.v_a_) - psi(self.v_a_ + self.v_b_)
@@ -435,83 +362,35 @@ class MultDPRegression:
 
         ln_rho = np.ones([self.N_, self.K_])*tmp[newaxis, :]
 
-        for d in range(0, self.D_):
-            sel_ids = ~np.isnan(Y[:, d]) & self.batch_indices_
-
-            tmp = (dot(self.w_mu_[:, d, :].T, \
-                X[sel_ids, :].T)**2).T + \
-                np.sum((X[sel_ids, newaxis, :]**2)*\
-                (self.w_var_[:, d, :].T)[newaxis, :, :], 2)
-
-            ln_rho[sel_ids, :] += \
-              0.5*(psi(self.lambda_a_[d, :]) - \
-                log(self.lambda_b_[d, :]) - \
-                log(2*np.pi) - \
-                (self.lambda_a_[d, :]/self.lambda_b_[d, :])*\
-                (tmp - \
-                 2*Y[sel_ids, d, newaxis]*dot(X[sel_ids, :], \
-                self.w_mu_[:, d, :]) + \
-                Y[sel_ids, d, newaxis]**2))
-
-        # The values of 'ln_rho' will in general have large magnitude, causing
-        # exponentiation to result in overflow. All we really care about is the
-        # normalization of each row. We can use the identity exp(a) =
-        # 10**(a*log10(e)) to put things in base ten, and then subtract from
-        # each row the max value and also clipping the resulting row vector to
-        # lie within -300, 300 to ensure that when we exponentiate we don't
-        # have any overflow issues.
-        rho_10 = ln_rho*np.log10(np.e)
-        rho_10_shift = 10**((rho_10.T - max(rho_10, 1)).T + 300).clip(-300, 300)
-        R = (rho_10_shift.T/sum(rho_10_shift, 1)).T
-
-        # Within a group, all data instances must have the same probability of
-        # belonging to each of the K trajectories
-        if self.gb_ is not None:
-            for g in self.batch_subjects_:
-                tmp_ids = self.gb_.get_group(g).index.values
-                tmp_vec = np.sum(np.log(R[tmp_ids, :] + \
-                                        np.finfo(float).tiny), 0)
-                vec = np.exp(tmp_vec + 700 - np.max(tmp_vec))
-                vec = vec/np.sum(vec)
-
-                # Now update the rows of 'normalized_mat'.
-                R[tmp_ids, :] = vec                
-
-        # Any instance that has miniscule probability of belonging to a
-        # trajectory, set it's probability of belonging to that trajectory to 0
-        R[R <= self.prob_thresh_] = 0
-
-        return R[self.batch_indices_, :]
-
-    def update_z_accel(self, X, Y):
-        """
-        """
-        expec_ln_v = psi(self.v_a_) - psi(self.v_a_ + self.v_b_)
-        expec_ln_1_minus_v = psi(self.v_b_) - psi(self.v_a_ + self.v_b_)
-
-        tmp = np.array(expec_ln_v)
-        for k in range(1, self.K_):
-            tmp[k] += np.sum(expec_ln_1_minus_v[0:k])
-
-        ln_rho = np.ones([self.N_, self.K_])*tmp[newaxis, :]
-
+        if self.num_binary_targets_ > 0:
+            num_samples = 20 # Arbitrary. Should be "big enough"
+            mc_term = np.zeros([self.N_, self.K_])
         for d in range(0, self.D_):
             non_nan_ids = ~np.isnan(Y[:, d])
+            if self.target_type_[d] == 'gaussian':                
+                tmp = (dot(self.w_mu_[:, d, :].T, \
+                    X[non_nan_ids, :].T)**2).T + \
+                    np.sum((X[non_nan_ids, newaxis, :]**2)*\
+                    (self.w_var_[:, d, :].T)[newaxis, :, :], 2)
 
-            tmp = (dot(self.w_mu_[:, d, :].T, \
-                X[non_nan_ids, :].T)**2).T + \
-                np.sum((X[non_nan_ids, newaxis, :]**2)*\
-                (self.w_var_[:, d, :].T)[newaxis, :, :], 2)
+                ln_rho[non_nan_ids, :] += \
+                  0.5*(psi(self.lambda_a_[d, :]) - \
+                    log(self.lambda_b_[d, :]) - \
+                    log(2*np.pi) - \
+                    (self.lambda_a_[d, :]/self.lambda_b_[d, :])*\
+                    (tmp - \
+                     2*Y[non_nan_ids, d, newaxis]*dot(X[non_nan_ids, :], \
+                    self.w_mu_[:, d, :]) + \
+                    Y[non_nan_ids, d, newaxis]**2))
+            elif self.target_type_[d] == 'binary':
+                for k in range(self.K_):
+                    mc_term[:, k] = np.mean(np.log(1 + \
+                        np.exp(np.dot(self.X_, \
+                        np.random.multivariate_normal(self.w_mu_[:, d, k], \
+                            self.w_covmat_[:, :, d, k], num_samples).T))), 1)
 
-            ln_rho[non_nan_ids, :] += \
-              0.5*(psi(self.lambda_a_[d, :]) - \
-                log(self.lambda_b_[d, :]) - \
-                log(2*np.pi) - \
-                (self.lambda_a_[d, :]/self.lambda_b_[d, :])*\
-                (tmp - \
-                 2*Y[non_nan_ids, d, newaxis]*dot(X[non_nan_ids, :], \
-                self.w_mu_[:, d, :]) + \
-                Y[non_nan_ids, d, newaxis]**2))
+                ln_rho[non_nan_ids, :] += Y[non_nan_ids, d, newaxis]*\
+                    dot(X[non_nan_ids, :], self.w_mu_[:, d, :]) - mc_term                
 
         # The values of 'ln_rho' will in general have large magnitude, causing
         # exponentiation to result in overflow. All we really care about is the
@@ -543,79 +422,104 @@ class MultDPRegression:
 
         return R
     
-    def update_w_accel(self):
-        """ Updates the variational distribution over latent variable w.
-        """
-        mu0_DIV_var0 = self.w_mu0_/self.w_var0_
-        for m in range(0, self.M_):
-            ids = np.ones(self.M_, dtype=bool)
-            ids[m] = False
-            for d in range(0, self.D_):
-                non_nan_ids = ~np.isnan(self.Y_[:, d])
-    
-                tmp1 = (self.lambda_a_[d, self.sig_trajs_]/\
-                        self.lambda_b_[d, self.sig_trajs_])*\
-                        (np.sum(self.R_[:, self.sig_trajs_, newaxis]\
-                                [non_nan_ids, :, :]*\
-                                self.X_[non_nan_ids, newaxis, :]**2, 0).T)\
-                                [:, newaxis, :]
-                
-                self.w_var_[:, :, self.sig_trajs_] = \
-                    (tmp1 + (1.0/self.w_var0_)[:, :, newaxis])**-1
-                
-                sum_term = sum(self.R_[non_nan_ids, :][:, self.sig_trajs_]*\
-                               self.X_[non_nan_ids, m, newaxis]*\
-                               (dot(self.X_[:, ids][non_nan_ids, :], \
-                                    self.w_mu_[ids, d, :]\
-                                    [:, self.sig_trajs_]) - \
-                                self.Y_[non_nan_ids, d][:, newaxis]), 0)
-    
-                self.w_mu_[m, d, self.sig_trajs_] = \
-                    self.w_var_[m, d, self.sig_trajs_]*\
-                    (-(self.lambda_a_[d, self.sig_trajs_]/\
-                       self.lambda_b_[d, self.sig_trajs_])*\
-                     sum_term + mu0_DIV_var0[m, d])
+    def update_w_logistic(self, em_iters=1):
+        """Uses an EM algorithm based on the approach in the reference to update
+        the coefficient distributions corresponding to binary targets.
 
-    def update_w_batch(self, lambda_a, lambda_b):
-        """ Updates the variational distribution over latent variable w.
+        Parameters
+        ----------
+        em_iters : int, optional
+            The number of EM iterations to perform
+
+        References
+        ----------
+        Durante D, Rigon T. Conditionally conjugate mean-field variational 
+        Bayes for logistic models. Statistical science. 2019;34(3):472-85.
+        """        
+        d_bin = -1
+        for d in range(self.D_):
+            if self.target_type_[d] == 'binary':
+                d_bin += 1
+            
+                for k in np.where(self.sig_trajs_)[0]:
+                    non_nan_ids = ~np.isnan(self.Y_[:, d]) #& \
+                       # (self.R_[:, k] > 0)
+
+                    for i in range(em_iters):
+                        # E-step
+                        #print(self.w_mu_[:, d, k])
+                        Z_bar = np.diag(0.5*self.R_[non_nan_ids, k]*\
+                                        (1/self.xi_[non_nan_ids, d_bin, k])*\
+                            np.tanh(0.5*self.xi_[non_nan_ids, d_bin, k]))
+                        
+                        sig_mat_0 = np.diag(self.w_var0_[:, d])
+                        mu_0 = self.w_mu0_[:, d]
+
+                        self.w_covmat_[:, :, d, k] = \
+                            np.linalg.inv(np.linalg.inv(sig_mat_0) + \
+                            np.dot(self.X_[non_nan_ids, :].T, \
+                                   np.dot(Z_bar, self.X_[non_nan_ids, :])))
+                        self.w_var_[:, d, k] = \
+                            np.diag(self.w_covmat_[:, :, d, k])
+                        #self.w_mu_[:, d, k] = \
+                        #    np.dot(self.w_covmat_[:, :, d, k], \
+                        #           np.dot(self.X_[non_nan_ids, :].T,
+                        #        (self.Y_[non_nan_ids, d] - 0.5)) + \
+                        #            np.dot(np.linalg.inv(sig_mat_0), mu_0))
+
+                        # DEB:
+                        self.w_mu_[:, d, k] = \
+                            np.dot(self.w_covmat_[:, :, d, k], \
+                                   np.dot(self.X_[non_nan_ids, :].T,
+                                self.R_[non_nan_ids, k]*(self.Y_[non_nan_ids, d] - 0.5)) + \
+                                    np.dot(np.linalg.inv(sig_mat_0), mu_0))
+                        
+                        
+                        # M-step
+                        self.xi_[non_nan_ids, d_bin, k] = \
+                            np.sqrt(np.diag(np.dot(self.X_[non_nan_ids, :],
+                                np.dot(self.w_covmat_[:, :, d, k], \
+                                       self.X_[non_nan_ids, :].T))) + \
+                                np.dot(self.X_[non_nan_ids, :], \
+                                       self.w_mu_[:, d, k])**2)
+                        
+    def update_w_gaussian(self):
+        """ Updates the variational distributions over predictor coefficients 
+        corresponding to continuous (Gaussian) target variables. 
         """
-        w_mu = np.array(self.w_mu_)
-        w_var = np.array(self.w_var_)
-        
         mu0_DIV_var0 = self.w_mu0_/self.w_var0_
         for m in range(0, self.M_):
             ids = np.ones(self.M_, dtype=bool)
             ids[m] = False
             for d in range(0, self.D_):
-                sel_ids = ~np.isnan(self.Y_[:, d]) & self.batch_indices_
-                sum_factor = self.N_/np.sum(sel_ids)
-                
-                tmp1 = sum_factor*(lambda_a[d, self.sig_trajs_]/\
-                                lambda_b[d, self.sig_trajs_])*\
-                                (np.sum(self.R_[:, self.sig_trajs_, newaxis]\
-                                        [sel_ids, :, :]*\
-                                        self.X_[sel_ids, newaxis, :]**2, 0).T)\
-                                        [:, newaxis, :]
-                
-                w_var[:, :, self.sig_trajs_] = \
-                    (tmp1 + (1.0/self.w_var0_)[:, :, newaxis])**-1
-                
-                sum_term = \
-                    sum_factor*sum(self.R_[sel_ids, :][:, self.sig_trajs_]*\
-                                   self.X_[sel_ids, m, newaxis]*\
-                                   (dot(self.X_[:, ids][sel_ids, :], \
-                                        w_mu[ids, d, :][:, self.sig_trajs_]) - \
-                                    self.Y_[sel_ids, d][:, newaxis]), 0)
+                if self.target_type_[d] == 'gaussian':
+                    non_nan_ids = ~np.isnan(self.Y_[:, d])
     
-                w_mu[m, d, self.sig_trajs_] = \
-                    w_var[m, d, self.sig_trajs_]*\
-                    (-(lambda_a[d, self.sig_trajs_]/\
-                       lambda_b[d, self.sig_trajs_])*\
-                     sum_term + mu0_DIV_var0[m, d])
+                    tmp1 = (self.lambda_a_[d, self.sig_trajs_]/\
+                            self.lambda_b_[d, self.sig_trajs_])*\
+                            (np.sum(self.R_[:, self.sig_trajs_, newaxis]\
+                                    [non_nan_ids, :, :]*\
+                                    self.X_[non_nan_ids, newaxis, :]**2, 0).T)\
+                                    [:, newaxis, :]
                 
-        return w_mu, w_var    
+                    self.w_var_[:, :, self.sig_trajs_] = \
+                        (tmp1 + (1.0/self.w_var0_)[:, :, newaxis])**-1
                 
-    def update_lambda_accel(self):
+                    sum_term = sum(self.R_[non_nan_ids, :][:, self.sig_trajs_]*\
+                                   self.X_[non_nan_ids, m, newaxis]*\
+                                   (dot(self.X_[:, ids][non_nan_ids, :], \
+                                        self.w_mu_[ids, d, :]\
+                                        [:, self.sig_trajs_]) - \
+                                    self.Y_[non_nan_ids, d][:, newaxis]), 0)
+    
+                    self.w_mu_[m, d, self.sig_trajs_] = \
+                        self.w_var_[m, d, self.sig_trajs_]*\
+                        (-(self.lambda_a_[d, self.sig_trajs_]/\
+                           self.lambda_b_[d, self.sig_trajs_])*\
+                         sum_term + mu0_DIV_var0[m, d])
+
+                
+    def update_lambda(self):
         """Updates the variational distribution over latent variable lambda.
         """    
         for d in range(self.D_):
@@ -639,35 +543,6 @@ class MultDPRegression:
                                 self.w_mu_[:, d, self.sig_trajs_]) + \
                          self.Y_[non_nan_ids, d, newaxis]**2), 0)
 
-    def update_lambda_batch(self, w_mu, w_var):
-        """Updates the variational distribution over latent variable lambda.
-        """
-        lambda_a = np.nan*np.zeros([self.D_, self.K_])
-        lambda_b = np.nan*np.zeros([self.D_, self.K_])
-        
-        for d in range(self.D_):
-            sel_ids = ~np.isnan(self.Y_[:, d]) & self.batch_indices_
-            sum_factor = self.N_/np.sum(sel_ids)
-
-            lambda_a[d, self.sig_trajs_] = self.lambda_a0_[d, newaxis] + \
-                sum_factor*0.5*sum(self.R_[:, self.sig_trajs_][sel_ids, :], 0)\
-                [newaxis, :]
-            
-            tmp = (dot(w_mu[:, d, self.sig_trajs_].T, \
-                       self.X_[sel_ids, :].T)**2).T + \
-                       np.sum((self.X_[sel_ids, newaxis, :]**2)*\
-                              (w_var[:, d, self.sig_trajs_].T)\
-                              [newaxis, :, :], 2)
-    
-            lambda_b[d, self.sig_trajs_] = \
-                self.lambda_b0_[d, newaxis] + \
-                0.5*sum_factor*sum(self.R_[sel_ids, :][:, self.sig_trajs_]*\
-                                   (tmp - 2*self.Y_[sel_ids, d, newaxis]*\
-                                    np.dot(self.X_[sel_ids, :], \
-                                           w_mu[:, d, self.sig_trajs_]) + \
-                                    self.Y_[sel_ids, d, newaxis]**2), 0)
-            
-        return lambda_a, lambda_b
             
     def sample(self, index=None, x=None):
         """sample from the posterior distribution using the input data.
@@ -712,29 +587,52 @@ class MultDPRegression:
         for n in indices:
             z = np.random.multinomial(1, self.R_[n, :]/np.sum(self.R_[n, :]))
             for d in range(0, self.D_):
-                co = multivariate_normal(self.w_mu_[:, d, z.astype(bool)][:, 0],
-                    diag(self.w_var_[:, d, z.astype(bool)][:, 0]), 1)
-                if x is not None:
-                    mu = dot(co, x)
-                else:
-                    mu = dot(co, self.X_[n, :])
+                if self.target_type_[d] == 'gaussian':
 
-                # Draw a precision value from the gamma distribution. Note
-                # that numpy uses a slightly different parameterization
-                scale = 1./self.lambda_b_[d, z.astype(bool)]
-                shape = self.lambda_a_[d, z.astype(bool)]
-                var = 1./gamma(shape, scale, size=1)
+                    # Draw a precision value from the gamma distribution. Note
+                    # that numpy uses a slightly different parameterization
+                    scale = 1./self.lambda_b_[d, z.astype(bool)]
+                    shape = self.lambda_a_[d, z.astype(bool)]
+                    var = 1./gamma(shape, scale, size=1)
+                    
+                    co = multivariate_normal(\
+                        self.w_mu_[:, d, z.astype(bool)][:, 0],
+                        diag(self.w_var_[:, d, z.astype(bool)][:, 0]), 1)
 
-                if index is None:
-                    y_rep[n, d] = sqrt(var)*randn(1) + mu
+                    if x is not None:
+                        mu = dot(co, x)
+                    else:
+                        mu = dot(co, self.X_[n, :])
+
+                    if index is None:
+                        y_rep[n, d] = sqrt(var)*randn(1) + mu
+                    else:
+                        y_rep[0, d] = sqrt(var)*randn(1) + mu                    
                 else:
-                    y_rep[0, d] = sqrt(var)*randn(1) + mu
+                    # Target assumed to be binary
+                    co = multivariate_normal(\
+                        self.w_mu_[:, d, z.astype(bool)][:, 0],
+                        self.w_covmat_[:, :, d, z.astype(bool)][:, 0], 1)
+
+                    if x is not None:
+                        mu = dot(co, x)
+                    else:
+                        mu = dot(co, self.X_[n, :])
+
+                    if index is None:
+                        y_rep[n, d] = binomial(1, np.exp(mu)/\
+                                               (1 + np.exp(mu)), 1)
+                    else:
+                        y_rep[0, d] = binomial(1, np.exp(mu)/\
+                                               (1 + np.exp(mu)), 1)
 
         return y_rep
 
     def lppd(self, y, index, S=20, x=None):
         """Compute the log pointwise predictive density (lppd) at a specified
         point.
+
+        # TODO: test binary implementation
 
         This function implements equation 7.5 of 'Bayesian Data Analysis, Third
         Edition' for a single point.
@@ -777,27 +675,41 @@ class MultDPRegression:
             if x.shape[0] != self.M_:
                 raise ValueError('x has incorrect dimension')
 
-        log_dens = 0.0
         accums = np.zeros([self.D_, S])
         for s in range(0, S):  
             z = np.random.multinomial(1, self.R_[index, :])
             for d in range(0, self.D_):
-                co = multivariate_normal(self.w_mu_[:, d, z.astype(bool)][:, 0],
-                    diag(self.w_var_[:, d, z.astype(bool)][:, 0]), 1)
-                if x is not None:
-                    mu = dot(co, x)
+                if self.target_type_[d] == 'gaussian':
+                    co = multivariate_normal(\
+                        self.w_mu_[:, d, z.astype(bool)][:, 0],
+                            diag(self.w_var_[:, d, z.astype(bool)][:, 0]), 1)
+                    if x is not None:
+                        mu = dot(co, x)
+                    else:
+                        mu = dot(co, self.X_[index, :])
+
+                    # Draw a precision value from the gamma distribution. Note
+                    # that numpy uses a slightly different parameterization
+                    scale = 1./self.lambda_b_[d, z.astype(bool)]
+                    shape = self.lambda_a_[d, z.astype(bool)]
+                    var = 1./gamma(shape, scale, size=1)
+
+                    accums[d, s] = np.clip((1/sqrt(var*2*np.pi))*\
+                      exp((-(0.5/var)*(y[d] - mu)**2).astype('float64')),
+                      1e-300, 1e300)                   
                 else:
-                    mu = dot(co, self.X_[index, :])
+                    # Target assumed binary
+                    co = multivariate_normal(\
+                        self.w_mu_[:, d, z.astype(bool)][:, 0],
+                            self.w_covmat_[:, :, d, z.astype(bool)], 1)
+                    if x is not None:
+                        mu = dot(co, x)
+                    else:
+                        mu = dot(co, self.X_[index, :])
 
-                # Draw a precision value from the gamma distribution. Note
-                # that numpy uses a slightly different parameterization
-                scale = 1./self.lambda_b_[d, z.astype(bool)]
-                shape = self.lambda_a_[d, z.astype(bool)]
-                var = 1./gamma(shape, scale, size=1)
-
-                accums[d, s] = np.clip((1/sqrt(var*2*np.pi))*\
-                  exp((-(0.5/var)*(y[d] - mu)**2).astype('float64')),
-                  1e-300, 1e300)
+                    accums[d, s] = \
+                        np.clip((np.exp(mu)**y[d])/(1 + np.exp(mu)),
+                                1e-300, 1e300)
 
         log_dens = np.sum(np.log(np.mean(accums, 1)))
 
@@ -806,6 +718,8 @@ class MultDPRegression:
     def log_likelihood(self):
         """Compute the log-likelihood given expected values of the latent 
         variables.
+
+        TODO: Test implementation of binary targets
 
         Returns
         -------
@@ -816,15 +730,21 @@ class MultDPRegression:
         for k in range(self.K_):
             tmp_d = np.ones(self.N_)
             for d in range(self.D_):
-                mu = np.dot(self.X_, self.w_mu_[:, d, k])
-                v = self.lambda_b_[d, k]/self.lambda_a_[d, k]
-                co = 1/sqrt(2.*np.pi*v)
-
                 # Some of the target variables can be missing (NaNs). Exclude
                 # these from the computation.
                 ids = ~np.isnan(self.Y_[:, d])
-                tmp_d[ids] *= co*np.exp(-((self.Y_[ids, d]-mu[ids])**2)/(2.*v))
-            
+                mu = np.dot(self.X_, self.w_mu_[:, d, k])
+                
+                if self.target_type_[d] == 'gaussian':
+                    v = self.lambda_b_[d, k]/self.lambda_a_[d, k]
+                    co = 1/sqrt(2.*np.pi*v)
+
+                    tmp_d[ids] *= co*np.exp(-((self.Y_[ids, d]-\
+                                               mu[ids])**2)/(2.*v))
+                else:
+                    # Target assumed to be binary
+                    tmp_d[ids] *= (np.exp(mu)**self.Y_[ids, d])/(1 + np.exp(mu))
+                    
             tmp_k += self.R_[:, k]*tmp_d
         log_likelihood = np.sum(np.log(tmp_k))
                 
@@ -890,6 +810,8 @@ class MultDPRegression:
         criterion, using the variance of individual terms in the log predictive
         density summed over the n data points.
 
+        TODO: Test implementation of binary target accomodation
+
         Parameters
         ----------
         S : integer, optional
@@ -908,18 +830,26 @@ class MultDPRegression:
         accum = np.zeros([self.N_, self.D_, S])
         for k in np.where(self.sig_trajs_)[0]:
             for d in range(0, self.D_):
-                co = multivariate_normal(self.w_mu_[:, d, k],
-                    diag(self.w_var_[:, d, k]), S)
-                mu = dot(co, self.X_.T)
+                if self.target_type_[d] == 'gaussian':
+                    co = multivariate_normal(self.w_mu_[:, d, k],
+                        diag(self.w_var_[:, d, k]), S)
+                    mu = dot(co, self.X_.T)
 
-                # Draw a precision value from the gamma distribution. Note
-                # that numpy uses a slightly different parameterization
-                scale = 1./self.lambda_b_[d, k]
-                shape = self.lambda_a_[d, k]
-                var = 1./gamma(shape, scale, size=1)
+                    # Draw a precision value from the gamma distribution. Note
+                    # that numpy uses a slightly different parameterization
+                    scale = 1./self.lambda_b_[d, k]
+                    shape = self.lambda_a_[d, k]
+                    var = 1./gamma(shape, scale, size=1)
 
-                prob = ((1/sqrt(2*np.pi*var))[:, newaxis]*\
-                    exp(-(1/(2*var))[:, newaxis]*(mu - self.Y_[:, d])**2)).T
+                    prob = ((1/sqrt(2*np.pi*var))[:, newaxis]*\
+                        exp(-(1/(2*var))[:, newaxis]*\
+                            (mu - self.Y_[:, d])**2)).T
+                else:
+                    # Target assumed to be binary
+                    co = multivariate_normal(self.w_mu_[:, d, k],
+                        self.w_covmat_[:, :, d, k], S)
+                    mu = dot(co, self.X_.T)
+                    prob = ((np.exp(mu)**self.Y_[:, d])/(1 + np.exp(mu))).T
 
                 accum[:, d, :] += self.R_[:, k][:, newaxis]*prob
 
@@ -977,19 +907,26 @@ class MultDPRegression:
     
     def prune_coef_mat(self, w_mu):
         """
+        TODO: Test implementation of binary target accomodation
         """
         tmp_K = w_mu.shape[2]
         R_tmp = np.ones([self.N_, tmp_K])
-        var = self.lambda_b0_/self.lambda_a0_
+
         for k in range(tmp_K):
             for d in range(self.D_):
                 ids = ~np.isnan(self.Y_[:, d])
-                
+
                 mu_tmp = np.dot(self.X_, w_mu[:, d, k])
-    
-                R_tmp[ids, k] *= (1/(np.sqrt(2*np.pi*var[d])))*\
-                    np.exp(-((self.Y_[ids, d] - mu_tmp[ids])**2)/(2*var[d]))
-    
+
+                if self.target_type_[d] == 'gaussian':
+                    var = self.lambda_b0_/self.lambda_a0_
+                    R_tmp[ids, k] *= (1/(np.sqrt(2*np.pi*var[d])))*\
+                        np.exp(-((self.Y_[ids, d] - mu_tmp[ids])**2)/(2*var[d]))
+                else:
+                    # Target assumed binary
+                    R_tmp[ids, k] *= (np.exp(mu_tmp[ids])**self.Y_[ids, d])/\
+                        (1 + np.exp(mu_tmp[ids]))
+                    
         zero_ids = np.sum(R_tmp, 1) == 0
         R_tmp[zero_ids] = np.ones([np.sum(zero_ids), tmp_K])/tmp_K
         R = np.array((R_tmp.T/np.sum(R_tmp, 1)).T)
@@ -1029,23 +966,31 @@ class MultDPRegression:
         
     def init_traj_params(self):
         """Initializes trajectory parameters. 
-
         """
+        # TODO: What is best way to initialize xi?
+        if self.num_binary_targets_ > 0:
+            self.xi_ = np.ones([self.N_, self.num_binary_targets_, self.K_])
+        else:
+            self.xi_ = None
+        
         if self.w_var_ is None:
             self.w_var_ = np.zeros([self.M_, self.D_, self.K_])
             for k in range(self.K_):
                 self.w_var_[:, :, k] = np.array(self.w_var0_)
             
-        if self.lambda_a_ is None:
-            self.lambda_a_ = np.ones([self.D_, self.K_])
-            for k in range(self.K_):
-                self.lambda_a_[:, k] = np.array(self.lambda_a0_)
-            
-        if self.lambda_b_ is None:
-            self.lambda_b_ = np.ones([self.D_, self.K_])
-            for k in range(self.K_):
-                self.lambda_b_[:, k] = np.array(self.lambda_b0_)            
-            
+        if self.lambda_a_ is None and self.lambda_b_ is None:
+            if self.gb_ is not None:
+                scale_factor = self.gb_.ngroups
+            else:
+                scale_factor = self.N_
+            self.lambda_a_ = scale_factor*np.ones([self.D_, self.K_])
+            self.lambda_b_ = scale_factor*np.ones([self.D_, self.K_])
+            for d in range(self.D_):
+                # Generate a random sample from the prior
+                scale = 1./self.lambda_b0_[d]
+                shape = self.lambda_a0_[d]                                
+                self.lambda_a_[d, :] *= gamma(shape, scale, size=self.K_)
+
         w_mu_tmp = np.zeros([self.M_, self.D_, 1])
         w_mu_tmp[:, :, 0] = self.w_mu0_
                     
@@ -1096,7 +1041,7 @@ class MultDPRegression:
 
         # Each trajectory gets equal weight
         vec = np.ones(self.K_)/self.K_
-        
+
         if (traj_probs is None and traj_probs_weight is not None) or \
            (traj_probs_weight is None and traj_probs is not None):
             warnings.warn('Both traj_probs and traj_probs_weight \
@@ -1122,6 +1067,8 @@ class MultDPRegression:
         """Compute the probability that each data instance belongs to each of
         the 'k' clusters. Note that 'X' and 'Y' can be "new" data; that is,
         data that was not necessarily used to train the model.
+
+        TODO: Test implementation of binary data accomodation
 
         Returns
         -------
@@ -1157,11 +1104,17 @@ class MultDPRegression:
         for k in range(self.K_):
             for d in range(D):
                 ids = ~np.isnan(Y[:, d])
-                var_tmp = self.lambda_b_[d, k]/self.lambda_a_[d, k]
                 mu_tmp = np.dot(X, self.w_mu_[:, d, k])
 
-                R_tmp[ids, k] *= (1/(np.sqrt(2*np.pi*var_tmp)))*\
-                    np.exp(-((Y[ids, d] - mu_tmp[ids])**2)/(2*var_tmp))
+                if self.target_type_[d] == 'gaussian':
+                    var_tmp = self.lambda_b_[d, k]/self.lambda_a_[d, k]
+                    R_tmp[ids, k] *= (1/(np.sqrt(2*np.pi*var_tmp)))*\
+                        np.exp(-((Y[ids, d] - mu_tmp[ids])**2)/(2*var_tmp))
+                else:
+                    # Target assumed binary
+                    R_tmp[ids, k] *= (np.exp(mu_tmp[ids])**Y[ids, d])/\
+                        (1 + np.exp(mu_tmp[ids]))
+                    
             R_tmp[:, k] *= traj_probs[k]
 
         zero_ids = np.sum(R_tmp, 1) == 0
@@ -1188,6 +1141,8 @@ class MultDPRegression:
         """Compute the probability that each data instance belongs to each of
         the 'k' clusters. Note that 'X' and 'Y' can be "new" data; that is,
         data that was not necessarily used to train the model.
+
+        TODO: Test implementation of binary target accomodation
 
         Parameters
         ----------
@@ -1221,11 +1176,17 @@ class MultDPRegression:
         for k in range(self.K_):
             for d in range(D):
                 ids = ~np.isnan(Y[:, d])
-                var_tmp = self.lambda_b_[d, k]/self.lambda_a_[d, k]
                 mu_tmp = np.dot(X, self.w_mu_[:, d, k])
 
-                R_tmp[ids, k] *= (1/(np.sqrt(2*np.pi*var_tmp)))*\
-                    np.exp(-((Y[ids, d] - mu_tmp[ids])**2)/(2*var_tmp))
+                if self.target_type_[d] == 'gaussian':
+                    var_tmp = self.lambda_b_[d, k]/self.lambda_a_[d, k]                    
+                    R_tmp[ids, k] *= (1/(np.sqrt(2*np.pi*var_tmp)))*\
+                        np.exp(-((Y[ids, d] - mu_tmp[ids])**2)/(2*var_tmp))
+                else:
+                    # Target assumed binary
+                    R_tmp[ids, k] *= (np.exp(mu_tmp[ids])**Y[ids, d])/\
+                        (1 + np.exp(mu_tmp[ids]))
+                    
             R_tmp[:, k] *= traj_probs[k]
 
         zero_ids = np.sum(R_tmp, 1) == 0
@@ -1245,7 +1206,7 @@ class MultDPRegression:
                 # Now update the rows of 'normalized_mat'.
                 R[tmp_ids, :] = vec                
 
-        # Now augment the data frame with trajectory info
+        # Now augment the dataframe with trajectory info
         traj = []
         for i in range(N):
             traj.append(np.where(np.max(R[i, :]) == R[i, :])[0][0])
@@ -1259,77 +1220,15 @@ class MultDPRegression:
     def compute_lower_bound(self):
         """Compute the variational lower bound
 
+        NOTE: Currently not implemented.
+
         Returns
         -------
         lower_bound : float
             The variational lower bound
         """
-        term_2 = 0.5*dot(sum(self.R_, 0), sum(psi(self.lambda_a_) - \
-            log(self.lambda_b_), 0))
-
-        term_3 = 0.
-        for d in range(0, self.D_):
-            non_nan_ids = ~np.isnan(self.Y_[:, d])
-            for k in range(0, self.K_):
-                term_3 += (self.lambda_a_[d, k]/self.lambda_b_[d, k])*\
-                  (dot(dot((self.X_[non_nan_ids, :]**2), self.w_var_[:, d, k]),
-                         self.R_[non_nan_ids, k]) + \
-                    sum((self.X_[non_nan_ids, :, newaxis]*\
-                         self.X_[non_nan_ids, newaxis, :])*\
-                           outer(self.w_mu_[:, d, k], self.w_mu_[:, d, k])*\
-                           self.R_[non_nan_ids, k, newaxis, newaxis]) + \
-                           dot(self.R_[non_nan_ids, k], \
-                               self.Y_[non_nan_ids, d]**2) + \
-                      -2*dot(self.R_[non_nan_ids, k]*self.Y_[non_nan_ids, d], \
-                             dot(self.X_[non_nan_ids, :], 
-                            self.w_mu_[:, d, k])))
-        term_3 *= -0.5
-
-        term_6 = np.sum(np.dot(self.R_, psi(self.v_a_) - \
-                               psi(self.v_a_ + self.v_b_)))
-
-        term_7 = 0.
-        for k in range(1, self.K_):
-            term_7 += \
-              sum(self.R_[:, k]*sum(psi(self.v_b_[0:k]) - \
-                                    psi(self.v_a_[0:k] + self.v_b_[0:k])))
-
-        term_8 = (self.alpha_ - 1.)*sum(psi(self.v_b_) - \
-                                        psi(self.v_a_ + self.v_b_))
-
-        term_12 = 0.
-        for k in range(0, self.K_):
-            term_12 += sum(-(0.5/self.w_var0_)*(self.w_var_[:, :, k] + \
-                self.w_mu_[:, :, k]**2 - 2*self.w_mu0_*self.w_mu_[:, :, k]))
-
-        term_15 = np.sum(np.dot(self.lambda_a0_ - 1, \
-                         (psi(self.lambda_a_) - log(self.lambda_b_))))
-
-        term_16 = -np.sum(np.dot(self.lambda_b0_, \
-                          (self.lambda_a_/self.lambda_b_)))
-
-        ids = self.R_ > 0.
-        term_17 = -np.sum(self.R_[ids]*log(self.R_[ids]))
-
-        term_18 = 0.
-        for k in range(0, self.K_):
-            alpha = 1 + np.sum(self.R_, 0)[k]
-            beta = self.alpha_ + np.sum(np.sum(self.R_, 0)[(k+1):self.K_])
-            term_18 += -gammaln(alpha + beta) + gammaln(alpha) + \
-              gammaln(beta) - (alpha - 1)*(psi(alpha) - psi(alpha + beta)) - \
-              (beta - 1)*(psi(beta) - psi(alpha + beta))
-
-        term_19 = 0.5*np.sum(log(self.w_var_))
-
-        term_20 = np.sum(self.lambda_a_ - log(self.lambda_b_) + \
-            gammaln(self.lambda_a_) + (1 - self.lambda_a_)*psi(self.lambda_a_))
-
-        lower_bound = term_2 + term_3 + term_6 + term_7 + term_8 + term_12 + \
-          term_15 + term_16 + term_17 + term_18 + term_19 + term_20
-
-        self.lower_bounds_.append(lower_bound)
-        return lower_bound
-
+        pass
+        
     def to_df(self):
         """Adds to the current data frame columns containing trajectory 
         assignments and probabilities.
@@ -1368,6 +1267,8 @@ class MultDPRegression:
         variables not specified to be on the x-axis will be set to their mean
         values for plotting.     
         
+        TODO: Update to accomodate binary target variables as necessary
+
         Parameters
         ----------
         x_axis : str
@@ -1411,7 +1312,7 @@ class MultDPRegression:
             traj_prob_vec = np.sum(R_per_individual, 0)/np.sum(R_per_individual)
         else:
             num_individuals = self.N_
-            traj_prob_vec = np.sum(mm.R_, 0)/np.sum(mm.R_)
+            traj_prob_vec = np.sum(self.R_, 0)/np.sum(self.R_)
         
         df_traj = self.to_df()
             
@@ -1498,22 +1399,27 @@ class MultDPRegression:
                            color=cmap(traj_id_to_cmap_index[traj_map_[tt]]),
                            alpha=0.5)
 
-                std = np.sqrt(self.lambda_b_[target_index][tt]/\
-                              self.lambda_a_[target_index][tt])
-            
-                co = self.w_mu_[:, target_index, tt]
-                y_tmp = np.dot(co, X_tmp.T)
-
                 n_traj = int(traj_prob_vec[tt]*num_individuals)
                 perc_traj = traj_prob_vec[tt]*100
+
+                co = self.w_mu_[:, target_index, tt]
+                if self.target_type_[target_index] == 'gaussian':
+                    std = np.sqrt(self.lambda_b_[target_index][tt]/\
+                                  self.lambda_a_[target_index][tt])
+                    y_tmp = np.dot(co, X_tmp.T)
+                    ax.fill_between(x_dom, y_tmp-2*std, y_tmp+2*std,
+                            color=cmap(traj_id_to_cmap_index[traj_map_[tt]]),
+                            alpha=0.3)
+                else:
+                    # Target assumed binary
+                    y_tmp = np.exp(np.dot(co, X_tmp.T))/\
+                        (1 + np.exp(np.dot(co, X_tmp.T)))
+                    
                 ax.plot(x_dom, y_tmp,
                         color=cmap(traj_id_to_cmap_index[traj_map_[tt]]),
                         linewidth=3,
                         label='Traj {} (N={}, {:.1f}%)'.\
                         format(traj_map_[tt], n_traj, perc_traj))
-                ax.fill_between(x_dom, y_tmp-2*std, y_tmp+2*std,
-                        color=cmap(traj_id_to_cmap_index[traj_map_[tt]]),
-                        alpha=0.3)
 
         ax.set_xlabel(x_axis, fontsize=16)
         ax.set_ylabel(y_axis, fontsize=16)    
@@ -1523,5 +1429,5 @@ class MultDPRegression:
         if show:
             plt.show()
 
-        return ax
-    
+        return ax    
+

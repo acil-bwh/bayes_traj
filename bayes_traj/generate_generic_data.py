@@ -8,17 +8,18 @@ from argparse import ArgumentParser
 from provenance_tools.write_provenance_data import write_provenance_data
 
 def main():
-    desc = """Generates an arbitrary number of quadratic trajectories. Useful for 
-    testing purposes. The x-axis is referred to as 'age' throughout. The context
-    of this script mimics a longitudinal study in which individuals are 
-    recruited and then followed for a specified number of visits, spread apart by
-    a specified number of time."""
+    desc = """Generates an arbitrary number of quadratic trajectories. Useful 
+    for testing purposes. The x-axis is referred to as 'age' throughout. The 
+    context of this script mimics a longitudinal study in which individuals are 
+    recruited and then followed for a specified number of visits, spread apart 
+    by a specified number of time."""
     
     parser = ArgumentParser(description=desc)
     parser.add_argument('--traj_params', help='Tuple specifying the trajectory \
-        shape, residual noise, and number of subjects. Can be used multiple times \
-        Specify as: <intercept,age,age^2,resid_std,num>', type=str, default=None,
-        action='append', nargs='+')                    
+        shape, residual noise, and number of subjects. Can be used multiple \
+        times. Specify as: <intercept,age,age^2,resid_std,num>. If resid_std \
+        is specified as NA, then the target variable will be assumed binary.',
+        type=str, default=None, action='append', nargs='+')                    
     parser.add_argument('--enrollment', help='Comma-separated tuple: min age, max \
         age. This specifies the range of randomly generated ages correpsonding to \
         a synthetically generated individuals baseline age', dest='enrollment',
@@ -83,10 +84,18 @@ def main():
             for i, dd in enumerate(traj_dim_cos):
                 cos = np.array(dd.strip('<').strip('>').split(',')[0:3],
                                dtype=float)
-                traj_resid_std = float(dd.strip('<').strip('>').split(',')[3])
+                tmp = dd.strip('<').strip('>').split(',')[3]
+                if tmp.lower() == 'na':
+                    dot_tmp = np.dot(cos, \
+                        df_tmp[['intercept', 'age', 'age^2']].values.T)
+                    mu = np.exp(dot_tmp)/(1 + np.exp(dot_tmp))
+                    y = np.random.binomial(1, mu, ages.shape[0])
+                else:
+                    traj_resid_std = float(tmp)
                 
-                y = np.dot(cos, df_tmp[['intercept', 'age', 'age^2']].values.T) + \
-                    traj_resid_std*np.random.randn(ages.shape[0])
+                    y = np.dot(cos, \
+                        df_tmp[['intercept', 'age', 'age^2']].values.T) + \
+                        traj_resid_std*np.random.randn(ages.shape[0])
     
                 df_tmp['y{}'.format(i+1)] = y
     

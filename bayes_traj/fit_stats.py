@@ -229,15 +229,7 @@ def get_group_likelihood_samples(mm, num_samples=100):
 def compute_waic2(mm):
     """
     """
-    group_likelihood = np.zeros([mm.gb_.ngroups, 1000])
-
-    for i in range(5):
-        group_likelihood[:, (i*200):(i+1)*200] = \
-            get_group_likelihood_samples(mm, num_samples=200)
-    
-    lppd = np.nansum(np.log(np.nanmean(group_likelihood, 1)))
-    p_waic2 = np.nansum(np.nanvar(np.log(group_likelihood), 1))
-    waic2 = -2*(lppd - p_waic2)
+    waic2 = mm.compute_waic2()
 
     return waic2
 

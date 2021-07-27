@@ -43,6 +43,10 @@ def main():
         dest='out_csv', metavar='<string>', type=str, default=None)
     parser.add_argument('--prior', help='Input pickle file containing prior \
         settings', metavar='<string>', required=True)
+    parser.add_argument('--prec_prior_weight', help='A floating point value \
+        indicating how much weight to put on the prior over the residual \
+        precisions. Higher values mean that more weight will be given to the \
+        prior', metavar='<float>', type=float, default=0.25)    
     parser.add_argument('--alpha', help='If specified, over-rides the value in the \
         prior file', dest='alpha', metavar=float, default=None)
     parser.add_argument('--out_model', help='Pickle file name. If specified, \
@@ -55,10 +59,6 @@ def main():
         computed at the end of each repeat. If, for a given repeat, the WAIC2 \
         score is lower than the lowest score seen at that point, the model \
         will be saved to file.', type=int, metavar='<int>', default=1)
-#    parser.add_argument('--batch_size', help='The number of subjects that will \
-#        be used at each iteration. If not specified, all subjects will be used. \
-#        Specifying less than the total number of subjects can speed convergence.',
-#        metavar='<int>', default=None, type=int)
     parser.add_argument('-k', help='Number of columns in the truncated assignment \
         matrix', metavar='<int>', default=30)
 #    parser.add_argument('--waic2_thresh', help='Model will only be written to \
@@ -168,7 +168,7 @@ def main():
                   format(r, best_waic2))
         mm = MultDPRegression(prior_data['w_mu0'], prior_data['w_var0'],
                               prior_data['lambda_a0'], prior_data['lambda_b0'],
-                              prior_data['alpha'], K=K)
+                              op.prec_prior_weight, prior_data['alpha'], K=K)
     
         mm.fit(target_names=targets, predictor_names=preds, df=df,
                groupby=op.groupby, iters=iters, verbose=op.verbose,           
@@ -177,7 +177,7 @@ def main():
                v_a=prior_data['v_a'], v_b=prior_data['v_b'],
                w_mu=prior_data['w_mu'], w_var=prior_data['w_var'],
                lambda_a=prior_data['lambda_a'],
-               lambda_b=prior_data['lambda_b'], batch_size=None)
+               lambda_b=prior_data['lambda_b'])
 
         if r == 0:
             if op.out_model is not None:
