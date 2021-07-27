@@ -26,7 +26,7 @@ packages.append('bayes_traj')
 
 setup(
     name='bayes_traj',
-    version='0.1.3',
+    version='0.1.4',
     description='bayes_traj',
     long_description=long_description,
     long_description_content_type='text/markdown',
@@ -37,6 +37,7 @@ setup(
     entry_points = {"console_scripts": ['bayes_traj_main = bayes_traj.bayes_traj_main:main',
                                         'viz_data_prior_draws = bayes_traj.viz_data_prior_draws:main',
                                         'viz_model_trajs = bayes_traj.viz_model_trajs:main',
+                                        'viz_gamma_dists = bayes_traj.viz_gamma_dists:main',
                                         'generate_generic_data = bayes_traj.generate_generic_data:main',
                                         'summarize_traj_model = bayes_traj.summarize_traj_model:main',
                                         'generate_prior = bayes_traj.generate_prior:main']},
