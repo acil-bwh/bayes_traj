@@ -337,8 +337,10 @@ class MultDPRegression:
             self.sig_trajs_ = np.max(self.R_, 0) > self.prob_thresh_
 
             if verbose:
+                np.set_printoptions(precision=3)
+                print('mu: {};          var: {}'.format(self.w_mu_[0, 0, self.sig_trajs_], self.w_var_[0, 0, self.sig_trajs_]))
                 print("iter {},  {}".format(inc, sum(self.R_, 0)))
-
+                #pdb.set_trace()
                 
     def update_v(self):
         """Updates the parameters of the Beta distributions for latent
@@ -418,8 +420,10 @@ class MultDPRegression:
 
         # Any instance that has miniscule probability of belonging to a
         # trajectory, set it's probability of belonging to that trajectory to 0
+        #pdb.set_trace()
         R[R <= self.prob_thresh_] = 0
-
+        R = R/np.sum(R, 1)[:, np.newaxis]
+        #pdb.set_trace()
         return R
     
     def update_w_logistic(self, em_iters=1):
@@ -471,18 +475,18 @@ class MultDPRegression:
                         self.w_mu_[:, d, k] = \
                             np.dot(self.w_covmat_[:, :, d, k], \
                                    np.dot(self.X_[non_nan_ids, :].T,
-                                self.R_[non_nan_ids, k]*(self.Y_[non_nan_ids, d] - 0.5)) + \
-                                    np.dot(np.linalg.inv(sig_mat_0), mu_0))
-                        
+                                self.R_[non_nan_ids, k]*\
+                                          (self.Y_[non_nan_ids, d] - 0.5)) + \
+                                    np.dot(np.linalg.inv(sig_mat_0), mu_0))                        
                         
                         # M-step
-                        self.xi_[non_nan_ids, d_bin, k] = \
+                        self.xi_[non_nan_ids, d_bin, k]  = \
                             np.sqrt(np.diag(np.dot(self.X_[non_nan_ids, :],
                                 np.dot(self.w_covmat_[:, :, d, k], \
                                        self.X_[non_nan_ids, :].T))) + \
                                 np.dot(self.X_[non_nan_ids, :], \
                                        self.w_mu_[:, d, k])**2)
-                        
+
     def update_w_gaussian(self):
         """ Updates the variational distributions over predictor coefficients 
         corresponding to continuous (Gaussian) target variables. 
@@ -967,12 +971,6 @@ class MultDPRegression:
     def init_traj_params(self):
         """Initializes trajectory parameters. 
         """
-        # TODO: What is best way to initialize xi?
-        if self.num_binary_targets_ > 0:
-            self.xi_ = np.ones([self.N_, self.num_binary_targets_, self.K_])
-        else:
-            self.xi_ = None
-        
         if self.w_var_ is None:
             self.w_var_ = np.zeros([self.M_, self.D_, self.K_])
             for k in range(self.K_):
@@ -1017,6 +1015,33 @@ class MultDPRegression:
                     w_mu_tmp = self.prune_coef_mat(w_mu_tmp)
     
         self.w_mu_ = w_mu_tmp
+
+        #-----------------------------------------------------------------------
+        # Initialize xi if needed
+        #-----------------------------------------------------------------------                
+        if self.num_binary_targets_ > 0:
+            self.xi_ = np.ones([self.N_, self.num_binary_targets_, self.K_])
+        else:
+            self.xi_ = None        
+            
+        d_bin = -1
+        for d in range(self.D_):
+            if self.target_type_[d] == 'binary':
+                d_bin += 1
+            
+                for k in np.where(self.sig_trajs_)[0]:
+                    non_nan_ids = ~np.isnan(self.Y_[:, d])
+
+
+                    self.w_covmat_[:, :, d, k] = \
+                        np.diag(self.w_var_[:, d, k])
+                        
+                    self.xi_[non_nan_ids, d_bin, k] = \
+                        np.sqrt(np.diag(np.dot(self.X_[non_nan_ids, :],
+                                    np.dot(self.w_covmat_[:, :, d, k], \
+                                        self.X_[non_nan_ids, :].T))) + \
+                                np.dot(self.X_[non_nan_ids, :], \
+                                self.w_mu_[:, d, k])**2)
         
     def init_R_mat(self, traj_probs=None, traj_probs_weight=None):
         """Initializes 'R_', using the stick-breaking construction. Also
