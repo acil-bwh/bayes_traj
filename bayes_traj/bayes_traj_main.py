@@ -16,39 +16,42 @@ def main():
     np.set_printoptions(precision = 1, suppress = True, threshold=1e6,
                         linewidth=300)
 
-    desc = """Runs Bayesian trajectory analysis on the specified data file with the 
-    specified predictors and target variables"""
+    desc = """Runs Bayesian trajectory analysis on the specified data file \
+    with the specified predictors and target variables"""
     
     parser = ArgumentParser(description=desc)
-    parser.add_argument('--in_csv', help='Input csv file containing data on which \
-        to run Bayesian trajectory analysis', metavar='<string>', required=True)
-    parser.add_argument('--preds', help='Comma-separated list of predictor names. \
-        Must appear as column names of the input data file.', dest='preds',
-        metavar='<string>', required=True)
-    parser.add_argument('--targets', help='Comma-separated list of target names. \
-        Must appear as column names of the input data file.', dest='targets',
-        metavar='<string>', required=True)
+    parser.add_argument('--in_csv', help='Input csv file containing data on \
+        which to run Bayesian trajectory analysis', metavar='<string>',
+        required=True)
+    parser.add_argument('--preds', help='Comma-separated list of predictor \
+        names. Must appear as column names of the input data file.',
+        dest='preds', metavar='<string>', required=True)
+    parser.add_argument('--targets', help='Comma-separated list of target \
+        names. Must appear as column names of the input data file.',
+        dest='targets', metavar='<string>', required=True)
     parser.add_argument('--groupby', help='Column name in input data file \
-        indicating those data instances that must be in the same trajectory. This \
-        is typically a subject identifier (e.g. in the case of a longitudinal data \
-        set).', dest='groupby', metavar='<string>', default=None)
-    parser.add_argument('--out_csv', help='If specified, an output csv file will \
-        be generated that contains the contents of the input csv file, but with \
-        additional columns indicating trajectory assignment information for each \
-        data instance. There will be a column called traj with an integer value \
-        indicating the most probable trajectory assignment. There will also be \
-        columns prefixed with traj_ and then a trajectory-identifying integer. \
-        The values of these columns indicate the probability that the data \
-        instance belongs to each of the corresponding trajectories.',
-        dest='out_csv', metavar='<string>', type=str, default=None)
+        indicating those data instances that must be in the same trajectory. \
+        This is typically a subject identifier (e.g. in the case of a \
+        longitudinal data set).', dest='groupby', metavar='<string>',
+        default=None)
+    parser.add_argument('--out_csv', help='If specified, an output csv file \
+        will be generated that contains the contents of the input csv file, \
+        but with additional columns indicating trajectory assignment \
+        information for each data instance. There will be a column called traj \
+        with an integer value indicating the most probable trajectory \
+        assignment. There will also be columns prefixed with traj_ and then a \
+        trajectory-identifying integer. The values of these columns indicate \
+        the probability that the data instance belongs to each of the \
+        corresponding trajectories.', dest='out_csv', metavar='<string>',
+        type=str, default=None)
     parser.add_argument('--prior', help='Input pickle file containing prior \
         settings', metavar='<string>', required=True)
     parser.add_argument('--prec_prior_weight', help='A floating point value \
         indicating how much weight to put on the prior over the residual \
         precisions. Higher values mean that more weight will be given to the \
         prior', metavar='<float>', type=float, default=0.25)    
-    parser.add_argument('--alpha', help='If specified, over-rides the value in the \
-        prior file', dest='alpha', metavar=float, default=None)
+    parser.add_argument('--alpha', help='If specified, over-rides the value in \
+        the prior file', dest='alpha', metavar=float, default=None)
     parser.add_argument('--out_model', help='Pickle file name. If specified, \
         the model object will be written to this file.', dest='out_model',
         metavar='<string>', default=None, required=False)
@@ -59,8 +62,13 @@ def main():
         computed at the end of each repeat. If, for a given repeat, the WAIC2 \
         score is lower than the lowest score seen at that point, the model \
         will be saved to file.', type=int, metavar='<int>', default=1)
-    parser.add_argument('-k', help='Number of columns in the truncated assignment \
-        matrix', metavar='<int>', default=30)
+    parser.add_argument('-k', help='Number of columns in the truncated \
+        assignment matrix', metavar='<int>', default=30)
+    parser.add_argument('--prob_thresh', help='If during data fitting the \
+        probability of a data instance belonging to a given trajectory drops \
+        below this threshold, then the probabality of that data instance \
+        belonging to the trajectory will be set to 0', metavar='<float>',
+        type=float, default=0.001)    
 #    parser.add_argument('--waic2_thresh', help='Model will only be written to \
 #        file provided that the WAIC2 value is below this threshold',
 #        dest='waic2_thresh', metavar='<float>', type=float,
@@ -74,8 +82,8 @@ def main():
 #        file is saved for each repeat. The specified output file name is used \
 #        with a 'repeat[n]' appended, where [n] indicates the repeat number.",
 #        action="store_true")
-    parser.add_argument("--verbose", help="Display per-trajectory counts during \
-        optimization", action="store_true")
+    parser.add_argument("--verbose", help="Display per-trajectory counts \
+        during optimization", action="store_true")
 #    parser.add_argument('--probs_weight', help='Value between 0 and 1 that \
 #        controls how much weight to assign to traj_probs, the marginal \
 #        probability of observing each trajectory. This value is only meaningful \
@@ -111,9 +119,9 @@ def main():
     K = int(op.k)
                     
     prior_data = {}
-    for i in ['v_a', 'v_b', 'w_mu', 'w_var', 'lambda_a', 'lambda_b', 'traj_probs',
-              'probs_weight', 'w_mu0', 'w_var0', 'lambda_a0', 'lambda_b0',
-              'alpha']:
+    for i in ['v_a', 'v_b', 'w_mu', 'w_var', 'lambda_a', 'lambda_b',
+              'traj_probs', 'probs_weight', 'w_mu0', 'w_var0', 'lambda_a0',
+              'lambda_b0', 'alpha']:
         prior_data[i] = None
     
     prior_data['probs_weight'] = None
@@ -129,9 +137,9 @@ def main():
     prior_data['lambda_b'] = None
     prior_data['traj_probs'] = None
     
-    #------------------------------------------------------------------------------
+    #---------------------------------------------------------------------------
     # Get priors from file
-    #------------------------------------------------------------------------------
+    #---------------------------------------------------------------------------
     print("Reading prior...")
     with open(prior, 'rb') as f:
         prior_file_info = pickle.load(f)
@@ -150,9 +158,9 @@ def main():
     if op.alpha is not None:
         prior_data['alpha'] = float(op.alpha)
         
-    #------------------------------------------------------------------------------
+    #---------------------------------------------------------------------------
     # Set up and run the traj alg
-    #------------------------------------------------------------------------------
+    #---------------------------------------------------------------------------
     waics_tracker = []
     bics_tracker = []
     num_tracker = []
@@ -168,7 +176,8 @@ def main():
                   format(r, best_waic2))
         mm = MultDPRegression(prior_data['w_mu0'], prior_data['w_var0'],
                               prior_data['lambda_a0'], prior_data['lambda_b0'],
-                              op.prec_prior_weight, prior_data['alpha'], K=K)
+                              op.prec_prior_weight, prior_data['alpha'], K=K,
+                              prob_thresh=op.prob_thresh)
     
         mm.fit(target_names=targets, predictor_names=preds, df=df,
                groupby=op.groupby, iters=iters, verbose=op.verbose,           
