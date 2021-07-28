@@ -5,7 +5,7 @@ import pdb
 import pickle
 from argparse import ArgumentParser
 from provenance_tools.write_provenance_data import write_provenance_data
-from bayes_traj.fit_stats import ave_pp, odds_correct_classification, \
+from bayes_traj.fit_stats import ave_pp, odds_correct_classification
 
 def main():
     desc = """"""
