@@ -280,7 +280,7 @@ class MultDPRegression:
                 self.num_binary_targets_ += 1
             else:
                 self.target_type_[d] = 'gaussian'
-        print("Initializing paramters...")
+        print("Initializing parameters...")
         self.init_traj_params()
 
         # The prior over the residual precision can get overwhelmed by the
@@ -337,10 +337,9 @@ class MultDPRegression:
             self.sig_trajs_ = np.max(self.R_, 0) > self.prob_thresh_
 
             if verbose:
-                np.set_printoptions(precision=3)
-                print('mu: {};          var: {}'.format(self.w_mu_[0, 0, self.sig_trajs_], self.w_var_[0, 0, self.sig_trajs_]))
+                np.set_printoptions(precision=2)
                 print("iter {},  {}".format(inc, sum(self.R_, 0)))
-                #pdb.set_trace()
+
                 
     def update_v(self):
         """Updates the parameters of the Beta distributions for latent
@@ -365,7 +364,7 @@ class MultDPRegression:
         ln_rho = np.ones([self.N_, self.K_])*tmp[newaxis, :]
 
         if self.num_binary_targets_ > 0:
-            num_samples = 20 # Arbitrary. Should be "big enough"
+            num_samples = 5000 # Arbitrary. Should be "big enough"
             mc_term = np.zeros([self.N_, self.K_])
         for d in range(0, self.D_):
             non_nan_ids = ~np.isnan(Y[:, d])
@@ -390,9 +389,9 @@ class MultDPRegression:
                         np.exp(np.dot(self.X_, \
                         np.random.multivariate_normal(self.w_mu_[:, d, k], \
                             self.w_covmat_[:, :, d, k], num_samples).T))), 1)
-
                 ln_rho[non_nan_ids, :] += Y[non_nan_ids, d, newaxis]*\
-                    dot(X[non_nan_ids, :], self.w_mu_[:, d, :]) - mc_term                
+                    dot(X[non_nan_ids, :], self.w_mu_[:, d, :]) - \
+                    mc_term[non_nan_ids, :]                
 
         # The values of 'ln_rho' will in general have large magnitude, causing
         # exponentiation to result in overflow. All we really care about is the
@@ -420,10 +419,9 @@ class MultDPRegression:
 
         # Any instance that has miniscule probability of belonging to a
         # trajectory, set it's probability of belonging to that trajectory to 0
-        #pdb.set_trace()
         R[R <= self.prob_thresh_] = 0
         R = R/np.sum(R, 1)[:, np.newaxis]
-        #pdb.set_trace()
+        
         return R
     
     def update_w_logistic(self, em_iters=1):
@@ -446,39 +444,30 @@ class MultDPRegression:
                 d_bin += 1
             
                 for k in np.where(self.sig_trajs_)[0]:
-                    non_nan_ids = ~np.isnan(self.Y_[:, d]) #& \
-                       # (self.R_[:, k] > 0)
+                    non_nan_ids = ~np.isnan(self.Y_[:, d]) & \
+                       (self.R_[:, k] > 0)
 
                     for i in range(em_iters):
                         # E-step
-                        #print(self.w_mu_[:, d, k])
                         Z_bar = np.diag(0.5*self.R_[non_nan_ids, k]*\
                                         (1/self.xi_[non_nan_ids, d_bin, k])*\
                             np.tanh(0.5*self.xi_[non_nan_ids, d_bin, k]))
                         
                         sig_mat_0 = np.diag(self.w_var0_[:, d])
                         mu_0 = self.w_mu0_[:, d]
-
                         self.w_covmat_[:, :, d, k] = \
                             np.linalg.inv(np.linalg.inv(sig_mat_0) + \
                             np.dot(self.X_[non_nan_ids, :].T, \
                                    np.dot(Z_bar, self.X_[non_nan_ids, :])))
                         self.w_var_[:, d, k] = \
                             np.diag(self.w_covmat_[:, :, d, k])
-                        #self.w_mu_[:, d, k] = \
-                        #    np.dot(self.w_covmat_[:, :, d, k], \
-                        #           np.dot(self.X_[non_nan_ids, :].T,
-                        #        (self.Y_[non_nan_ids, d] - 0.5)) + \
-                        #            np.dot(np.linalg.inv(sig_mat_0), mu_0))
-
-                        # DEB:
                         self.w_mu_[:, d, k] = \
                             np.dot(self.w_covmat_[:, :, d, k], \
                                    np.dot(self.X_[non_nan_ids, :].T,
                                 self.R_[non_nan_ids, k]*\
                                           (self.Y_[non_nan_ids, d] - 0.5)) + \
-                                    np.dot(np.linalg.inv(sig_mat_0), mu_0))                        
-                        
+                                    np.dot(np.linalg.inv(sig_mat_0), mu_0)) 
+                            
                         # M-step
                         self.xi_[non_nan_ids, d_bin, k]  = \
                             np.sqrt(np.diag(np.dot(self.X_[non_nan_ids, :],
