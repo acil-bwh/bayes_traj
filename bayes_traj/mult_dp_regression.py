@@ -305,7 +305,7 @@ class MultDPRegression:
         # Initialize the latent variables if needed
         if self.R_ is None:
             self.init_R_mat(traj_probs, traj_probs_weight)
-
+        
         self.fit_coordinate_ascent(iters, verbose)
 
         
@@ -327,19 +327,20 @@ class MultDPRegression:
         inc = 0
         while inc < iters:
             inc += 1
+
             self.update_v()
             if self.num_binary_targets_ > 0:
                 self.update_w_logistic(em_iters=1)
             if self.D_ - self.num_binary_targets_ > 0:
                 self.update_w_gaussian()
                 self.update_lambda()
+            
             self.R_ = self.update_z(self.X_, self.Y_)
             self.sig_trajs_ = np.max(self.R_, 0) > self.prob_thresh_
 
             if verbose:
                 np.set_printoptions(precision=2)
                 print("iter {},  {}".format(inc, sum(self.R_, 0)))
-
                 
     def update_v(self):
         """Updates the parameters of the Beta distributions for latent
@@ -349,7 +350,6 @@ class MultDPRegression:
 
         for k in np.arange(0, self.K_):
             self.v_b_[k] = self.alpha_ + np.sum(self.R_[:, k+1:])
-
 
     def update_z(self, X, Y):
         """
@@ -364,7 +364,7 @@ class MultDPRegression:
         ln_rho = np.ones([self.N_, self.K_])*tmp[newaxis, :]
 
         if self.num_binary_targets_ > 0:
-            num_samples = 5000 # Arbitrary. Should be "big enough"
+            num_samples = 100 # Arbitrary. Should be "big enough"
             mc_term = np.zeros([self.N_, self.K_])
         for d in range(0, self.D_):
             non_nan_ids = ~np.isnan(Y[:, d])
@@ -389,6 +389,7 @@ class MultDPRegression:
                         np.exp(np.dot(self.X_, \
                         np.random.multivariate_normal(self.w_mu_[:, d, k], \
                             self.w_covmat_[:, :, d, k], num_samples).T))), 1)
+
                 ln_rho[non_nan_ids, :] += Y[non_nan_ids, d, newaxis]*\
                     dot(X[non_nan_ids, :], self.w_mu_[:, d, :]) - \
                     mc_term[non_nan_ids, :]                
@@ -416,7 +417,7 @@ class MultDPRegression:
 
                 # Now update the rows of 'normalized_mat'.
                 R[tmp_ids, :] = vec                
-
+        
         # Any instance that has miniscule probability of belonging to a
         # trajectory, set it's probability of belonging to that trajectory to 0
         R[R <= self.prob_thresh_] = 0
@@ -443,22 +444,32 @@ class MultDPRegression:
             if self.target_type_[d] == 'binary':
                 d_bin += 1
             
-                for k in np.where(self.sig_trajs_)[0]:
-                    non_nan_ids = ~np.isnan(self.Y_[:, d]) & \
-                       (self.R_[:, k] > 0)
+                for k in range(self.K_):#np.where(self.sig_trajs_)[0]:
+                    non_nan_ids = ~np.isnan(self.Y_[:, d])# & \
+                       #(self.R_[:, k] > 0)
 
                     for i in range(em_iters):
                         # E-step
-                        Z_bar = np.diag(0.5*self.R_[non_nan_ids, k]*\
-                                        (1/self.xi_[non_nan_ids, d_bin, k])*\
-                            np.tanh(0.5*self.xi_[non_nan_ids, d_bin, k]))
+                        #Z_bar = np.diag(0.5*self.R_[non_nan_ids, k]*\
+                        #                (1/self.xi_[non_nan_ids, d_bin, k])*\
+                        #    np.tanh(0.5*self.xi_[non_nan_ids, d_bin, k]))
+                        Z_vec = 0.5*self.R_[non_nan_ids, k]*\
+                            (1/self.xi_[non_nan_ids, d_bin, k])*\
+                            np.tanh(0.5*self.xi_[non_nan_ids, d_bin, k])
+                        
                         
                         sig_mat_0 = np.diag(self.w_var0_[:, d])
                         mu_0 = self.w_mu0_[:, d]
+
+                        #self.w_covmat_[:, :, d, k] = \
+                        #    np.linalg.inv(np.linalg.inv(sig_mat_0) + \
+                        #    np.dot(self.X_[non_nan_ids, :].T, \
+                        #           np.dot(Z_bar, self.X_[non_nan_ids, :])))
                         self.w_covmat_[:, :, d, k] = \
                             np.linalg.inv(np.linalg.inv(sig_mat_0) + \
-                            np.dot(self.X_[non_nan_ids, :].T, \
-                                   np.dot(Z_bar, self.X_[non_nan_ids, :])))
+                                np.dot(self.X_[non_nan_ids, :].T, \
+                                    Z_vec[:, newaxis]*self.X_[non_nan_ids, :]))
+
                         self.w_var_[:, d, k] = \
                             np.diag(self.w_covmat_[:, :, d, k])
                         self.w_mu_[:, d, k] = \
@@ -467,14 +478,14 @@ class MultDPRegression:
                                 self.R_[non_nan_ids, k]*\
                                           (self.Y_[non_nan_ids, d] - 0.5)) + \
                                     np.dot(np.linalg.inv(sig_mat_0), mu_0)) 
-                            
+
                         # M-step
-                        self.xi_[non_nan_ids, d_bin, k]  = \
-                            np.sqrt(np.diag(np.dot(self.X_[non_nan_ids, :],
-                                np.dot(self.w_covmat_[:, :, d, k], \
-                                       self.X_[non_nan_ids, :].T))) + \
-                                np.dot(self.X_[non_nan_ids, :], \
-                                       self.w_mu_[:, d, k])**2)
+                        self.xi_[non_nan_ids, d_bin, k] = \
+                            np.sqrt(np.sum((self.X_[non_nan_ids, :]*\
+                                    np.dot(self.w_covmat_[:, :, d, k], \
+                                        self.X_[non_nan_ids, :].T).T), 1) + \
+                                    np.dot(self.X_[non_nan_ids, :], \
+                                           self.w_mu_[:, d, k])**2)
 
     def update_w_gaussian(self):
         """ Updates the variational distributions over predictor coefficients 
@@ -952,8 +963,17 @@ class MultDPRegression:
         for i in range(self.N_):
             col = np.where(R[i, :] == np.max(R[i, :]))[0][0]
             R_sel[i, col] = R[i, col]
-                
-        top_indices = np.argsort(-np.sum(R_sel, 0))[0:self.K_]        
+
+        # Selects trajectories based on how many data points are assigned to
+        # them.
+        top_indices = np.argsort(-np.sum(R_sel, 0))[0:self.K_]
+            
+        # Adding this normalization step so that we can apply the heuristic
+        # below, which selects the top_indices based on how well the
+        # individuals are spread across trajectories
+        #R_sel = R_sel/np.sum(R_sel,1)[:, newaxis]                          
+        #top_indices = np.argsort(np.abs(np.sum(R_sel, 0) - \
+        #                                self.N_/tmp_K))[0:self.K_]
         
         return w_mu[:, :, top_indices]
         
@@ -1004,10 +1024,10 @@ class MultDPRegression:
                     w_mu_tmp = self.prune_coef_mat(w_mu_tmp)
     
         self.w_mu_ = w_mu_tmp
-
+                
         #-----------------------------------------------------------------------
         # Initialize xi if needed
-        #-----------------------------------------------------------------------                
+        #-----------------------------------------------------------------------
         if self.num_binary_targets_ > 0:
             self.xi_ = np.ones([self.N_, self.num_binary_targets_, self.K_])
         else:
@@ -1021,17 +1041,16 @@ class MultDPRegression:
                 for k in np.where(self.sig_trajs_)[0]:
                     non_nan_ids = ~np.isnan(self.Y_[:, d])
 
-
                     self.w_covmat_[:, :, d, k] = \
                         np.diag(self.w_var_[:, d, k])
-                        
+                    
                     self.xi_[non_nan_ids, d_bin, k] = \
-                        np.sqrt(np.diag(np.dot(self.X_[non_nan_ids, :],
-                                    np.dot(self.w_covmat_[:, :, d, k], \
-                                        self.X_[non_nan_ids, :].T))) + \
+                        np.sqrt(np.sum((self.X_[non_nan_ids, :]*\
+                            np.dot(self.w_covmat_[:, :, d, k], \
+                                   self.X_[non_nan_ids, :].T).T), 1) + \
                                 np.dot(self.X_[non_nan_ids, :], \
-                                self.w_mu_[:, d, k])**2)
-        
+                                       self.w_mu_[:, d, k])**2)
+
     def init_R_mat(self, traj_probs=None, traj_probs_weight=None):
         """Initializes 'R_', using the stick-breaking construction. Also
         enforces any longitudinal constraints.
@@ -1146,8 +1165,8 @@ class MultDPRegression:
                 vec = vec/np.sum(vec)
 
                 # Now update the rows of 'normalized_mat'.
-                R[tmp_ids, :] = vec                
-        
+                R[tmp_ids, :] = vec       
+                                         
         return R
 
     def augment_df_with_traj_info(self, target_names, predictor_names, df,
@@ -1444,4 +1463,3 @@ class MultDPRegression:
             plt.show()
 
         return ax    
-
