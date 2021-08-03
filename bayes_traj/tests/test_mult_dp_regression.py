@@ -159,6 +159,7 @@ def test_update_z_logistic():
     mm.X_ = df[['intercept', 'pred']].values
     mm.Y_ = np.atleast_2d(df.target.values).T
     mm.gb_ = None
+    mm.w_covmat_ = np.ones([M, M, D, K])
     
     mm.init_traj_params()
     mm.v_a_ = np.ones(mm.K_)
