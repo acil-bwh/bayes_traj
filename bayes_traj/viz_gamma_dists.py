@@ -46,13 +46,18 @@ def main():
             target = op.target
     
         target_index = np.where(np.array(mm.target_names_) == target)[0][0]
-            
-        #m = mm.lambda_a0_[target_index]/\
-        #    mm.lambda_b0_[target_index]
-        #v = mm.lambda_a0_[target_index]/\
-        #    (mm.lambda_b0_[target_index]**2)
-        #dist_info = [m, v, 'Prior']
-        #dist_info_list.append(dist_info)
+
+        prec_prior_scale = mm.prec_prior_weight_*\
+            (mm.gb_.ngroups if mm.gb_ is not None else mm.N_)
+        
+        lambda_a0 = mm.lambda_a0_[target_index]/prec_prior_scale
+        lambda_b0 = mm.lambda_b0_[target_index]/prec_prior_scale
+        
+        m = lambda_a0/lambda_b0
+        v = lambda_a0/(lambda_b0**2)
+
+        dist_info = [m, v, 'Prior']
+        dist_info_list.append(dist_info)
             
         df_traj = mm.to_df()
         
@@ -110,8 +115,8 @@ def main():
     
     if op.title is not None:
         plt.title(op.title)
-    plt.show()
     plt.legend()
+    plt.show()    
 
 if __name__ == "__main__":
     main()      
