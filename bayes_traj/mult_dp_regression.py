@@ -368,7 +368,7 @@ class MultDPRegression:
             mc_term = np.zeros([self.N_, self.K_])
         for d in range(0, self.D_):
             non_nan_ids = ~np.isnan(Y[:, d])
-            if self.target_type_[d] == 'gaussian':                
+            if self.target_type_[d] == 'gaussian':
                 tmp = (dot(self.w_mu_[:, d, :].T, \
                     X[non_nan_ids, :].T)**2).T + \
                     np.sum((X[non_nan_ids, newaxis, :]**2)*\
@@ -527,25 +527,27 @@ class MultDPRegression:
         """Updates the variational distribution over latent variable lambda.
         """    
         for d in range(self.D_):
-            non_nan_ids = ~np.isnan(self.Y_[:, d])
+            if self.target_type_[d] == 'gaussian':
+                non_nan_ids = ~np.isnan(self.Y_[:, d])
     
-            self.lambda_a_[d, self.sig_trajs_] = self.lambda_a0_[d, newaxis] + \
-                0.5*sum(self.R_[:, self.sig_trajs_][non_nan_ids, :], 0)\
-                [newaxis, :]
+                self.lambda_a_[d, self.sig_trajs_] = \
+                    self.lambda_a0_[d, newaxis] + \
+                    0.5*sum(self.R_[:, self.sig_trajs_][non_nan_ids, :], 0)\
+                    [newaxis, :]
             
-            tmp = (dot(self.w_mu_[:, d, self.sig_trajs_].T, \
-                       self.X_[non_nan_ids, :].T)**2).T + \
-                       np.sum((self.X_[non_nan_ids, newaxis, :]**2)*\
-                              (self.w_var_[:, d, self.sig_trajs_].T)\
-                              [newaxis, :, :], 2)
+                tmp = (dot(self.w_mu_[:, d, self.sig_trajs_].T, \
+                           self.X_[non_nan_ids, :].T)**2).T + \
+                           np.sum((self.X_[non_nan_ids, newaxis, :]**2)*\
+                                  (self.w_var_[:, d, self.sig_trajs_].T)\
+                                  [newaxis, :, :], 2)
     
-            self.lambda_b_[d, self.sig_trajs_] = \
-                self.lambda_b0_[d, newaxis] + \
-                0.5*sum(self.R_[non_nan_ids, :][:, self.sig_trajs_]*\
-                        (tmp - 2*self.Y_[non_nan_ids, d, newaxis]*\
-                         np.dot(self.X_[non_nan_ids, :], \
-                                self.w_mu_[:, d, self.sig_trajs_]) + \
-                         self.Y_[non_nan_ids, d, newaxis]**2), 0)
+                self.lambda_b_[d, self.sig_trajs_] = \
+                    self.lambda_b0_[d, newaxis] + \
+                    0.5*sum(self.R_[non_nan_ids, :][:, self.sig_trajs_]*\
+                            (tmp - 2*self.Y_[non_nan_ids, d, newaxis]*\
+                             np.dot(self.X_[non_nan_ids, :], \
+                                    self.w_mu_[:, d, self.sig_trajs_]) + \
+                             self.Y_[non_nan_ids, d, newaxis]**2), 0)
 
             
     def sample(self, index=None, x=None):
