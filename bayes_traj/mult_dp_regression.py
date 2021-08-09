@@ -360,7 +360,7 @@ class MultDPRegression:
         """
         #self.v_a_ = 1.0 + np.sum(self.R_, 0)
         self.v_a_ = 1.0 + np.sum(self.R_[self.group_first_index_, :], 0)
-        
+
         for k in np.arange(0, self.K_):
             #self.v_b_[k] = self.alpha_ + np.sum(self.R_[:, k+1:])
             self.v_b_[k] = self.alpha_ + \
