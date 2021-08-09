@@ -124,6 +124,13 @@ class MultDPRegression:
         self.target_names_ = None
         self.predictor_names_ = None
 
+        # group_first_index will, when 'fit' is called will be initialized
+        # to a boolean array of size N. If groupby is later specified, it will
+        # record the first index of each group. The purpose of this variable is
+        # to assist the 'update_v' function: we want it to refer to subjects,
+        # not data points
+        self.group_first_index_ = None
+        
         self.sig_trajs_ = np.ones(self.K_, dtype=bool)
 
         assert self.w_mu0_.shape[0] == self.w_var0_.shape[0] and \
@@ -237,8 +244,13 @@ class MultDPRegression:
 
         self.gb_ = None
         self.df_ = df
+        self.group_first_index_ = np.zeros(df.shape[0], dtype=bool)
         if groupby is not None:
             self.gb_ = df[[groupby]].groupby(groupby)
+            for kk in self.gb_.groups.keys():
+                self.group_first_index_[self.gb_.get_group(kk).index[0]] = True
+        else:
+            self.group_first_index_ = np.ones(df.shape[0], dtype=bool)        
             
         assert len(set(target_names)) == len(target_names), \
             "Duplicate target name found"
@@ -327,15 +339,15 @@ class MultDPRegression:
         inc = 0
         while inc < iters:
             inc += 1
-
             self.update_v()
             if self.num_binary_targets_ > 0:
-                self.update_w_logistic(em_iters=1)
+                self.update_w_logistic(em_iters=10)
             if self.D_ - self.num_binary_targets_ > 0:
                 self.update_w_gaussian()
                 self.update_lambda()
-            
+
             self.R_ = self.update_z(self.X_, self.Y_)
+            
             self.sig_trajs_ = np.max(self.R_, 0) > self.prob_thresh_
 
             if verbose:
@@ -346,10 +358,13 @@ class MultDPRegression:
         """Updates the parameters of the Beta distributions for latent
         variable 'v' in the variational approximation.
         """
-        self.v_a_ = 1.0 + np.sum(self.R_, 0)
-
+        #self.v_a_ = 1.0 + np.sum(self.R_, 0)
+        self.v_a_ = 1.0 + np.sum(self.R_[self.group_first_index_, :], 0)
+        
         for k in np.arange(0, self.K_):
-            self.v_b_[k] = self.alpha_ + np.sum(self.R_[:, k+1:])
+            #self.v_b_[k] = self.alpha_ + np.sum(self.R_[:, k+1:])
+            self.v_b_[k] = self.alpha_ + \
+                np.sum(self.R_[self.group_first_index_, k+1:])
 
     def update_z(self, X, Y):
         """
@@ -385,15 +400,19 @@ class MultDPRegression:
                     Y[non_nan_ids, d, newaxis]**2))
             elif self.target_type_[d] == 'binary':
                 for k in range(self.K_):
-                    mc_term[:, k] = np.mean(np.log(1 + \
-                        np.exp(np.dot(self.X_, \
+                    mc_term[non_nan_ids, k] = np.mean(np.log(1 + \
+                        np.exp(np.dot(self.X_[non_nan_ids, :], \
                         np.random.multivariate_normal(self.w_mu_[:, d, k], \
                             self.w_covmat_[:, :, d, k], num_samples).T))), 1)
 
-                ln_rho[non_nan_ids, :] += Y[non_nan_ids, d, newaxis]*\
-                    dot(X[non_nan_ids, :], self.w_mu_[:, d, :]) - \
-                    mc_term[non_nan_ids, :]                
-
+                    ln_rho[non_nan_ids, k] += Y[non_nan_ids, d]*\
+                        dot(X[non_nan_ids, :], self.w_mu_[:, d, k]) - \
+                        mc_term[non_nan_ids, k]                
+                    
+                #ln_rho[non_nan_ids, :] += Y[non_nan_ids, d, newaxis]*\
+                #    dot(X[non_nan_ids, :], self.w_mu_[:, d, :]) - \
+                #    mc_term[non_nan_ids, :]                
+        
         # The values of 'ln_rho' will in general have large magnitude, causing
         # exponentiation to result in overflow. All we really care about is the
         # normalization of each row. We can use the identity exp(a) =
@@ -422,7 +441,7 @@ class MultDPRegression:
         # trajectory, set it's probability of belonging to that trajectory to 0
         R[R <= self.prob_thresh_] = 0
         R = R/np.sum(R, 1)[:, np.newaxis]
-        
+
         return R
     
     def update_w_logistic(self, em_iters=1):
@@ -477,7 +496,7 @@ class MultDPRegression:
                                    np.dot(self.X_[non_nan_ids, :].T,
                                 self.R_[non_nan_ids, k]*\
                                           (self.Y_[non_nan_ids, d] - 0.5)) + \
-                                    np.dot(np.linalg.inv(sig_mat_0), mu_0)) 
+                                    np.dot(np.linalg.inv(sig_mat_0), mu_0))
 
                         # M-step
                         self.xi_[non_nan_ids, d_bin, k] = \
@@ -486,6 +505,7 @@ class MultDPRegression:
                                         self.X_[non_nan_ids, :].T).T), 1) + \
                                     np.dot(self.X_[non_nan_ids, :], \
                                            self.w_mu_[:, d, k])**2)
+
 
     def update_w_gaussian(self):
         """ Updates the variational distributions over predictor coefficients 
