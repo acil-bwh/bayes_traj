@@ -341,7 +341,7 @@ class MultDPRegression:
             inc += 1
             self.update_v()
             if self.num_binary_targets_ > 0:
-                self.update_w_logistic(em_iters=10)
+                self.update_w_logistic(em_iters=1)
             if self.D_ - self.num_binary_targets_ > 0:
                 self.update_w_gaussian()
                 self.update_lambda()
