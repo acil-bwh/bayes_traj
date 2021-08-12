@@ -15,8 +15,14 @@ def main():
         type=str, required=True)
     parser.add_argument('--y_axis', help='Name of the target variable that will \
         be plotted on the y-axis', type=str, required=True)
+    parser.add_argument('--y_label', help='Label to display on y-axis. If none \
+        given, the variable name specified with the y_axis flag will be used.',
+        type=str, default=None)
     parser.add_argument('--x_axis', help='Name of the predictor variable that will \
         be plotted on the x-axis', type=str, required=True)
+    parser.add_argument('--x_label', help='Label to display on x-axis. If none \
+        given, the variable name specified with the x_axis flag will be used.',
+        type=str, default=None)
     parser.add_argument('--trajs', help='Comma-separated list of trajectories to \
         plot. If none specified, all trajectories will be plotted.', type=str,
         default=None)
@@ -55,13 +61,13 @@ def main():
         show = op.fig_file is None
         
         if op.trajs is not None:
-            ax = mm.plot(op.x_axis, op.y_axis,
+            ax = mm.plot(op.x_axis, op.y_axis, op.x_label, op.y_label,
                          np.array(op.trajs.split(','), dtype=int),
                          show=show, min_traj_prob=op.min_traj_prob,
                          max_traj_prob=op.max_traj_prob, traj_map=traj_map)
         else:            
-            ax = mm.plot(op.x_axis, op.y_axis, show=show,
-                         min_traj_prob=op.min_traj_prob,
+            ax = mm.plot(op.x_axis, op.y_axis, op.x_label, op.y_label,
+                         show=show, min_traj_prob=op.min_traj_prob,
                          max_traj_prob=op.max_traj_prob, traj_map=traj_map)
         
         if op.fig_file is not None:

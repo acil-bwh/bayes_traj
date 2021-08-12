@@ -1308,8 +1308,8 @@ class MultDPRegression:
         
         return self.df_  
 
-    def plot(self, x_axis, y_axis, which_trajs=None, show=True,
-             min_traj_prob=0, max_traj_prob=1, traj_map=None):
+    def plot(self, x_axis, y_axis, x_label=None, y_label=None, which_trajs=None,
+             show=True, min_traj_prob=0, max_traj_prob=1, traj_map=None):
         """Generates a 2D plot of trajectory results. The original data will be
         shown as a scatter plot, color-coded according to trajectory membership.
         Trajectories will be plotted with line plots indicating the expected 
@@ -1331,6 +1331,14 @@ class MultDPRegression:
 
         y_axis : str
             Target variable name corresponding to y-axis.
+
+        x_label : str, optional
+            Label to display on x-axis. If none given, the variable name 
+            specified with x_axis will be used
+
+        y_label : str, optional
+            Label to display on y-axis. If none given, the variable name 
+            specified with y_axis will be used
 
         which_trajs : int or array, optional
             If specified, only these trajectories will be plotted. If not 
@@ -1476,8 +1484,9 @@ class MultDPRegression:
                         label='Traj {} (N={}, {:.1f}%)'.\
                         format(traj_map_[tt], n_traj, perc_traj))
 
-        ax.set_xlabel(x_axis, fontsize=16)
-        ax.set_ylabel(y_axis, fontsize=16)    
+        
+        ax.set_xlabel(x_axis if x_label is None else x_label, fontsize=16)
+        ax.set_ylabel(y_axis if y_label is None else y_label, fontsize=16)    
         plt.tight_layout()
         ax.legend()
 
