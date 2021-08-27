@@ -1462,8 +1462,14 @@ class MultDPRegression:
                            color=cmap(traj_id_to_cmap_index[traj_map_[tt]]),
                            alpha=0.5)
 
-                n_traj = int(traj_prob_vec[tt]*num_individuals)
-                perc_traj = traj_prob_vec[tt]*100
+                if self.gb_ is None:
+                    n_traj = np.sum(df_traj.traj.values == tt)
+                    perc_traj = 100*n_traj/df_traj.shape[0]
+                else:
+                    groupby_col = self.gb_.count().index.name                
+                    n_traj = df_traj[df_traj.traj.values == tt].\
+                        groupby(groupby_col).ngroups
+                    perc_traj = 100*n_traj/self.gb_.ngroups
 
                 co = self.w_mu_[:, target_index, tt]
                 if self.target_type_[target_index] == 'gaussian':
