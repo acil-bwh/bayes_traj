@@ -23,8 +23,14 @@ def main():
         from prior', type=int, default=10)
     parser.add_argument('--y_axis', help='Name of the target variable that \
         will be plotted on the y-axis', type=str, default=None)
+    parser.add_argument('--y_label', help='Label to display on y-axis. If none \
+        given, the variable name specified with the y_axis flag will be used.',
+        type=str, default=None)
     parser.add_argument('--x_axis', help='Name of the predictor variable that \
         will be plotted on the x-axis', type=str, default=None)
+    parser.add_argument('--x_label', help='Label to display on x-axis. If none \
+        given, the variable name specified with the x_axis flag will be used.',
+        type=str, default=None)
     parser.add_argument('--ylim', help='Comma-separated tuple to set the \
         limits of display for the y-axis', type=str, default=None)    
     parser.add_argument('--hide_resid', help='If set, shaded regions \
@@ -122,9 +128,11 @@ def main():
         ax.plot(x_dom, y_tmp)
         if target_type == 'gaussian' and not op.hide_resid:
             ax.fill_between(x_dom, y_tmp-2*std, y_tmp+2*std, alpha=0.3)
-    
-    ax.set_xlabel(op.x_axis, fontsize=16)
-    ax.set_ylabel(op.y_axis, fontsize=16)
+
+    x_label = op.x_label if op.x_label is not None else op.x_axis
+    y_label = op.y_label if op.y_label is not None else op.y_axis
+    ax.set_xlabel(x_label, fontsize=16)
+    ax.set_ylabel(y_label, fontsize=16)
     if op.ylim is not None:
         ax.set_ylim(float(op.ylim.strip('--').split(',')[0]),
                     float(op.ylim.strip('--').split(',')[1]))
