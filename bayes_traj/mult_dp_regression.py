@@ -1301,7 +1301,18 @@ class MultDPRegression:
         for i in range(0, self.R_.shape[0]):
             traj.append(where(max(self.R_[i, :]) == self.R_[i, :])[0][0]) 
 
-        self.df_['traj'] = traj
+        # Older models might not have self.df_ defined at this point. If not,
+        # create it
+        try:
+            self.df_['traj'] = traj
+        except AttributeError as error:
+            self.df_ = pd.DataFrame()
+            self.df_['traj'] = traj
+            self.df_['data_names'] = self.data_names_
+            for ii, nn in enumerate(self.predictor_names_):
+                self.df_[nn] = self.X_[:, ii]
+            for ii, nn in enumerate(self.target_names_):
+                self.df_[nn] = self.Y_[:, ii]                
 
         for s in np.where(self.sig_trajs_)[0]:
             self.df_['traj_{}'.format(s)] = self.R_[:, s]
