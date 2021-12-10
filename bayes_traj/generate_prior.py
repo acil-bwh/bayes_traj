@@ -101,18 +101,18 @@ def prior_info_from_df_traj(df_traj, target_name, preds, prior_info,
         be spurios or unstable
     """
     prior_info['alpha'] = traj_ids.shape[0]/np.log10(df_traj.shape[0])
-
-    nonnan_ids = ~np.isnan(df[target_name].values)
-    if set(df[target_name].values[nonnan_ids]).issubset({1.0, 0.0}):
-        prior_info_from_df_traj_binary(df, target_name, preds,
-                                    num_trajs, prior_info)
+        
+    nonnan_ids = ~np.isnan(df_traj[target_name].values)
+    if set(df_traj[target_name].values[nonnan_ids]).issubset({1.0, 0.0}):
+        prior_info_from_df_traj_binary(df_traj, target_name, preds,
+                                       prior_info, traj_ids)
     else:
-        prior_info_from_df_traj_gaussian(df, target_name, preds,
-                                    num_trajs, prior_info)
+        prior_info_from_df_traj_gaussian(df_traj, target_name, preds,
+                                         prior_info, traj_ids)
         
 
 def prior_info_from_df_traj_gaussian(df_traj, target_name, preds, prior_info,
-                            traj_ids=None):
+                                     traj_ids=None):
     """ Takes in a dataframe in which each data instance has a trajectory 
     assignment, and from this dataframe and specified target name and 
     predictors, estimates information for the prior. Estimates are made by 
@@ -147,7 +147,7 @@ def prior_info_from_df_traj_gaussian(df_traj, target_name, preds, prior_info,
     traj_col_names = []
     for i in traj_ids:
         traj_col_names.append('traj_{}'.format(i))
-            
+
     traj_probs = np.sum(df_traj[traj_col_names].values, 0)/\
         np.sum(df_traj[traj_col_names].values)
     
@@ -188,7 +188,7 @@ def prior_info_from_df_traj_gaussian(df_traj, target_name, preds, prior_info,
     prior_info['lambda_a0'][target_name] = gamma_mean**2/gamma_var
 
 def prior_info_from_df_traj_binary(df_traj, target_name, preds, prior_info,
-                            traj_ids=None):
+                                   traj_ids=None):
     """ Takes in a dataframe in which each data instance has a trajectory 
     assignment, and from this dataframe and specified target name and 
     predictors, estimates information for the prior. Estimates are made by 
@@ -378,11 +378,7 @@ def main():
     
     preds = op.preds.split(',')
     targets = op.targets.split(',')
-    
-    model_trajs = None
-    if op.model_trajs is not None:
-        model_trajs = np.array(op.model_trajs.split(','), dtype=int)
-    
+            
     D = len(targets)
     M = len(preds)
     K = float(op.k)
@@ -432,11 +428,17 @@ def main():
     df_traj_data = None
     df_data = None
     mm = None
-    
+
+    model_trajs = None
     if op.model is not None:
         with open(op.model, 'rb') as f:
             mm = pickle.load(f)['MultDPRegression']
-    
+
+            if op.model_trajs is not None:
+                model_trajs = np.array(op.model_trajs.split(','), dtype=int)
+            else:
+                model_trajs = np.where(mm.sig_trajs_)[0]
+            
         df_traj_model = mm.to_df()
         
     if op.in_data is not None:
@@ -536,3 +538,5 @@ def main():
 if __name__ == "__main__":
     main()
     
+
+
