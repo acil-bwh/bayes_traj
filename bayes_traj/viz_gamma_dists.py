@@ -84,7 +84,7 @@ def main():
                     (mm.lambda_b_[target_index, traj]**2)
                 dist_info = [m, v, 'Traj {}'.format(traj)]
                 dist_info_list.append(dist_info)
-    
+
     if op.info is not None:
         for ii in op.info:
             info = ii[0].split(',')
@@ -101,7 +101,7 @@ def main():
         m = info[0]
         v = info[1]
         label = info[2]
-        
+
         lambda_a = m*m/v
         lambda_b = m/v
     
@@ -109,7 +109,7 @@ def main():
         
         dens = np.exp(-loggamma(lambda_a) + lambda_a*np.log(lambda_b) + \
                       (lambda_a-1)*np.log(dom) - lambda_b*dom)
-    
+
         plt.plot(dom, dens, label=label)
         plt.fill_between(dom, dens, np.zeros(5000), alpha=0.3)    
     
