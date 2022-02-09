@@ -1153,7 +1153,7 @@ class MultDPRegression:
         D = Y.shape[1]
 
         if traj_probs is None:
-            traj_probs = np.sum(self.R_, 0)/np.sum(self.R_)
+            traj_probs = self.get_traj_probs()
             
         R_tmp = np.ones([N, self.K_])
         for k in range(self.K_):
@@ -1221,12 +1221,8 @@ class MultDPRegression:
         Y = df_[self.target_names_].values
         X = df_[self.predictor_names_].values
 
-        gb = None
-        if groupby is not None:
-            gb = df_.groupby(groupby)
-        
-        traj_probs = np.sum(self.R_, 0)/np.sum(self.R_)
-            
+        traj_probs = self.get_traj_probs()
+        pdb.set_trace()
         R_tmp = np.ones([N, self.K_])
         for k in range(self.K_):
             for d in range(D):
@@ -1250,7 +1246,9 @@ class MultDPRegression:
         
         # Within a group, all data instances must have the same probability of
         # belonging to each of the K trajectories
-        if gb is not None:
+        if groupby is not None:
+            gb = df_.groupby(groupby)
+            
             for g in gb.groups.keys():
                 tmp_ids = gb.get_group(g).index.values
                 tmp_vec = np.sum(np.log(R[tmp_ids, :] + \
@@ -1283,7 +1281,24 @@ class MultDPRegression:
             The variational lower bound
         """
         pass
-        
+
+    def get_traj_probs(self):
+        """Computes the probability of each trajectory based on the marginal 
+        of the assignment matrix, where the marginalization is computed over 
+        individuals, not data points (individuals will in general have more
+        or less data points than others). This function assumes that 'fit'
+        has already been called.
+
+        Returns
+        -------
+        traj_probs : array, shape ( K )
+            Each element is the probability of the corresponding trajectory.
+        """
+        traj_probs = np.sum(self.R_[self.group_first_index_, :], 0)/\
+            np.sum(self.R_[self.group_first_index_, :])
+
+        return traj_probs
+    
     def to_df(self):
         """Adds to the current data frame columns containing trajectory 
         assignments and probabilities.
@@ -1376,17 +1391,7 @@ class MultDPRegression:
 
         """
         # Compute the probability vector for each trajectory
-
-        if self.gb_ is not None:
-            num_individuals = self.gb_.ngroups
-            R_per_individual = np.zeros([self.gb_.ngroups, self.K_])
-            for (ii, kk) in enumerate(self.gb_.groups.keys()):
-                tmp_index = self.gb_.get_group(kk).index[0]
-                R_per_individual[ii, :] = self.R_[tmp_index, :]
-            traj_prob_vec = np.sum(R_per_individual, 0)/np.sum(R_per_individual)
-        else:
-            num_individuals = self.N_
-            traj_prob_vec = np.sum(self.R_, 0)/np.sum(self.R_)
+        traj_probs = self.get_traj_probs()
         
         df_traj = self.to_df()
             
@@ -1463,8 +1468,8 @@ class MultDPRegression:
                    edgecolor='k', color='None', alpha=0.1)
 
         for (traj_inc, tt) in enumerate(traj_ids):
-            if traj_prob_vec[tt] >= min_traj_prob and \
-               traj_prob_vec[tt] <= max_traj_prob:
+            if traj_probs[tt] >= min_traj_prob and \
+               traj_probs[tt] <= max_traj_prob:
                 
                 ids_tmp = df_traj.traj.values == tt
                 ax.scatter(df_traj[ids_tmp][x_axis].values,
