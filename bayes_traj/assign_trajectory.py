@@ -38,18 +38,16 @@ def main():
     mm = pickle.load(open(op.model, 'rb'))['MultDPRegression']
 
     print("Assigning...")
-    probs = mm.predict_proba_(df[mm.predictor_names_].values,
-                              df[mm.target_names_].values)
+    groupby_col = None
+    if mm.gb_ is not None:
+        groupby_col = mm.gb_.count().index.name
+        
+    df_out = mm.augment_df_with_traj_info(mm.target_names_,
+        mm.predictor_names_, df, groupby_col)
 
-    df['traj'] = [np.where(probs[ii,:] == np.max(probs[ii, :]))[0][0] \
-                  for ii in range(df.shape[0])]
-
-    for tt in np.where(mm.sig_trajs_)[0]:
-        df['traj_{}'.format(tt)] = probs[:, tt]
-    
     if op.out_csv is not None:
         print("Saving data with trajectory info...")
-        df.to_csv(op.out_csv, index=False)
+        df_out.to_csv(op.out_csv, index=False)
         
         print("Saving data file provenance info...")
         provenance_desc = """ """
