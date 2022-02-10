@@ -1222,7 +1222,7 @@ class MultDPRegression:
         X = df_[self.predictor_names_].values
 
         traj_probs = self.get_traj_probs()
-        pdb.set_trace()
+
         R_tmp = np.ones([N, self.K_])
         for k in range(self.K_):
             for d in range(D):
