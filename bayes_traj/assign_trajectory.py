@@ -19,6 +19,12 @@ def main():
     args.add_argument('--in_csv', help='Input csv data file. Individuals in \
         this file will be assigned to the best trajectory', required=True,
         type=str)
+    args.add_argument('--gb', help='Subject identifier column name in the \
+        input data file to use for grouping. If none specified, an attempt \
+        will be made to get this from the input model. However, there may be a \
+        mismatch between the subject identifier stored in the model and the \
+        appropriate column in the input data. If this is the case, this flag \
+        should be used.', required=False, type=str)    
     args.add_argument('--model', help='Pickled trajectory model to use for \
         assigning data instances to trajectories', type=str, required=True)
     args.add_argument('--out_csv', help='Output csv file with data instances \
@@ -39,7 +45,9 @@ def main():
 
     print("Assigning...")
     groupby_col = None
-    if mm.gb_ is not None:
+    if op.gb is not None:
+        groupby_col = op.gb
+    elif mm.gb_ is not None:
         groupby_col = mm.gb_.count().index.name
         
     df_out = mm.augment_df_with_traj_info(mm.target_names_,
