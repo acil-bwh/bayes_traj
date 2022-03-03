@@ -24,8 +24,7 @@ def test_update_w_logistic():
 
     mm = MultDPRegression(prior_data['w_mu0'], prior_data['w_var0'],
                           prior_data['lambda_a0'], prior_data['lambda_b0'],
-                          prec_prior_weight=1/df.shape[0],
-                          alpha=prior_data['alpha'], K=K)
+                          1/df.shape[0], prior_data['alpha'], K=K)
 
     mm.N_ = df.shape[0]
     mm.target_type_[0] = 'binary'
@@ -147,8 +146,7 @@ def test_update_z_logistic():
 
     mm = MultDPRegression(prior_data['w_mu0'], prior_data['w_var0'],
                           prior_data['lambda_a0'], prior_data['lambda_b0'],
-                          1/df.shape[0],
-                          prior_data['alpha'], K=K)
+                          1/df.shape[0], prior_data['alpha'], K=K)
 
     mm.N_ = df.shape[0]
     mm.target_type_[0] = 'binary'
@@ -231,11 +229,11 @@ def test_MultDPRegression():
             prior_data['w_var0'][m, d] = prior_file_info['w_var0'][target][pred]            
     
     mm = MultDPRegression(prior_data['w_mu0'], prior_data['w_var0'],
-                          prior_data['lambda_a0'], prior_data['lambda_b0'],
+                          prior_data['lambda_a0'], prior_data['lambda_b0'], 1,
                           prior_data['alpha'], K=K)
 
     mm.fit(target_names=targets, predictor_names=preds, df=df, groupby='id',
-           iters=10, verbose=True)
+           iters=20, verbose=True)
 
     df_traj = mm.to_df()
 
@@ -243,7 +241,7 @@ def test_MultDPRegression():
                                     df.traj.values).values == 250))
 
     assert num_trajs_found == 2, "Trajectory assignment error"
-    pdb.set_trace()
+
 
 def test_init_R_mat():
     """
@@ -271,10 +269,16 @@ def test_init_R_mat():
     w_var0 = np.ones([M, D])
     lambda_a0 = np.ones(D)
     lambda_b0 = np.ones(D)
+    prec_prior_weight = 1
     alpha = 5
     K = 30
-    mm = MultDPRegression(w_mu0, w_var0, lambda_a0, lambda_b0, alpha, K)
+    mm = MultDPRegression(w_mu0, w_var0, lambda_a0, lambda_b0,
+                          prec_prior_weight, alpha, K)
 
+    mm.target_type_ = {}
+    mm.target_type_[0] = 'gaussian'
+    mm.target_type_[1] = 'gaussian'
+    mm.gb_ = None
     lambda_a = np.ones([D, K])
     lambda_b = np.ones([D, K])
     w_mu = np.zeros([M, D, K])
@@ -299,14 +303,13 @@ def test_init_R_mat():
     mm.N_ = N
     mm.X_ = X_mat
     mm.Y_ = Y_mat
-    constraints = None
     traj_probs = np.zeros(K)
     traj_probs[0] = .25
     traj_probs[1] = .25
     traj_probs[2] = .25
     traj_probs[3] = .25    
 
-    mm.init_R_mat(constraints, traj_probs, traj_probs_weight=1)
+    mm.init_R_mat(traj_probs, traj_probs_weight=1)
     assert np.sum(np.isclose(np.ones(K), np.sum(mm.R_, 1))) == K, \
         "Unexpected R_ sum"
 
@@ -326,28 +329,36 @@ def test_predict_proba():
     w_var0 = np.ones([M, D])
     lambda_a0 = np.ones(D)
     lambda_b0 = np.ones(D)
+    prec_prior_weight = 1
     alpha = 5
-    mm = MultDPRegression(w_mu0, w_var0, lambda_a0, lambda_b0, alpha, K)
+    mm = MultDPRegression(w_mu0, w_var0, lambda_a0, lambda_b0,
+                          prec_prior_weight, alpha, K)
+
+    mm.target_type_ = {}
+    mm.target_type_[0] = 'gaussian'
 
     mm.w_mu_ = np.zeros([M, D, K])
     mm.w_mu_[:, 0, 0] = np.array([2, 1])
     mm.w_mu_[:, 0, 1] = np.array([-2, -1])    
-    mm.R_ = np.array([[.5, .5]])
+    mm.R_ = 0.5*np.ones([3, 2])
     mm.lambda_b_ = np.ones([D, K])
     mm.lambda_a_ = np.ones([D, K])
-
+    mm.gb_ = None
+    
     X = np.array([[1, 2], [1, 2], [1, 2]])
     Y = np.array([[3], [0], [-3]])
+
+    mm.group_first_index_ = np.ones(X.shape[0], dtype=bool)
     
-    R = mm.predict_proba(X, Y)
+    R = mm.predict_proba_(X, Y)
     R_ref = np.array([[1.00000000e+00, 3.77513454e-11],
                       [5.00000000e-01, 5.00000000e-01],
                       [3.77513454e-11, 1.00000000e+00]])
     assert np.sum(np.isclose(R, R_ref)) == 6, "Unexpected R value"
 
-    constraints = get_longitudinal_constraints_graph(np.array([0, 2, 0]))
-    R = mm.predict_proba(X, Y, constraints)
-    R_ref = np.array([[0.5, 0.5],
-                      [0.5, 0.5],
-                      [0.5, 0.5]])
-    assert np.sum(np.isclose(R, R_ref)) == 6, "Unexpected R value"
+    #constraints = get_longitudinal_constraints_graph(np.array([0, 2, 0]))
+    #R = mm.predict_proba_(X, Y, constraints)
+    #R_ref = np.array([[0.5, 0.5],
+    #                  [0.5, 0.5],
+    #                  [0.5, 0.5]])
+    #assert np.sum(np.isclose(R, R_ref)) == 6, "Unexpected R value"
