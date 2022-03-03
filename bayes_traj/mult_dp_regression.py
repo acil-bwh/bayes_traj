@@ -115,11 +115,11 @@ class MultDPRegression:
             self.alpha_ = args[5]
 
             self.K_ = 10
-            self.prop_thresh_ = 0.001
+            self.prob_thresh_ = 0.001
             if len(args) > 6:
                 self.K_ = args[6]
             if len(args) > 7:
-                self.prop_thresh=0.001
+                self.prob_thresh_ = 0.001
 
             if 'K' in kwargs.keys():
                 self.K_ = kwargs['K']
@@ -1234,7 +1234,7 @@ class MultDPRegression:
                     # Target assumed binary
                     R_tmp[ids, k] *= (np.exp(mu_tmp[ids])**Y[ids, d])/\
                         (1 + np.exp(mu_tmp[ids]))
-                    
+
             R_tmp[:, k] *= traj_probs[k]
 
         zero_ids = np.sum(R_tmp, 1) == 0
