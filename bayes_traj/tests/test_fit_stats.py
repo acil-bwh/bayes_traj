@@ -23,8 +23,10 @@ def test_get_group_likelihood_samples_1():
 
     prec_mu = 1
     prec_var = 1e-10
+    prec_prior_weight = 1
     
-    mm = MultDPRegression(w_mu0, w_var0, lambda_a0, lambda_b0, alpha, K=K)
+    mm = MultDPRegression(w_mu0, w_var0, lambda_a0, lambda_b0,
+                          prec_prior_weight, alpha, K=K)
     mm.R_ = np.zeros([N, K])
     mm.R_[0, 0] = 1
     
@@ -76,11 +78,17 @@ def test_get_group_likelihood_samples_2():
 
     prec_mu = 1.
     prec_var = 1e-10
+    prec_prior_weight = 1
     
-    mm = MultDPRegression(w_mu0, w_var0, lambda_a0, lambda_b0, alpha, K=K)
+    mm = MultDPRegression(w_mu0, w_var0, lambda_a0, lambda_b0,
+                          prec_prior_weight, alpha, K=K)
     mm.R_ = np.zeros([N, K])
     mm.R_[:, 0] = 1.
 
+    mm.target_type_ = {}
+    mm.target_type_[0] = 'gaussian'
+    mm.target_type_[1] = 'gaussian'
+    
     mm.w_mu_ = np.zeros([M, D, K])
     mm.w_var_ = 1e-10*np.ones([M, D, K])
     mm.w_mu_[:, 0, 0] = np.array([10, -1])
@@ -132,11 +140,17 @@ def test_compute_waic2_1():
 
     prec_mu = 1.
     prec_var = 1e-10
+    prec_prior_weight = 1
     
-    mm_1 = MultDPRegression(w_mu0, w_var0, lambda_a0, lambda_b0, alpha, K=K)
+    mm_1 = MultDPRegression(w_mu0, w_var0, lambda_a0, lambda_b0,
+                            prec_prior_weight, alpha, K=K)
     mm_1.R_ = np.zeros([N, K])
     mm_1.R_[:, 0] = 1.
 
+    mm_1.target_type_ = {}
+    mm_1.target_type_[0] = 'gaussian'
+    mm_1.target_type_[1] = 'gaussian'
+    
     mm_1.w_mu_ = np.zeros([M, D, K])
     mm_1.w_var_ = 1e-10*np.ones([M, D, K])
     mm_1.w_mu_[:, 0, 0] = np.array([10, -1])
@@ -156,10 +170,15 @@ def test_compute_waic2_1():
 
     waic2_1 = compute_waic2(mm_1)
 
-    mm_2 = MultDPRegression(w_mu0, w_var0, lambda_a0, lambda_b0, alpha, K=K)
+    mm_2 = MultDPRegression(w_mu0, w_var0, lambda_a0, lambda_b0,
+                            prec_prior_weight, alpha, K=K)
     mm_2.R_ = np.zeros([N, K])
     mm_2.R_[:, 0] = 1.
 
+    mm_2.target_type_ = {}
+    mm_2.target_type_[0] = 'gaussian'
+    mm_2.target_type_[1] = 'gaussian'
+    
     mm_2.w_mu_ = np.zeros([M, D, K])
     mm_2.w_var_ = 1e-10*np.ones([M, D, K])
     mm_2.w_mu_[:, 0, 0] = np.array([11, -1]) # Poorer value
