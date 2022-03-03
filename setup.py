@@ -26,7 +26,7 @@ packages.append('bayes_traj')
 
 setup(
     name='bayes_traj',
-    version='0.1.6',
+    version='0.1.7',
     description='bayes_traj',
     long_description=long_description,
     long_description_content_type='text/markdown',
@@ -40,7 +40,8 @@ setup(
                                         'viz_gamma_dists = bayes_traj.viz_gamma_dists:main',
                                         'generate_generic_data = bayes_traj.generate_generic_data:main',
                                         'summarize_traj_model = bayes_traj.summarize_traj_model:main',
-                                        'assign_trajectory = bayes_traj.assign_trajectory:main',                                        
+                                        'assign_trajectory = bayes_traj.assign_trajectory:main',
+                                        'update_model = bayes_traj.update_model:main',                                        
                                         'generate_prior = bayes_traj.generate_prior:main']},
     
     install_requires=[
