@@ -37,7 +37,8 @@ def main():
                                   desc=provenance_desc,
                                   module_name='bayes_traj')
 
-        
+    print("DONE.")
+    
 if __name__ == "__main__":
     main()
         
