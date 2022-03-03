@@ -10,6 +10,7 @@ from scipy.special import psi, gammaln, logsumexp
 from scipy.stats import norm
 import pandas as pd
 import pdb, sys, pickle, time, warnings
+import copy
 
 class MultDPRegression:
     """Uses Dirichlet process mixture modeling to identify mixtures of
@@ -99,39 +100,55 @@ class MultDPRegression:
         target variable. Only relevant for continuous (Gaussian) target 
         variables.
     """
-    def __init__(self, w_mu0, w_var0, lambda_a0, lambda_b0, prec_prior_weight,
-                 alpha, K=10, prob_thresh=0.001):
-        self.w_mu0_ = w_mu0
-        self.w_var0_ = w_var0
-        self.lambda_a0_ = lambda_a0
-        self.lambda_b0_ = lambda_b0
-        self.prec_prior_weight_ = prec_prior_weight
-        self.K_ = K
-        self.M_ = self.w_mu0_.shape[0]
-        self.D_ = self.w_mu0_.shape[1]
-        self.alpha_ = alpha
-        self.prob_thresh_ = prob_thresh
+    #def __init__(self, w_mu0, w_var0, lambda_a0, lambda_b0, prec_prior_weight,
+    #             alpha, K=10, prob_thresh=0.001):
 
-        # Keeps track of what data type each dimension is
-        self.target_type_ = {}
+    def __init__(self, *args, **kwargs):
+        if len(args) == 1 and len(kwargs.keys()) == 0:
+            self.copy(args[0])
+        else:
+            self.w_mu0_ = args[0]
+            self.w_var0_ = args[1]
+            self.lambda_a0_ = args[2]
+            self.lambda_b0_ = args[3]
+            self.prec_prior_weight_ = args[4]
+            self.alpha_ = args[5]
+
+            self.K_ = 10
+            self.prop_thresh_ = 0.001
+            if len(args) > 6:
+                self.K_ = args[6]
+            if len(args) > 7:
+                self.prop_thresh=0.001
+
+            if 'K' in kwargs.keys():
+                self.K_ = kwargs['K']
+            if 'prob_thresh' in kwargs.keys():
+                self.prob_thresh_ = kwargs['prob_thresh']
+                
+            self.M_ = self.w_mu0_.shape[0]
+            self.D_ = self.w_mu0_.shape[1]
+
+            # Keeps track of what data type each dimension is
+            self.target_type_ = {}
         
-        # For recording the lower-bound terms
-        self.lower_bounds_ = []
+            # For recording the lower-bound terms
+            self.lower_bounds_ = []
 
-        # X_ and Y_ will become defined when 'fit' is called
-        self.X_ = None
-        self.Y_ = None
-        self.target_names_ = None
-        self.predictor_names_ = None
+            # X_ and Y_ will become defined when 'fit' is called
+            self.X_ = None
+            self.Y_ = None
+            self.target_names_ = None
+            self.predictor_names_ = None
 
-        # group_first_index will, when 'fit' is called will be initialized
-        # to a boolean array of size N. If groupby is later specified, it will
-        # record the first index of each group. The purpose of this variable is
-        # to assist the 'update_v' function: we want it to refer to subjects,
-        # not data points
-        self.group_first_index_ = None
+            # group_first_index will, when 'fit' is called will be initialized
+            # to a boolean array of size N. If groupby is later specified, it will
+            # record the first index of each group. The purpose of this variable is
+            # to assist the 'update_v' function: we want it to refer to subjects,
+            # not data points
+            self.group_first_index_ = None
         
-        self.sig_trajs_ = np.ones(self.K_, dtype=bool)
+            self.sig_trajs_ = np.ones(self.K_, dtype=bool)
 
         assert self.w_mu0_.shape[0] == self.w_var0_.shape[0] and \
           self.w_mu0_.shape[1] == self.w_var0_.shape[1], \
@@ -142,7 +159,55 @@ class MultDPRegression:
 
         assert self.w_mu0_.shape[1] == self.lambda_a0_.shape[0], \
           "Target dimension mismatch"
+    
+    def copy(self, mm):
+        """Performs a deep copy of the member variables of the input model
 
+        Parameters
+        ----------
+        mm : MultDPRegression instance
+            The model instance that will be copied.
+
+        """
+        # There are currently 31 member variables. Check that this holds.
+        members = [attr for attr in dir(mm) \
+                   if not callable(getattr(mm, attr)) \
+                   and not attr.startswith("__")]
+
+        assert len(members) == 31, "Member variables unaccounted for"
+        
+        self.D_ = copy.deepcopy(mm.N_)
+        self.K_ = copy.deepcopy(mm.K_)
+        self.M_ = copy.deepcopy(mm.M_)
+        self.N_ = copy.deepcopy(mm.N_)
+        self.R_ = copy.deepcopy(mm.R_)
+        self.X_ = copy.deepcopy(mm.X_)
+        self.Y_ = copy.deepcopy(mm.Y_)
+        self.alpha_ = copy.deepcopy(mm.alpha_)
+        self.df_ = copy.deepcopy(mm.df_)
+        self.gb_ = copy.deepcopy(mm.gb_)
+        self.group_first_index_ = copy.deepcopy(mm.group_first_index_)
+        self.lambda_a0_ = copy.deepcopy(mm.lambda_a0_)
+        self.lambda_a_ = copy.deepcopy(mm.lambda_a_)
+        self.lambda_b0_ = copy.deepcopy(mm.lambda_b0_)
+        self.lambda_b_ = copy.deepcopy(mm.lambda_b_)
+        self.lower_bounds_ = copy.deepcopy(mm.lower_bounds_)
+        self.num_binary_targets_ = copy.deepcopy(mm.num_binary_targets_)
+        self.prec_prior_weight_ = copy.deepcopy(mm.prec_prior_weight_)
+        self.predictor_names_ = copy.deepcopy(mm.predictor_names_)
+        self.prob_thresh_ = copy.deepcopy(mm.prob_thresh_)
+        self.sig_trajs_ = copy.deepcopy(mm.sig_trajs_)
+        self.target_names_ = copy.deepcopy(mm.target_names_)
+        self.target_type_ = copy.deepcopy(mm.target_type_)
+        self.v_a_ = copy.deepcopy(mm.v_a_)
+        self.v_b_ = copy.deepcopy(mm.v_b_)
+        self.w_covmat_ = copy.deepcopy(mm.w_covmat_)
+        self.w_mu0_ = copy.deepcopy(mm.w_mu0_)
+        self.w_mu_ = copy.deepcopy(mm.w_mu_)
+        self.w_var0_ = copy.deepcopy(mm.w_var0_)
+        self.w_var_ = copy.deepcopy(mm.w_var_)
+        self.xi_ = copy.deepcopy(mm.xi_)
+        
     def fit(self, target_names, predictor_names, df, groupby=None, iters=100,
             R=None, traj_probs=None, traj_probs_weight=None, v_a=None,
             v_b=None, w_mu=None, w_var=None, lambda_a=None, lambda_b=None,
