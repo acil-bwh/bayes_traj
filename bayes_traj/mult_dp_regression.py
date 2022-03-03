@@ -100,9 +100,6 @@ class MultDPRegression:
         target variable. Only relevant for continuous (Gaussian) target 
         variables.
     """
-    #def __init__(self, w_mu0, w_var0, lambda_a0, lambda_b0, prec_prior_weight,
-    #             alpha, K=10, prob_thresh=0.001):
-
     def __init__(self, *args, **kwargs):
         if len(args) == 1 and len(kwargs.keys()) == 0:
             self.copy(args[0])
@@ -183,22 +180,32 @@ class MultDPRegression:
         self.R_ = copy.deepcopy(mm.R_)
         self.X_ = copy.deepcopy(mm.X_)
         self.Y_ = copy.deepcopy(mm.Y_)
-        self.alpha_ = copy.deepcopy(mm.alpha_)
+        
+        try:
+            self.alpha_ = copy.deepcopy(mm.alpha_)
+        except AttributeError as error:
+            print("WARNING: alpha_ is not an attribue of input model.")
+            print("Setting copy version to None")
+            self.alpha_ = None
+            
         self.df_ = copy.deepcopy(mm.df_)
-        self.gb_ = copy.deepcopy(mm.gb_)
-        self.group_first_index_ = copy.deepcopy(mm.group_first_index_)
+
+        try:
+            self.gb_ = copy.deepcopy(mm.gb_)
+        except AttributeError as error:
+            print("WARNING: gb_ is not an attribue of input model.")
+            print("Setting copy version to None")
+            self.gb_ = None
+            
         self.lambda_a0_ = copy.deepcopy(mm.lambda_a0_)
         self.lambda_a_ = copy.deepcopy(mm.lambda_a_)
         self.lambda_b0_ = copy.deepcopy(mm.lambda_b0_)
         self.lambda_b_ = copy.deepcopy(mm.lambda_b_)
         self.lower_bounds_ = copy.deepcopy(mm.lower_bounds_)
-        self.num_binary_targets_ = copy.deepcopy(mm.num_binary_targets_)
-        self.prec_prior_weight_ = copy.deepcopy(mm.prec_prior_weight_)
         self.predictor_names_ = copy.deepcopy(mm.predictor_names_)
         self.prob_thresh_ = copy.deepcopy(mm.prob_thresh_)
         self.sig_trajs_ = copy.deepcopy(mm.sig_trajs_)
         self.target_names_ = copy.deepcopy(mm.target_names_)
-        self.target_type_ = copy.deepcopy(mm.target_type_)
         self.v_a_ = copy.deepcopy(mm.v_a_)
         self.v_b_ = copy.deepcopy(mm.v_b_)
         self.w_covmat_ = copy.deepcopy(mm.w_covmat_)
@@ -206,8 +213,54 @@ class MultDPRegression:
         self.w_mu_ = copy.deepcopy(mm.w_mu_)
         self.w_var0_ = copy.deepcopy(mm.w_var0_)
         self.w_var_ = copy.deepcopy(mm.w_var_)
-        self.xi_ = copy.deepcopy(mm.xi_)
+            
+        try:
+            self.num_binary_targets_ = copy.deepcopy(mm.num_binary_targets_)
+        except AttributeError as error:
+            print("WARNING: num_binary_targets_ not an attribue of input model.")
+            print("Setting copy version value to 0")
+            self.num_binary_targets_ = 0
+
+        try: 
+            self.target_type_ = copy.deepcopy(mm.target_type_)
+        except:
+            self.target_type_ = {}
+            for d in range(self.D_):
+                if set(self.Y_[:, d]).issubset({1.0, 0.0}):
+                    self.target_type_[d] = 'binary'
+                    self.num_binary_targets_ += 1
+                else:
+                    self.target_type_[d] = 'gaussian'
+            
+        try:
+            self.prec_prior_weight_ = copy.deepcopy(mm.prec_prior_weight_)
+        except AttributeError as error:
+            print("WARNING: prec_prior_weight_ not an attribue of input model.")
+            print("Setting copy version value to 0.25")
+            self.prec_prior_weight_ = 0.25
         
+        try:
+            self.group_first_index_ = copy.deepcopy(mm.group_first_index_)
+        except:
+            self._set_group_first_index()                
+            
+        try:
+            self.xi_ = copy.deepcopy(mm.xi_)
+        except AttributeError as error:
+            print("WARNING: xi_ is not an attribue of input model.")
+            print("Setting copy version to None")
+            self.xi_ = None
+
+    def _set_group_first_index(self):
+        """
+        """
+        self.group_first_index_ = np.zeros(self.N_, dtype=bool)
+        if self.gb_ is not None:
+            for kk in self.gb_.groups.keys():
+                self.group_first_index_[self.gb_.get_group(kk).index[0]] = True
+        else:
+            self.group_first_index_ = np.ones(self.N_, dtype=bool)                    
+            
     def fit(self, target_names, predictor_names, df, groupby=None, iters=100,
             R=None, traj_probs=None, traj_probs_weight=None, v_a=None,
             v_b=None, w_mu=None, w_var=None, lambda_a=None, lambda_b=None,
@@ -306,17 +359,7 @@ class MultDPRegression:
         
         self.X_ = df[list(predictor_names)].values
         self.Y_ = df[list(target_names)].values        
-
-        self.gb_ = None
-        self.df_ = df
-        self.group_first_index_ = np.zeros(df.shape[0], dtype=bool)
-        if groupby is not None:
-            self.gb_ = df[[groupby]].groupby(groupby)
-            for kk in self.gb_.groups.keys():
-                self.group_first_index_[self.gb_.get_group(kk).index[0]] = True
-        else:
-            self.group_first_index_ = np.ones(df.shape[0], dtype=bool)        
-            
+                           
         assert len(set(target_names)) == len(target_names), \
             "Duplicate target name found"
         self.target_names_ = target_names
@@ -341,6 +384,13 @@ class MultDPRegression:
         self.v_b_ = v_b
         self.R_ = R
 
+        self.df_ = df
+        self.gb_ = None        
+        if groupby is not None:
+            self.gb_ = df[[groupby]].groupby(groupby)
+        
+        self._set_group_first_index()
+        
         # w_covmat_ is used for binary target variables. The EM algorithm
         # that is used to estimate w_mu_ and w_var_ for binary targets
         # actually gives us a full covariance matrix which we take advantage
