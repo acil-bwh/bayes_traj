@@ -36,42 +36,61 @@ def prior_info_from_df_binary(df, target_name, preds, prior_info):
         prior_info['w_var0'][target_name][m] = np.var(samples, 0)[i]
 
 def prior_info_from_df_gaussian(df, target_name, preds, num_trajs, prior_info):
-    """
+    """This function estimates prior information for a Gaussian-distributed 
+    target variable and predictor variables. It does this by applying linear
+    regression to the data and making reasonable guesses about the coefficient
+    and residual distributions.
+
+    Parameters
+    ----------
+    df : pandas dataframe
+        Contains data from which to estimate prior information
+
+    target_name : str
+        Target variable with respect to which prior information will be 
+        determined. Must be a column in df.
+
+    preds : list of strings
+        Predictor variables with respect to which to derive prior information.
+        Must be columns in df.
+
+    num_trajs : array, shape ( 2 )
+        A 2D tuple expressing low, and high estimates of how many trajectory
+        subgroups are likely to be in the data set.
+
+    prior_info : dict
+        Dictionary containing prior information. Will be updated with values
+        computed by this function.
     """
     # We make the naive assumption that variance of the OLS residuals is evenly
     # divided by each trajectory subgroup, and that these variances are
     # additive (the total residual variance = the sum of the residual variance
     # across the trajectory subgroups)
+    
     res_tmp = sm.OLS(df[target_name], df[preds], missing='drop').fit()
 
+    # 'precs' will be a 2D vector expressing high and low estimates for the
+    # mean precision (assuming a range of possible trajectory subgroups). From
+    # this, we will estimate a variance for the gamma distribution wide enough
+    # to cover these high and low estimates.
     precs = num_trajs/np.var(res_tmp.resid.values)
-    
-    #sel_ids = np.zeros(res_tmp.resid.shape[0], dtype=bool)
-    #sel_ids[0:int(res_tmp.resid.shape[0]/2.)] = True
-    #prec_vec = []
-    #for i in range(100):
-    #    sel_ids = np.random.permutation(sel_ids)
-    #    prec_vec.append(1./np.var(res_tmp.resid.values[sel_ids]))
-
     gamma_mean = np.mean(precs)
     gamma_var = ((np.max(precs) - np.min(precs))/4)**2
-    #gamma_mean = np.mean(prec_vec)
-    #gamma_var = np.var(prec_vec)
-
-    #prior_info['lambda_b0'][target_name] = gamma_mean/gamma_var
-    #prior_info['lambda_a0'][target_name] = num_trajs*gamma_mean**2/gamma_var
 
     prior_info['lambda_b0'][target_name] = gamma_mean/gamma_var
     prior_info['lambda_a0'][target_name] = gamma_mean**2/gamma_var
 
-    samples = np.random.multivariate_normal(res_tmp.params.values,
-                                            np.diag(res_tmp.HC0_se.values**2),
-                                            10000)
+    # Use a fudge factor to arrive at a reasonable value for w_var0 values. This
+    # value has been empirically established and appears to give reasonable
+    # results in practice. w_var0 will be estimated based on the sample size,
+    # SEs from the regression, and the fudge factor.
+    fudge_factor = 0.002
+    vars = fudge_factor*df.shape[0]*res_tmp.HC0_se.values**2 
 
     for (i, m) in enumerate(preds):
-        prior_info['w_mu0'][target_name][m] = np.mean(samples, 0)[i]
-        prior_info['w_var0'][target_name][m] = np.var(samples, 0)[i]    
-    
+        prior_info['w_mu0'][target_name][m] = res_tmp.params.values[i]
+        prior_info['w_var0'][target_name][m] = vars[i]
+        
 def prior_info_from_df_traj(df_traj, target_name, preds, prior_info,
                             traj_ids=None):
     """ Takes in a dataframe in which each data instance has a trajectory 
@@ -405,6 +424,14 @@ def main():
     prior_info['w_var0'] = {}
     prior_info['lambda_a0'] = {}
     prior_info['lambda_b0'] = {}
+
+    prior_info['v_a'] = None
+    prior_info['v_b'] = None
+    prior_info['w_mu'] = None
+    prior_info['w_var'] = None
+    prior_info['lambda_a'] = None
+    prior_info['lambda_b'] = None
+    prior_info['traj_probs'] = None    
     
     for tt in targets:
         prior_info['w_mu0'][tt] = {}
@@ -434,6 +461,14 @@ def main():
         with open(op.model, 'rb') as f:
             mm = pickle.load(f)['MultDPRegression']
 
+            prior_info['v_a'] = mm.v_a_
+            prior_info['v_b'] = mm.v_b_
+            prior_info['w_mu'] = mm.w_mu_
+            prior_info['w_var'] = mm.w_var_
+            prior_info['lambda_a'] = mm.lambda_a_
+            prior_info['lambda_b'] = mm.lambda_b_
+            prior_info['traj_probs'] = mm.get_traj_probs()
+            
             if op.model_trajs is not None:
                 model_trajs = np.array(op.model_trajs.split(','), dtype=int)
             else:
