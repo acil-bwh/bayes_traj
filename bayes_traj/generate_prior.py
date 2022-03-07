@@ -8,6 +8,217 @@ import numpy as np
 import pdb
 from provenance_tools.write_provenance_data import write_provenance_data
 
+class PriorGenerator:
+    """
+    """
+    def __init__(self, targets, preds):
+        """
+        """
+        self.targets_ = targets
+        self.preds_ = preds
+        
+        self.groupby_ = None # Refers to input data, not input model
+        
+        self.mm_ = None
+
+        self.df_traj_model_ = None # Corresponds to model data
+        self.df_traj_data_ = None # Input data with traj assignmentes computed
+                                  # internally here
+        self.df_data_ = None # Input data (no traj assignments assumed)
+        
+        self.D_ = len(targets)
+        self.M_ = len(preds)
+
+        # Estimated min and max number of trajs
+        self.min_num_trajs_ = 1
+        self.max_num_trajs_ = 3
+        
+        self.prior_info_ = {}
+        self.prior_info_['w_mu0'] = {}
+        self.prior_info_['w_var0'] = {}
+        self.prior_info_['lambda_a0'] = {}
+        self.prior_info_['lambda_b0'] = {}
+        self.prior_info_['w_mu'] = None
+        self.prior_info_['w_var'] = None
+        self.prior_info_['lambda_a'] = None
+        self.prior_info_['lambda_b'] = None
+        self.prior_info_['v_a'] = None
+        self.prior_info_['v_b'] = None
+        self.prior_info_['traj_probs'] = None
+
+        # Guesstimate of how big a data sample. Will be used to generate an
+        # estimate of alpha. Will be overwritten if a data file has been
+        # specified.
+        N = 10000
+        self.prior_info_['alpha'] = \
+            (self.min_num_trajs_ + self.max_num_trajs_)/(2*np.log10(N))
+        
+        for tt in targets:
+            self.prior_info_['lambda_a0'][tt] = 1
+            self.prior_info_['lambda_b0'][tt] = 1
+            self.prior_info_['lambda_a'][tt] = None
+            self.prior_info_['lambda_b'][tt] = None            
+            
+            self.prior_info_['w_mu0'][tt] = {}
+            self.prior_info_['w_var0'][tt] = {}
+            self.prior_info_['w_mu'][tt] = {}
+            self.prior_info_['w_var'][tt] = {}            
+            for pp in self.preds_:
+                self.prior_info_['w_mu0'][tt][pp] = 0
+                self.prior_info_['w_var0'][tt][pp] = 5
+
+                self.prior_info_['w_mu'][tt][pp] = None
+                self.prior_info_['w_var'][tt][pp] = None
+
+    def set_model(self, mm):
+        """Sets input model. Once set, a data frame corresponding to the model
+        will be computed and set as well.
+
+        Parameters
+        ----------
+        mm : MultDPRegression instance
+            Input model
+        """
+        self.mm_ = mm
+
+        self.prior_info_['traj_probs'] = self.mm_.get_traj_probs()
+        self.prior_info_['v_a'] = self.mm_.v_a_
+        self.prior_info_['v_b'] = self.mm_.v_b_            
+
+        
+        self.prior_info_['w_mu'] = {}
+        self.prior_info_['w_var'] = {}
+        self.prior_info_['lambda_a'] = {}
+        self.prior_info_['lambda_b'] = {}
+
+        
+        self.df_traj_model_ = mm.to_df()
+        self.update_df_traj_data()
+        
+    def set_data(self, df, groupby):
+        """
+        Parameters
+        ----------
+        df : pandas DataFrame
+            Input data
+
+        groupby : string
+            Name of subject identifier column in dataframe
+        """
+        self.df_data_ = df
+        self.groupby_ = groupby
+        self.update_df_traj_data()
+
+    def update_df_traj_data(self):
+        """
+        """
+        if self.mm_ is not None and self.df_data_ is not None:
+            compute_df_traj_data = False
+            if set(self.mm_.predictor_names_) <= set(self.df_data_.columns):
+                for tt in self.mm_.target_names_:
+                    if tt not in self.df_data_.columns:
+                        self.df_data_[tt] = np.nan*np.ones(self.df_data_.shape)
+                    else:
+                        compute_df_traj_data = True
+    
+            if compute_df_traj_data:
+                self.df_traj_data_ = \
+                    self.mm_.augment_df_with_traj_info(self.mm_.target_names_,
+                        self.mm_.predictor_names_, self.df_data_, self.groupby_)
+
+    def compute_prior_info_from_df(self, df, target, k=None):
+        """
+        Parameters
+        ----------
+        df : pandas Dataframe
+        
+        target : string
+            Target variable for which to compute prior information.
+
+        k : int
+            If specified, the assumption is that df has a 'traj' column. Prior 
+            information will only be computed for those data instances 
+            corresponding to traj == k.
+        """
+        indices = np.ones(df.shape[0], dtype=bool)
+        if k is not None:
+            assert 'traj' in df.columns, "Column traj not in dataframe"
+            indices = df.traj.values == k
+
+        res_tmp = sm.OLS(df[indices][target_name], df[indices][preds],
+                         missing='drop').fit()
+
+    def traj_prior_info_from_df(self):
+        """
+        """
+        pass
+
+    def traj_prior_info_from_model(self):
+        """
+        """
+        pass
+
+    def prior_info_from_df(self):
+        """
+        """
+        pass
+    
+    def prior_info_from_model(self):
+        """
+        """
+        pass
+        
+    def compute_prior_info(self):
+        """
+        """
+        # CASES:
+        # 1. Model only specified        
+        # 2. Data only specified
+        # 3. Model and data specified --> compute df_data_traj
+        #    a. Predictor sets are the same
+        #    b. Predictor sets differ
+
+        #-----------------------------------------------------------------------
+        # Case 3. Model and data have been specified
+        #-----------------------------------------------------------------------
+        if self.mm_ is not None:
+            if set(self.preds_) == set(self.mm_.predictor_names_):
+                for tt in self.targets_:
+                    if tt in self.mm_.target_names_:
+                        tar_index = np.where(\
+                            np.array(self.mm_.target_names_) == tt)[0][0]
+                        self.prior_info_['lambda_a'][tt] = \
+                            self.mm_.lambda_a_[tar_index, :]
+                        self.prior_info_['lambda_b'][tt] = \
+                            self.mm_.lambda_b_[tar_index, :]
+
+                        for pp in self.preds_:
+                            pred_index = np.where(\
+                                np.array(self.mm_.predictor_names_) == pp)[0][0]
+                            
+                        
+        pdb.set_trace()
+#        for tt in self.targets_:
+#            # If the target is in the model and the predictors are the same,
+#            # we can set w_mu, w_var, lambda_a, lambda_b
+#
+#
+#            
+#            if df_traj_data is not None:
+#                prior_info_from_df_traj(df_traj_data, tt, preds, prior_info,
+#                                        model_trajs)
+#            elif mm is not None:
+#                if tt in mm.target_names_ and set(mm.predictor_names_) == set(preds):
+#                    prior_info_from_model(tt, mm, prior_info)
+#                elif tt in df_traj_model.columns and set(preds) <= \
+#                     set(df_traj_model.columns):
+#                    prior_info_from_df_traj(df_traj_model, tt, preds, prior_info,
+#                                            model_trajs)
+#            elif df_data is not None:
+#                prior_info_from_df(df_data, tt, preds, num_trajs, prior_info)
+
+        
+        
 def prior_info_from_df(df, target_name, preds, num_trajs, prior_info):
     """
     """
@@ -354,8 +565,8 @@ def main():
         dest='targets', type=str, default=None)
     parser.add_argument('--out_file', help='Output (pickle) file that will \
         contain the prior', dest='out_file', type=str, default=None)
-    parser.add_argument('-k', help='Number of columns in the truncated assignment \
-        matrix', metavar='<int>', default=20)
+#    parser.add_argument('-k', help='Number of columns in the truncated assignment \
+#        matrix', metavar='<int>', default=20)
     parser.add_argument('--tar_resid', help='Use this flag to specify the residual \
         precision mean and variance for the corresponding target value. Specify as \
         a comma-separated tuple: target_name,mean,var. Note that precision is the \
@@ -382,12 +593,12 @@ def main():
     parser.add_argument('--model', help='Pickled bayes_traj model that \
         has been fit to data and from which information will be extracted to \
         produce an updated prior file', type=str, default=None)
-    parser.add_argument('--model_trajs', help='Comma-separated list of integers \
-        indicating which trajectories to use from the specified model. If a model \
-        is not specified, the values specified with this flag will be ignored. If \
-        a model is specified, and specific trajectories are not specified with \
-        this flag, then all trajectories will be used to inform the prior', \
-        default=None)
+#    parser.add_argument('--model_trajs', help='Comma-separated list of integers \
+#        indicating which trajectories to use from the specified model. If a model \
+#        is not specified, the values specified with this flag will be ignored. If \
+#        a model is specified, and specific trajectories are not specified with \
+#        this flag, then all trajectories will be used to inform the prior', \
+#        default=None)
     parser.add_argument('--groupby', help='Column name in input data file \
         indicating those data instances that must be in the same trajectory. This \
         is typically a subject identifier (e.g. in the case of a longitudinal data \
@@ -397,11 +608,9 @@ def main():
     
     preds = op.preds.split(',')
     targets = op.targets.split(',')
-            
-    D = len(targets)
-    M = len(preds)
-    K = float(op.k)
 
+    pg = PriorGenerator(targets, preds)
+    
     #---------------------------------------------------------------------------
     # Set the number of trajs
     #---------------------------------------------------------------------------
@@ -409,169 +618,88 @@ def main():
     tmp = op.num_trajs.split('-')
 
     if len(tmp) > 1:
-        num_trajs[0] = float(op.num_trajs.split('-')[0])
-        num_trajs[1] = float(op.num_trajs.split('-')[1])        
+        pg.min_num_trajs_ = float(op.num_trajs.split('-')[0])
+        pg.max_num_trajs_ = float(op.num_trajs.split('-')[1])        
     else:
-        num_trajs[0] = np.max([0.001, float(tmp[0]) - 1])
-        num_trajs[1] = float(tmp[0]) + 1        
-
-    #---------------------------------------------------------------------------
-    # Initialize prior info
-    #---------------------------------------------------------------------------
-    prior_info = {}
-    
-    prior_info['w_mu0'] = {}
-    prior_info['w_var0'] = {}
-    prior_info['lambda_a0'] = {}
-    prior_info['lambda_b0'] = {}
-
-    prior_info['v_a'] = None
-    prior_info['v_b'] = None
-    prior_info['w_mu'] = None
-    prior_info['w_var'] = None
-    prior_info['lambda_a'] = None
-    prior_info['lambda_b'] = None
-    prior_info['traj_probs'] = None    
-    
-    for tt in targets:
-        prior_info['w_mu0'][tt] = {}
-        prior_info['w_var0'][tt] = {}
-        prior_info['lambda_a0'][tt] = 1
-        prior_info['lambda_b0'][tt] = 1        
+        pg.min_num_trajs_ = np.max([0.001, float(tmp[0]) - 1])
+        pg.max_num_trajs_ = float(tmp[0]) + 1
         
-        for pp in preds:
-            prior_info['w_mu0'][tt][pp] = 0
-            prior_info['w_var0'][tt][pp] = 5
-    
-    # Guesstimate of how big a data sample. Will be used to generate an estimate
-    # of alpha. Will be overwritten if a data file has been specified.
-    N = 10000
-    prior_info['alpha'] = np.mean(num_trajs)/np.log10(N)
-    
     #---------------------------------------------------------------------------
     # Read in and process data and models as availabe
     #---------------------------------------------------------------------------
-    df_traj_model = None
-    df_traj_data = None
-    df_data = None
-    mm = None
-
-    model_trajs = None
     if op.model is not None:
         with open(op.model, 'rb') as f:
             mm = pickle.load(f)['MultDPRegression']
+            pg.set_model(mm)
 
-            prior_info['v_a'] = mm.v_a_
-            prior_info['v_b'] = mm.v_b_
-            prior_info['w_mu'] = mm.w_mu_
-            prior_info['w_var'] = mm.w_var_
-            prior_info['lambda_a'] = mm.lambda_a_
-            prior_info['lambda_b'] = mm.lambda_b_
-            prior_info['traj_probs'] = mm.get_traj_probs()
-            
-            if op.model_trajs is not None:
-                model_trajs = np.array(op.model_trajs.split(','), dtype=int)
-            else:
-                model_trajs = np.where(mm.sig_trajs_)[0]
-            
-        df_traj_model = mm.to_df()
-        
     if op.in_data is not None:
-        df_data = pd.read_csv(op.in_data)
-        if mm is not None:
-            compute_df_traj_data = False
-            if set(mm.predictor_names_) <= set(df_data.columns):
-                for tt in mm.target_names_:
-                    if tt not in df_data.columns:
-                        df_data[tt] = np.nan*np.ones(df_data.shape)
-                    else:
-                        compute_df_traj_data = True
-    
-                    if compute_df_traj_data:
-                        df_traj_data = \
-                            mm.augment_df_with_traj_info(mm.target_names_,
-                                                         mm.predictor_names_,
-                                                         df_data, op.groupby)
-    
-    for tt in targets:
-        if df_traj_data is not None:
-            prior_info_from_df_traj(df_traj_data, tt, preds, prior_info,
-                                    model_trajs)
-        elif mm is not None:
-            if tt in mm.target_names_ and set(mm.predictor_names_) == set(preds):
-                prior_info_from_model(tt, mm, prior_info)
-            elif tt in df_traj_model.columns and set(preds) <= \
-                 set(df_traj_model.columns):
-                prior_info_from_df_traj(df_traj_model, tt, preds, prior_info,
-                                        model_trajs)
-        elif df_data is not None:
-            prior_info_from_df(df_data, tt, preds, num_trajs, prior_info)
+        pg.set_data(pd.read_csv(op.in_data), op.groupby)
+
+    pg.compute_prior_info()
             
-    #---------------------------------------------------------------------------
-    # Override prior settings with user-specified preferences
-    #---------------------------------------------------------------------------
-    if op.tar_resid is not None:
-        for i in range(len(op.tar_resid)):
-            tt = op.tar_resid[i][0].split(',')[0]
-            mean_tmp = float(op.tar_resid[i][0].split(',')[1])
-            var_tmp = float(op.tar_resid[i][0].split(',')[2])        
-            assert tt in targets, "{} not among specified targets".format(tt)
-                    
-            prior_info['lambda_b0'][tt] = mean_tmp/var_tmp
-            prior_info['lambda_a0'][tt] = (mean_tmp**2)/var_tmp
-    
-    if op.coef is not None:
-        for i in range(len(op.coef)):
-            tt = op.coef[i][0].split(',')[0]
-            pp = op.coef[i][0].split(',')[1]
-            m = float(op.coef[i][0].split(',')[2])
-            s = float(op.coef[i][0].split(',')[3])
-    
-            assert tt in targets, "{} not among specified targets".format(tt)
-            assert pp in preds, "{} not among specified predictors".format(pp)        
-    
-            prior_info['w_mu0'][tt][pp] = m
-            prior_info['w_var0'][tt][pp] = s**2
-    
-    if op.coef_std is not None:
-        for i in range(len(op.coef_std)):
-            tt = op.coef_std[i][0].split(',')[0]
-            pp = op.coef_std[i][0].split(',')[1]
-            s = float(op.coef_std[i][0].split(',')[2])
-    
-            assert tt in targets, "{} not among specified targets".format(tt)
-            assert pp in preds, "{} not among specified predictors".format(pp)        
-    
-            prior_info['w_var0'][tt][pp] = s**2
-    
-    #---------------------------------------------------------------------------
-    # Summarize prior info and save to file
-    #---------------------------------------------------------------------------        
-    print('---------- Prior Info ----------')
-    print('alpha: {:.2e}'.format(prior_info['alpha']))        
-    for tt in targets:
-        print(" ")
-        if prior_info['lambda_a0'][tt] is not None:
-            prec_mean = prior_info['lambda_a0'][tt]/\
-                prior_info['lambda_b0'][tt]
-            prec_var = prior_info['lambda_a0'][tt]/\
-                (prior_info['lambda_b0'][tt]**2)
-            print("{} residual (precision mean, precision variance): \
-            ({:.2e}, {:.2e})".format(tt, prec_mean, prec_var))
-        for pp in preds:
-            tmp_mean = prior_info['w_mu0'][tt][pp]
-            tmp_std = np.sqrt(prior_info['w_var0'][tt][pp])
-            print("{} {} (mean, std): ({:.2e}, {:.2e})".\
-                  format(tt, pp, tmp_mean, tmp_std))
-            
-    if op.out_file is not None:                    
-        pickle.dump(prior_info, open(op.out_file, 'wb'))
-        desc = """ """
-        write_provenance_data(op.out_file, generator_args=op, desc=desc,
-                              module_name='bayes_traj')
-        
+#    #---------------------------------------------------------------------------
+#    # Override prior settings with user-specified preferences
+#    #---------------------------------------------------------------------------
+#    if op.tar_resid is not None:
+#        for i in range(len(op.tar_resid)):
+#            tt = op.tar_resid[i][0].split(',')[0]
+#            mean_tmp = float(op.tar_resid[i][0].split(',')[1])
+#            var_tmp = float(op.tar_resid[i][0].split(',')[2])        
+#            assert tt in targets, "{} not among specified targets".format(tt)
+#                    
+#            prior_info['lambda_b0'][tt] = mean_tmp/var_tmp
+#            prior_info['lambda_a0'][tt] = (mean_tmp**2)/var_tmp
+#    
+#    if op.coef is not None:
+#        for i in range(len(op.coef)):
+#            tt = op.coef[i][0].split(',')[0]
+#            pp = op.coef[i][0].split(',')[1]
+#            m = float(op.coef[i][0].split(',')[2])
+#            s = float(op.coef[i][0].split(',')[3])
+#    
+#            assert tt in targets, "{} not among specified targets".format(tt)
+#            assert pp in preds, "{} not among specified predictors".format(pp)        
+#    
+#            prior_info['w_mu0'][tt][pp] = m
+#            prior_info['w_var0'][tt][pp] = s**2
+#    
+#    if op.coef_std is not None:
+#        for i in range(len(op.coef_std)):
+#            tt = op.coef_std[i][0].split(',')[0]
+#            pp = op.coef_std[i][0].split(',')[1]
+#            s = float(op.coef_std[i][0].split(',')[2])
+#    
+#            assert tt in targets, "{} not among specified targets".format(tt)
+#            assert pp in preds, "{} not among specified predictors".format(pp)        
+#    
+#            prior_info['w_var0'][tt][pp] = s**2
+#    
+#    #---------------------------------------------------------------------------
+#    # Summarize prior info and save to file
+#    #---------------------------------------------------------------------------        
+#    print('---------- Prior Info ----------')
+#    print('alpha: {:.2e}'.format(prior_info['alpha']))        
+#    for tt in targets:
+#        print(" ")
+#        if prior_info['lambda_a0'][tt] is not None:
+#            prec_mean = prior_info['lambda_a0'][tt]/\
+#                prior_info['lambda_b0'][tt]
+#            prec_var = prior_info['lambda_a0'][tt]/\
+#                (prior_info['lambda_b0'][tt]**2)
+#            print("{} residual (precision mean, precision variance): \
+#            ({:.2e}, {:.2e})".format(tt, prec_mean, prec_var))
+#        for pp in preds:
+#            tmp_mean = prior_info['w_mu0'][tt][pp]
+#            tmp_std = np.sqrt(prior_info['w_var0'][tt][pp])
+#            print("{} {} (mean, std): ({:.2e}, {:.2e})".\
+#                  format(tt, pp, tmp_mean, tmp_std))
+#    pdb.set_trace()
+#    if op.out_file is not None:                    
+#        pickle.dump(prior_info, open(op.out_file, 'wb'))
+#        desc = """ """
+#        write_provenance_data(op.out_file, generator_args=op, desc=desc,
+#                              module_name='bayes_traj')
+#        
 if __name__ == "__main__":
     main()
     
-
-
