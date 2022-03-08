@@ -11,9 +11,29 @@ from provenance_tools.write_provenance_data import write_provenance_data
 class PriorGenerator:
     """
     """
-    def __init__(self, targets, preds):
+    def __init__(self, targets, preds, num_trajs=2,
+                 min_num_trajs=None, max_num_trajs=None):
         """
         """
+        assert np.issubdtype(type(num_trajs), np.integer) and \
+            num_trajs > 0, "num_trajs not specified correctly"
+        if min_num_trajs is not None:
+            assert np.issubdtype(type(min_num_trajs), np.integer) and \
+                min_num_trajs > 0, "min_num_trajs not specified correctly"
+        if max_num_trajs is not None:
+            assert np.issubdtype(type(max_num_trajs), np.integer) and \
+                max_num_trajs > 0, "max_num_trajs not specified correctly"
+        if min_num_trajs is not None and max_num_trajs is not None:
+            assert min_num_trajs < max_num_trajs, \
+                "Min num of trajs not less than mas num trajs"
+
+        if min_num_trajs is not None and max_num_trajs is not None:
+            self.min_num_trajs_ = min_num_trajs
+            self.max_num_trajs_ = max_num_trajs
+        else:
+            self.min_num_trajs_ = num_trajs - 1
+            self.max_num_trajs_ = num_trajs + 1
+        
         self.targets_ = targets
         self.preds_ = preds
         
@@ -28,10 +48,7 @@ class PriorGenerator:
         
         self.D_ = len(targets)
         self.M_ = len(preds)
-
-        # Estimated min and max number of trajs
-        self.min_num_trajs_ = 1
-        self.max_num_trajs_ = 3
+        self.K_ = None
         
         self.prior_info_ = {}
         self.prior_info_['w_mu0'] = {}
@@ -56,19 +73,19 @@ class PriorGenerator:
         for tt in targets:
             self.prior_info_['lambda_a0'][tt] = 1
             self.prior_info_['lambda_b0'][tt] = 1
-            self.prior_info_['lambda_a'][tt] = None
-            self.prior_info_['lambda_b'][tt] = None            
+            #self.prior_info_['lambda_a'][tt] = None
+            #self.prior_info_['lambda_b'][tt] = None            
             
             self.prior_info_['w_mu0'][tt] = {}
             self.prior_info_['w_var0'][tt] = {}
-            self.prior_info_['w_mu'][tt] = {}
-            self.prior_info_['w_var'][tt] = {}            
+            #self.prior_info_['w_mu'][tt] = {}
+            #self.prior_info_['w_var'][tt] = {}            
             for pp in self.preds_:
                 self.prior_info_['w_mu0'][tt][pp] = 0
                 self.prior_info_['w_var0'][tt][pp] = 5
 
-                self.prior_info_['w_mu'][tt][pp] = None
-                self.prior_info_['w_var'][tt][pp] = None
+                #self.prior_info_['w_mu'][tt][pp] = None
+                #self.prior_info_['w_var'][tt][pp] = None
 
     def set_model(self, mm):
         """Sets input model. Once set, a data frame corresponding to the model
@@ -81,19 +98,17 @@ class PriorGenerator:
         """
         self.mm_ = mm
 
+        # The following are independent of the targets and predictors
+        self.K_ = mm.K_
         self.prior_info_['traj_probs'] = self.mm_.get_traj_probs()
         self.prior_info_['v_a'] = self.mm_.v_a_
-        self.prior_info_['v_b'] = self.mm_.v_b_            
-
-        
-        self.prior_info_['w_mu'] = {}
-        self.prior_info_['w_var'] = {}
-        self.prior_info_['lambda_a'] = {}
-        self.prior_info_['lambda_b'] = {}
-
-        
+        self.prior_info_['v_b'] = self.mm_.v_b_
+    
         self.df_traj_model_ = mm.to_df()
         self.update_df_traj_data()
+
+        df_traj_data_computed = self.update_df_traj_data()
+        self.init_per_traj_params()
         
     def set_data(self, df, groupby):
         """
@@ -107,13 +122,42 @@ class PriorGenerator:
         """
         self.df_data_ = df
         self.groupby_ = groupby
-        self.update_df_traj_data()
+        df_traj_data_computed = self.update_df_traj_data()
+        if df_traj_data_computed:
+            self.init_per_traj_params()
 
+    def init_per_traj_params(self):
+        """Initializes per-trajectory param containers. 
+        """
+        self.prior_info_['lambda_a'] = {}
+        self.prior_info_['lambda_b'] = {}
+        self.prior_info_['w_mu'] = {}
+        self.prior_info_['w_var'] = {}
+        
+        for m in self.preds_:            
+            self.prior_info_['w_mu'][m] = {}
+            self.prior_info_['w_var'][m] = {}
+
+        for d in self.targets_:
+            self.prior_info_['lambda_a'][d] = np.nan*np.ones(self.K_)
+            self.prior_info_['lambda_b'][d] = np.nan*np.ones(self.K_)
+
+            for m in self.preds_:
+                self.prior_info_['w_mu'][m][d] = np.nan*np.ones(self.K_)
+                self.prior_info_['w_var'][m][d] = np.nan*np.ones(self.K_) 
+            
     def update_df_traj_data(self):
+        """If possible, this function will update df_traj_data, which 
+        corresponds to the input data (if specified) with trajectory assignments
+        computed with an input model (if specified). 
+
+        Returns
+        -------
+        compute_df_traj_data : bool
+            True if df_traj_data has been computed. False otherwise.
         """
-        """
+        compute_df_traj_data = False        
         if self.mm_ is not None and self.df_data_ is not None:
-            compute_df_traj_data = False
             if set(self.mm_.predictor_names_) <= set(self.df_data_.columns):
                 for tt in self.mm_.target_names_:
                     if tt not in self.df_data_.columns:
@@ -126,48 +170,190 @@ class PriorGenerator:
                     self.mm_.augment_df_with_traj_info(self.mm_.target_names_,
                         self.mm_.predictor_names_, self.df_data_, self.groupby_)
 
-    def compute_prior_info_from_df(self, df, target, k=None):
-        """
-        Parameters
-        ----------
-        df : pandas Dataframe
-        
+        return compute_df_traj_data
+
+    def traj_prior_info_from_df(self, target, traj):
+        """This function will compute prior information (w_mu, w_var, 
+        lambda_a, lambda_b) for a specific trajectory based on data in the 
+        df_traj_data_ class member variable. The procedure is to perform linear
+        regression on the data and to use the estimated predictor coefficients,
+        standard errors, and residual information to set the desired quantities.
+
+        Paramters
+        ---------
         target : string
-            Target variable for which to compute prior information.
+            Name of target variable for which to compute prior information.
 
-        k : int
-            If specified, the assumption is that df has a 'traj' column. Prior 
-            information will only be computed for those data instances 
-            corresponding to traj == k.
+        traj : int
+            Prior information will be computed for those data instances 
+            belonging to this trajectory.
+      
         """
-        indices = np.ones(df.shape[0], dtype=bool)
-        if k is not None:
-            assert 'traj' in df.columns, "Column traj not in dataframe"
-            indices = df.traj.values == k
+        assert self.df_traj_data_ is not None, "df_traj_data_ is None"
 
-        res_tmp = sm.OLS(df[indices][target_name], df[indices][preds],
+        indices = self.df_traj_data_['traj'].values == traj
+
+        # What is the minimum number of points needed for regression?
+        if np.sum(indices) == 0:
+            return
+        
+        target_index = np.where(np.array(self.targets_) == target)[0][0]
+        
+        res_tmp = sm.OLS(self.df_traj_data_[indices][target],
+                         self.df_traj_data_[indices][self.preds_],
                          missing='drop').fit()
 
-    def traj_prior_info_from_df(self):
-        """
-        """
-        pass
+        for (i, m) in enumerate(self.preds_):
+            self.prior_info_['w_mu'][m][target][traj] = \
+                res_tmp.params.values[i]
+            self.prior_info_['w_var'][m][target][traj] = \
+                res_tmp.HC0_se.values[i]**2
 
-    def traj_prior_info_from_model(self):
-        """
-        """
-        pass
+        gamma_mean = 1/np.var(res_tmp.resid.values)
+        gamma_var = 1e-5 # Heuristic
 
-    def prior_info_from_df(self):
-        """
-        """
-        pass
-    
-    def prior_info_from_model(self):
-        """
-        """
-        pass
+        self.prior_info_['lambda_b'][target][traj] = gamma_mean/gamma_var
+        self.prior_info_['lambda_a'][target][traj] = gamma_mean**2/gamma_var
         
+    def traj_prior_info_from_model(self, target, traj):
+        """This function will retrieve prior information (w_mu, w_var, 
+        lambda_a, lambda_b) for a specific trajectory based on a previously fit
+        model. Assumes that the model predictors and the predictors for which 
+        to compute priors are the same. Also assumes that 'target' is in the
+        model.
+
+        Paramters
+        ---------
+        target : string
+            Name of target variable for which to get prior information.
+
+        traj : int
+            Prior information will be retrieved for those data instances 
+            belonging to this trajectory.    
+        """
+        assert self.mm_ is not None, \
+            "Trying to set prior info from model, but no model specified"
+
+        target_index = \
+            np.where(np.array(self.mm_.target_names_) == target)[0][0]
+
+        self.prior_info_['lambda_a'][target][traj] = \
+            self.mm_.lambda_a_[target_index][traj]
+        self.prior_info_['lambda_b'][target][traj] = \
+            self.mm_.lambda_b_[target_index][traj]
+        
+        for m in self.preds_:
+            pred_index = \
+                np.where(np.array(self.mm_.predictor_names_) == m)[0][0]
+
+            self.prior_info_['w_mu'][m][target][traj] = \
+                self.mm_.w_mu_[pred_index, target_index, traj]
+            self.prior_info_['w_var'][m][target][traj] = \
+                self.mm_.w_var_[pred_index, target_index, traj]            
+        
+    def prior_info_from_df(self, target):
+        """Computes w_mu0, w_var0, lambda_a0, lambda_b0
+
+        Parameters
+        ----------
+        target : string
+            Name of target variable for which to compute prior information
+        """
+        # If w_mu, w_var, lambda_a, and lambda_b have been set, then we can
+        # derive overall prior info from these. Otherwise, we will get prior
+        # info from the data alone.
+        # TODO
+
+        # Per-traj prior info has not been set:
+        res_tmp = sm.OLS(self.df_data_[target],
+                         self.df_data_[self.preds_], missing='drop').fit()
+
+        num_trajs = np.array([self.min_num_trajs_, self.max_num_trajs_])
+
+        # 'precs' will be a 2D vector expressing high and low estimates for the
+        # mean precision (assuming a range of possible trajectory subgroups). From
+        # this, we will estimate a variance for the gamma distribution wide enough
+        # to cover these high and low estimates.
+        precs = num_trajs/np.var(res_tmp.resid.values)
+        gamma_mean = np.mean(precs)
+        gamma_var = ((np.max(precs) - np.min(precs))/4)**2
+
+        self.prior_info_['lambda_b0'][target] = gamma_mean/gamma_var
+        self.prior_info_['lambda_a0'][target] = gamma_mean**2/gamma_var
+
+        # Use a fudge factor to arrive at a reasonable value for w_var0 values. This
+        # value has been empirically established and appears to give reasonable
+        # results in practice. w_var0 will be estimated based on the sample size,
+        # SEs from the regression, and the fudge factor.
+        fudge_factor = 0.005 
+        vars = fudge_factor*self.df_data_.shape[0]*res_tmp.HC0_se.values**2 
+
+        for (i, m) in enumerate(self.preds_):
+            self.prior_info_['w_mu0'][target][m] = res_tmp.params.values[i]
+            self.prior_info_['w_var0'][target][m] = vars[i]        
+    
+    def prior_info_from_model(self, target):
+        """
+        """
+        assert target in self.mm_.target_names_, \
+            "Specified target is not amont model targets"
+        assert set(self.preds_) == set(self.mm_.predictor_names_), \
+            "Specified predictors differ from model predictors"
+
+        target_index = np.where(np.array(self.mm_.target_names_) == \
+                                target)[0][0]
+        
+        probs = self.mm_.get_traj_probs()
+        for m in self.preds_:
+            pred_index = \
+                np.where(np.array(self.mm_.predictor_names_) == m)[0][0]
+
+            # w_mu0 is a weighted combination of the trajectory means
+            self.prior_info_['w_mu0'][target][m] = \
+                np.dot(probs, self.mm_.w_mu_[pred_index, target_index, :])
+
+            if np.sum(self.mm_.sig_trajs_) > 1:
+                # Normally, the variance of a r.v. that is the sum of other
+                # normally distributed r.v.s has a variance equal to a weighted
+                # sum of the constituent r.v.s (where the weight is squared).
+                # Howver, it is known that variational inference underestimates
+                # variances. Therefore, if we set w_var0 to the weighted sum of
+                # the variances, it too would be underestimated. Instead, we
+                # heuristically compute w_var0 by considering the max distance
+                # between the w_mu0 and each trajectory mean. We assume that the
+                # mean +/- 2.5*sig will cover each of the observed trajectory
+                # values.
+                self.prior_info_['w_var0'][target][m] = \
+                    (np.max(np.abs(self.mm_.w_mu_[pred_index, target_index, \
+                                                  self.mm_.sig_trajs_] - \
+                                self.prior_info_['w_mu0'][target][m]))/2.5)**2
+            else:
+                # If we're here, there is only 1 trajectory 
+                self.prior_info_['w_var0'][target][m] = \
+                    self.mm_.w_var_[pred_index, \
+                                    target_index, self.mm_.sig_trajs_][0]
+
+        if np.sum(self.mm_.sig_trajs_) > 1:
+            gamma_mean = 0
+            gamma_var = 0
+
+            gamma_means = self.mm_.lambda_a_[target_index]/\
+                self.mm_.lambda_b_[target_index]
+            gamma_mean = np.dot(probs, gamma_means)
+            # See argument above about estimating variances
+            gamma_var = \
+                (np.max(np.abs(gamma_means[np.where(self.mm_.sig_trajs_)[0]] - \
+                               gamma_mean))/2.5)**2
+
+            self.prior_info_['lambda_b0'][target] = gamma_mean/gamma_var
+            self.prior_info_['lambda_a0'][target] = gamma_mean**2/gamma_var
+        else:
+            # If we're here, there is only one trajectory
+            self.prior_info_['lambda_a0'][target] = \
+                self.mm_.lambda_a_[target_index][self.mm_.sig_trajs_][0]
+            self.prior_info_['lambda_b0'][target] = \
+                self.mm_.lambda_b_[target_index][self.mm_.sig_trajs_][0]
+            
     def compute_prior_info(self):
         """
         """
