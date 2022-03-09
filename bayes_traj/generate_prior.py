@@ -210,11 +210,11 @@ class PriorGenerator:
                 res_tmp.HC0_se.values[i]**2
 
         gamma_mean = 1/np.var(res_tmp.resid.values)
-        gamma_var = 1e-5 # Heuristic
+        gamma_var = 0.005 # Heuristic
 
         self.prior_info_['lambda_b'][target][traj] = gamma_mean/gamma_var
         self.prior_info_['lambda_a'][target][traj] = gamma_mean**2/gamma_var
-        
+
     def traj_prior_info_from_model(self, target, traj):
         """This function will retrieve prior information (w_mu, w_var, 
         lambda_a, lambda_b) for a specific trajectory based on a previously fit
@@ -357,33 +357,46 @@ class PriorGenerator:
     def compute_prior_info(self):
         """
         """
-        # CASES:
-        # 1. Model only specified        
-        # 2. Data only specified
-        # 3. Model and data specified --> compute df_data_traj
-        #    a. Predictor sets are the same
-        #    b. Predictor sets differ
-
-        #-----------------------------------------------------------------------
-        # Case 3. Model and data have been specified
-        #-----------------------------------------------------------------------
-        if self.mm_ is not None:
-            if set(self.preds_) == set(self.mm_.predictor_names_):
-                for tt in self.targets_:
+        #prior_info_from_model
+        #prior_info_from_df
+        #traj_prior_info_from_model
+        #traj_prior_info_from_df
+        assert self.mm_ is not None or self.df_data_ is not None, \
+            "Cannot compute prior info without data or a model"
+        
+        for tt in self.targets_:
+            if self.mm_ is not None:
+                if set(self.preds_) == set(self.mm_.predictor_names_):
                     if tt in self.mm_.target_names_:
-                        tar_index = np.where(\
-                            np.array(self.mm_.target_names_) == tt)[0][0]
-                        self.prior_info_['lambda_a'][tt] = \
-                            self.mm_.lambda_a_[tar_index, :]
-                        self.prior_info_['lambda_b'][tt] = \
-                            self.mm_.lambda_b_[tar_index, :]
+                        self.prior_info_from_model(tt)
+                        for kk in range(self.K_):
+                            self.traj_prior_info_from_model(tt, kk)
+                    elif self.df_data_ is not None:
+                        self.prior_info_from_df(tt)
+                        if self.df_traj_data_ is not None:
+                            for kk in range(self.K_):
+                                self.traj_prior_info_from_df(tt, kk)
+                    else:
+                        raise RuntimeError('{} is not in model'.format(tt))    
+                else:
+                    # Model is defined, but predictors differ. In this case,
+                    # everything is retrieved from data
+                    if self.df_data_ is not None:
+                        self.prior_info_from_df(tt)
+                        if self.df_traj_data_ is not None:
+                            for kk in range(self.K_):
+                                self.traj_prior_info_from_df(tt, kk)
+            else:
+                # No model, but we have data. Because we have no model, we also
+                # won't have df_traj_data_, so we won't be able to get per-traj
+                # information
+                self.prior_info_from_df(tt)
 
-                        for pp in self.preds_:
-                            pred_index = np.where(\
-                                np.array(self.mm_.predictor_names_) == pp)[0][0]
-                            
-                        
-        pdb.set_trace()
+#-------------------------               
+# END OF CLASS DEFINITION
+#-------------------------
+
+    #    pdb.set_trace()
 #        for tt in self.targets_:
 #            # If the target is in the model and the predictors are the same,
 #            # we can set w_mu, w_var, lambda_a, lambda_b
