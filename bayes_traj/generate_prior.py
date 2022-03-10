@@ -5,7 +5,7 @@ import pickle
 import pandas as pd
 import statsmodels.api as sm
 import numpy as np
-import pdb
+import copy, pdb
 from provenance_tools.write_provenance_data import write_provenance_data
 
 class PriorGenerator:
@@ -394,29 +394,7 @@ class PriorGenerator:
 
 #-------------------------               
 # END OF CLASS DEFINITION
-#-------------------------
-
-    #    pdb.set_trace()
-#        for tt in self.targets_:
-#            # If the target is in the model and the predictors are the same,
-#            # we can set w_mu, w_var, lambda_a, lambda_b
-#
-#
-#            
-#            if df_traj_data is not None:
-#                prior_info_from_df_traj(df_traj_data, tt, preds, prior_info,
-#                                        model_trajs)
-#            elif mm is not None:
-#                if tt in mm.target_names_ and set(mm.predictor_names_) == set(preds):
-#                    prior_info_from_model(tt, mm, prior_info)
-#                elif tt in df_traj_model.columns and set(preds) <= \
-#                     set(df_traj_model.columns):
-#                    prior_info_from_df_traj(df_traj_model, tt, preds, prior_info,
-#                                            model_trajs)
-#            elif df_data is not None:
-#                prior_info_from_df(df_data, tt, preds, num_trajs, prior_info)
-
-        
+#-------------------------        
         
 def prior_info_from_df(df, target_name, preds, num_trajs, prior_info):
     """
@@ -828,77 +806,80 @@ def main():
     #---------------------------------------------------------------------------
     if op.model is not None:
         with open(op.model, 'rb') as f:
+            print("Reading model...")
             mm = pickle.load(f)['MultDPRegression']
             pg.set_model(mm)
 
     if op.in_data is not None:
+        print("Reading data...")
         pg.set_data(pd.read_csv(op.in_data), op.groupby)
 
-    pg.compute_prior_info()
-            
-#    #---------------------------------------------------------------------------
-#    # Override prior settings with user-specified preferences
-#    #---------------------------------------------------------------------------
-#    if op.tar_resid is not None:
-#        for i in range(len(op.tar_resid)):
-#            tt = op.tar_resid[i][0].split(',')[0]
-#            mean_tmp = float(op.tar_resid[i][0].split(',')[1])
-#            var_tmp = float(op.tar_resid[i][0].split(',')[2])        
-#            assert tt in targets, "{} not among specified targets".format(tt)
-#                    
-#            prior_info['lambda_b0'][tt] = mean_tmp/var_tmp
-#            prior_info['lambda_a0'][tt] = (mean_tmp**2)/var_tmp
-#    
-#    if op.coef is not None:
-#        for i in range(len(op.coef)):
-#            tt = op.coef[i][0].split(',')[0]
-#            pp = op.coef[i][0].split(',')[1]
-#            m = float(op.coef[i][0].split(',')[2])
-#            s = float(op.coef[i][0].split(',')[3])
-#    
-#            assert tt in targets, "{} not among specified targets".format(tt)
-#            assert pp in preds, "{} not among specified predictors".format(pp)        
-#    
-#            prior_info['w_mu0'][tt][pp] = m
-#            prior_info['w_var0'][tt][pp] = s**2
-#    
-#    if op.coef_std is not None:
-#        for i in range(len(op.coef_std)):
-#            tt = op.coef_std[i][0].split(',')[0]
-#            pp = op.coef_std[i][0].split(',')[1]
-#            s = float(op.coef_std[i][0].split(',')[2])
-#    
-#            assert tt in targets, "{} not among specified targets".format(tt)
-#            assert pp in preds, "{} not among specified predictors".format(pp)        
-#    
-#            prior_info['w_var0'][tt][pp] = s**2
-#    
-#    #---------------------------------------------------------------------------
-#    # Summarize prior info and save to file
-#    #---------------------------------------------------------------------------        
-#    print('---------- Prior Info ----------')
-#    print('alpha: {:.2e}'.format(prior_info['alpha']))        
-#    for tt in targets:
-#        print(" ")
-#        if prior_info['lambda_a0'][tt] is not None:
-#            prec_mean = prior_info['lambda_a0'][tt]/\
-#                prior_info['lambda_b0'][tt]
-#            prec_var = prior_info['lambda_a0'][tt]/\
-#                (prior_info['lambda_b0'][tt]**2)
-#            print("{} residual (precision mean, precision variance): \
-#            ({:.2e}, {:.2e})".format(tt, prec_mean, prec_var))
-#        for pp in preds:
-#            tmp_mean = prior_info['w_mu0'][tt][pp]
-#            tmp_std = np.sqrt(prior_info['w_var0'][tt][pp])
-#            print("{} {} (mean, std): ({:.2e}, {:.2e})".\
-#                  format(tt, pp, tmp_mean, tmp_std))
-#    pdb.set_trace()
-#    if op.out_file is not None:                    
-#        pickle.dump(prior_info, open(op.out_file, 'wb'))
-#        desc = """ """
-#        write_provenance_data(op.out_file, generator_args=op, desc=desc,
-#                              module_name='bayes_traj')
-#        
+    pg.compute_prior_info()        
+    prior_info = copy.deepcopy(pg.prior_info_)
+    
+    #---------------------------------------------------------------------------
+    # Override prior settings with user-specified preferences
+    #---------------------------------------------------------------------------
+    if op.tar_resid is not None:
+        for i in range(len(op.tar_resid)):
+            tt = op.tar_resid[i][0].split(',')[0]
+            mean_tmp = float(op.tar_resid[i][0].split(',')[1])
+            var_tmp = float(op.tar_resid[i][0].split(',')[2])        
+            assert tt in targets, "{} not among specified targets".format(tt)
+                    
+            prior_info['lambda_b0'][tt] = mean_tmp/var_tmp
+            prior_info['lambda_a0'][tt] = (mean_tmp**2)/var_tmp
+    
+    if op.coef is not None:
+        for i in range(len(op.coef)):
+            tt = op.coef[i][0].split(',')[0]
+            pp = op.coef[i][0].split(',')[1]
+            m = float(op.coef[i][0].split(',')[2])
+            s = float(op.coef[i][0].split(',')[3])
+    
+            assert tt in targets, "{} not among specified targets".format(tt)
+            assert pp in preds, "{} not among specified predictors".format(pp)        
+    
+            prior_info['w_mu0'][tt][pp] = m
+            prior_info['w_var0'][tt][pp] = s**2
+    
+    if op.coef_std is not None:
+        for i in range(len(op.coef_std)):
+            tt = op.coef_std[i][0].split(',')[0]
+            pp = op.coef_std[i][0].split(',')[1]
+            s = float(op.coef_std[i][0].split(',')[2])
+    
+            assert tt in targets, "{} not among specified targets".format(tt)
+            assert pp in preds, "{} not among specified predictors".format(pp)        
+    
+            prior_info['w_var0'][tt][pp] = s**2
+
+    #---------------------------------------------------------------------------
+    # Summarize prior info and save to file
+    #---------------------------------------------------------------------------        
+    print('---------- Prior Info ----------')
+    print('alpha: {:.2e}'.format(prior_info['alpha']))        
+    for tt in targets:
+        print(" ")
+        if prior_info['lambda_a0'][tt] is not None:
+            prec_mean = prior_info['lambda_a0'][tt]/\
+                prior_info['lambda_b0'][tt]
+            prec_var = prior_info['lambda_a0'][tt]/\
+                (prior_info['lambda_b0'][tt]**2)
+            print("{} residual (precision mean, precision variance): \
+            ({:.2e}, {:.2e})".format(tt, prec_mean, prec_var))
+        for pp in preds:
+            tmp_mean = prior_info['w_mu0'][tt][pp]
+            tmp_std = np.sqrt(prior_info['w_var0'][tt][pp])
+            print("{} {} (mean, std): ({:.2e}, {:.2e})".\
+                  format(tt, pp, tmp_mean, tmp_std))
+
+    if op.out_file is not None:                    
+        pickle.dump(prior_info, open(op.out_file, 'wb'))
+        desc = """ """
+        write_provenance_data(op.out_file, generator_args=op, desc=desc,
+                              module_name='bayes_traj')
+        
 if __name__ == "__main__":
     main()
     
