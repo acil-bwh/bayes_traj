@@ -2,7 +2,7 @@ from bayes_traj.mult_dp_regression import MultDPRegression
 import numpy as np
 import pandas as pd
 from bayes_traj.utils import *
-import pdb, os
+import pdb, os, pickle
 
 np.set_printoptions(precision = 10, suppress = True, threshold=1e6,
                     linewidth=300)
@@ -364,14 +364,158 @@ def test_predict_proba():
     #assert np.sum(np.isclose(R, R_ref)) == 6, "Unexpected R value"
 
 def test_init_traj_parmas():
-    D = 1
-    M = 2
-    K = 20    
-    w_mu0 = np.zeros([M, D])
-    w_var0 = np.ones([M, D])
-    lambda_a0 = np.ones(D)
-    lambda_b0 = np.ones(D)
+    data_file_name = os.path.split(os.path.realpath(__file__))[0] + \
+        '/../resources/data/trajectory_data_1.csv'
+    df = pd.read_csv(data_file_name)
+    
+    prior_file_name = os.path.split(os.path.realpath(__file__))[0] + \
+        '/../resources/priors/model_1_posterior.p'
+    prior_info = pickle.load(open(prior_file_name, 'rb'))
+
+    preds = get_pred_names_from_prior_info(prior_info)
+    targets = get_target_names_from_prior_info(prior_info)        
+
+    D = len(targets)
+    M = len(preds)
+    K = 20
+
     prec_prior_weight = 1
-    alpha = 5
-    mm = MultDPRegression(w_mu0, w_var0, lambda_a0, lambda_b0,
-                          prec_prior_weight, alpha, K)
+
+    prior_data = {}
+    prior_data['w_mu0'] = np.zeros([M, D])
+    prior_data['w_var0'] = np.ones([M, D])
+    prior_data['lambda_a0'] = np.ones([D])
+    prior_data['lambda_b0'] = np.ones([D])
+
+    prior_data['w_mu'] = np.zeros([M, D, K])
+    prior_data['w_var'] = np.ones([M, D, K])
+    prior_data['lambda_a'] = np.ones([D, K])
+    prior_data['lambda_b'] = np.ones([D, K])
+    
+    prior_data['alpha'] = prior_info['alpha']
+    for (d, target) in enumerate(targets):
+        prior_data['lambda_a0'][d] = prior_info['lambda_a0'][target]
+        prior_data['lambda_b0'][d] = prior_info['lambda_b0'][target]            
+        prior_data['lambda_a'][d, :] = prior_info['lambda_a'][target]
+        prior_data['lambda_b'][d, :] = prior_info['lambda_b'][target]        
+        for (m, pred) in enumerate(preds):
+            prior_data['w_mu0'][m, d] = prior_info['w_mu0'][target][pred]
+            prior_data['w_var0'][m, d] = prior_info['w_var0'][target][pred]
+            prior_data['w_mu'][m, d, :] = prior_info['w_mu'][pred][target]
+            prior_data['w_var'][m, d, :] = prior_info['w_var'][pred][target]
+
+    traj_probs = prior_info['traj_probs']
+    traj_probs_weight = 1.
+    v_a = prior_info['v_a']
+    v_b = prior_info['v_b']
+    w_mu = None
+    w_var = None
+    lambda_a = None
+    lambda_b = None
+    
+    mm = MultDPRegression(prior_data['w_mu0'], prior_data['w_var0'],
+                          prior_data['lambda_a0'], prior_data['lambda_b0'],
+                          prec_prior_weight, prior_data['alpha'], K)
+    mm.fit(target_names=targets, predictor_names=preds, df=df, groupby='id',
+           iters=0, verbose=True, traj_probs=traj_probs,
+           traj_probs_weight=traj_probs_weight,
+           v_a=prior_info['v_a'], v_b=prior_info['v_b'],
+           w_mu=prior_data['w_mu'], w_var=prior_data['w_var'],
+           lambda_a=prior_data['lambda_a'], lambda_b=prior_data['lambda_b'])
+
+    assert np.sum(mm.w_mu_[:, :, traj_probs > 0] == \
+                  prior_data['w_mu'][:, :, traj_probs > 0]) == 4, \
+                  "Trajs params not initialized properly"
+    
+    assert np.sum(prior_data['w_var'] == mm.w_var_) == 40, \
+        "Trajs params not initialized properly"
+
+    assert np.sum(prior_data['lambda_a'] == mm.lambda_a_) == 20, \
+        "Trajs params not initialized properly"
+
+    assert np.sum(prior_data['lambda_b'] == mm.lambda_b_) == 20, \
+        "Trajs params not initialized properly"    
+
+    assert np.sum(prior_info['v_a'] == mm.v_a_) == 20, \
+        "Trajs params not initialized properly"
+
+    assert np.sum(prior_info['v_b'] == mm.v_b_) == 20, \
+        "Trajs params not initialized properly"        
+    
+def test_init_R_mat():
+    data_file_name = os.path.split(os.path.realpath(__file__))[0] + \
+        '/../resources/data/trajectory_data_1.csv'
+    df = pd.read_csv(data_file_name)
+    
+    prior_file_name = os.path.split(os.path.realpath(__file__))[0] + \
+        '/../resources/priors/model_1_posterior.p'
+    prior_info = pickle.load(open(prior_file_name, 'rb'))
+
+    preds = get_pred_names_from_prior_info(prior_info)
+    targets = get_target_names_from_prior_info(prior_info)        
+
+    D = len(targets)
+    M = len(preds)
+    K = 20
+
+    prec_prior_weight = 1
+
+    prior_data = {}
+    prior_data['w_mu0'] = np.zeros([M, D])
+    prior_data['w_var0'] = np.ones([M, D])
+    prior_data['lambda_a0'] = np.ones([D])
+    prior_data['lambda_b0'] = np.ones([D])
+
+    prior_data['w_mu'] = np.zeros([M, D, K])
+    prior_data['w_var'] = np.ones([M, D, K])
+    prior_data['lambda_a'] = np.ones([D, K])
+    prior_data['lambda_b'] = np.ones([D, K])
+    
+    prior_data['alpha'] = prior_info['alpha']
+    for (d, target) in enumerate(targets):
+        prior_data['lambda_a0'][d] = prior_info['lambda_a0'][target]
+        prior_data['lambda_b0'][d] = prior_info['lambda_b0'][target]            
+        prior_data['lambda_a'][d, :] = prior_info['lambda_a'][target]
+        prior_data['lambda_b'][d, :] = prior_info['lambda_b'][target]        
+        for (m, pred) in enumerate(preds):
+            prior_data['w_mu0'][m, d] = prior_info['w_mu0'][target][pred]
+            prior_data['w_var0'][m, d] = prior_info['w_var0'][target][pred]
+            prior_data['w_mu'][m, d, :] = prior_info['w_mu'][pred][target]
+            prior_data['w_var'][m, d, :] = prior_info['w_var'][pred][target]
+
+    traj_probs = prior_info['traj_probs']
+    traj_probs_weight = 1.
+    v_a = prior_info['v_a']
+    v_b = prior_info['v_b']
+    w_mu = None
+    w_var = None
+    lambda_a = None
+    lambda_b = None
+    
+    mm = MultDPRegression(prior_data['w_mu0'], prior_data['w_var0'],
+                          prior_data['lambda_a0'], prior_data['lambda_b0'],
+                          prec_prior_weight, prior_data['alpha'], K)
+    mm.fit(target_names=targets, predictor_names=preds, df=df, groupby='id',
+           iters=0, verbose=True, traj_probs=traj_probs,
+           traj_probs_weight=traj_probs_weight,
+           v_a=prior_info['v_a'], v_b=prior_info['v_b'],
+           w_mu=prior_data['w_mu'], w_var=prior_data['w_var'],
+           lambda_a=prior_data['lambda_a'], lambda_b=prior_data['lambda_b'])
+
+    assert np.sum((traj_probs > 0) | (np.sum(mm.R_, 0) > 0)) == 2, \
+        "R_mat not initialized properly"
+    
+    mm.fit(target_names=targets, predictor_names=preds, df=df, groupby='id',
+           iters=0, verbose=True, traj_probs=traj_probs,
+           traj_probs_weight=0,
+           v_a=prior_info['v_a'], v_b=prior_info['v_b'],
+           w_mu=prior_data['w_mu'], w_var=prior_data['w_var'],
+           lambda_a=prior_data['lambda_a'], lambda_b=prior_data['lambda_b'])
+
+    # It's possible, thoush highly unlikely that the following sum is <=2. With
+    # traj_probs_weight set to 0, a number of initialized trajectories should
+    # have non-zero weight
+    assert np.sum((traj_probs > 0) | (np.sum(mm.R_, 0) > 0)) > 2, \
+        "R_mat may not be initialized properly"
+
+    
