@@ -111,6 +111,16 @@ class MultDPRegression:
             self.prec_prior_weight_ = args[4]
             self.alpha_ = args[5]
 
+            self.w_mu_ = None
+            self.w_var_ = None
+            self.lambda_a_ = None
+            self.lambda_b_ = None
+            self.v_a_ = None
+            self.v_b_ = None
+            self.R_ = None
+            self.gb_ = None
+            self.N_ = None
+            
             self.K_ = 10
             self.prob_thresh_ = 0.001
             if len(args) > 6:
@@ -408,7 +418,7 @@ class MultDPRegression:
             else:
                 self.target_type_[d] = 'gaussian'
         print("Initializing parameters...")
-        self.init_traj_params()
+        self.init_traj_params(traj_probs)
 
         # The prior over the residual precision can get overwhelmed by the
         # data -- so much so that residual precision posteriors can wind up
@@ -1114,8 +1124,24 @@ class MultDPRegression:
         
         return w_mu[:, :, top_indices]
         
-    def init_traj_params(self):
-        """Initializes trajectory parameters. 
+    def init_traj_params(self, traj_probs=None):
+        """Initializes trajectory parameters.
+
+        Parameters
+        ----------
+        traj_probs : array, shape ( K ), optional
+            A priori probabilitiey of each of the K trajectories. Each element 
+            must be >=0 and <= 1, and all elements must sum to one. Use of this
+            vector assumes that w_mu_, w_var_, lambda_a_, lambda_b_, v_a_, and
+            v_b_ have already been set (in the calling routine). These values
+            are assumed to come from a prior, which in turn was informed by some
+            previous model fit. The current function attempts to initialize 
+            w_mu_, w_var_, lambda_a_, and lambda_b_ with reasonable values. 
+            However, if these have already been set (in the calling routine), 
+            we want to use those values instead of the ones produced by this
+            function. If 'traj_probs' is 0 for any element, this function will
+            graft the values determined by the method implemented here onto
+            w_mu_, etc.
         """
         if self.w_var_ is None:
             self.w_var_ = np.zeros([self.M_, self.D_, self.K_])
@@ -1159,9 +1185,12 @@ class MultDPRegression:
                 w_mu_tmp = self.expand_mat(w_mu_tmp, m, d, cos)
                 if w_mu_tmp.shape[2] > self.K_:
                     w_mu_tmp = self.prune_coef_mat(w_mu_tmp)
-    
-        self.w_mu_ = w_mu_tmp
-                
+
+        if self.w_mu_ is None:
+            self.w_mu_ = w_mu_tmp
+        else:
+            self.w_mu_[:, :, traj_probs==0] = w_mu_tmp[:, :, traj_probs==0]
+        
         #-----------------------------------------------------------------------
         # Initialize xi if needed
         #-----------------------------------------------------------------------
@@ -1230,7 +1259,7 @@ class MultDPRegression:
         if np.sum(init_traj_probs) < 0.95:
             warnings.warn("Initial trajectory probabilities sum to {}. \
             Alpha may be too high.".format(np.sum(init_traj_probs)))
-        
+
         self.R_ = self.predict_proba_(self.X_, self.Y_, init_traj_probs)
 
     def predict_proba_(self, X, Y, traj_probs=None):
