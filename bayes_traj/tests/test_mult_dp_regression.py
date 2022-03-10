@@ -362,3 +362,16 @@ def test_predict_proba():
     #                  [0.5, 0.5],
     #                  [0.5, 0.5]])
     #assert np.sum(np.isclose(R, R_ref)) == 6, "Unexpected R value"
+
+def test_init_traj_parmas():
+    D = 1
+    M = 2
+    K = 20    
+    w_mu0 = np.zeros([M, D])
+    w_var0 = np.ones([M, D])
+    lambda_a0 = np.ones(D)
+    lambda_b0 = np.ones(D)
+    prec_prior_weight = 1
+    alpha = 5
+    mm = MultDPRegression(w_mu0, w_var0, lambda_a0, lambda_b0,
+                          prec_prior_weight, alpha, K)
