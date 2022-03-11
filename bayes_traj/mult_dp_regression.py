@@ -569,6 +569,11 @@ class MultDPRegression:
         # lie within -300, 300 to ensure that when we exponentiate we don't
         # have any overflow issues.
         rho_10 = ln_rho*np.log10(np.e)
+
+        # The following line ensures that once a trajectory has been assigned 0
+        # weight (which sig_trajs_ keeps track of), it won't be resurrected.
+        rho_10[:, ~self.sig_trajs_] = -sys.float_info.max
+        
         rho_10_shift = 10**((rho_10.T - max(rho_10, 1)).T + 300).clip(-300, 300)
         R = (rho_10_shift.T/sum(rho_10_shift, 1)).T
 
