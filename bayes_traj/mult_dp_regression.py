@@ -274,7 +274,7 @@ class MultDPRegression:
     def fit(self, target_names, predictor_names, df, groupby=None, iters=100,
             R=None, traj_probs=None, traj_probs_weight=None, v_a=None,
             v_b=None, w_mu=None, w_var=None, lambda_a=None, lambda_b=None,
-            verbose=False):
+            verbose=False, weights_only=False):
         """Performs variational inference (coordinate ascent or SVI) given data
         and provided parameters.
 
@@ -362,6 +362,17 @@ class MultDPRegression:
             be provided during optimization. This sum indicates how many data
             instances are being assigned to each of the K possible
             trajectories.
+
+        weights_only : bool, optional
+            If true, the fitting routine will be fored to only optimize the 
+            trajectory weights. The assumption is that the specified prior file 
+            contains previously modeled trajectory information, and that those 
+            trajectories should be used for the current fit. This option can be 
+            useful if a model learned from one cohort is applied to another 
+            cohort, where it is possible that the relative proportions of 
+            different trajectory subgroups differs. By using this flag, the 
+            proportions of previously determined trajectory subgroups will be 
+            determined for the current data set.
         """
         if traj_probs_weight is not None:
             assert traj_probs_weight >= 0 and traj_probs_weight <=1, \
@@ -442,11 +453,11 @@ class MultDPRegression:
         # Initialize the latent variables if needed
         if self.R_ is None:
             self.init_R_mat(traj_probs, traj_probs_weight)
-        
-        self.fit_coordinate_ascent(iters, verbose)
+
+        self.fit_coordinate_ascent(iters, verbose, weights_only)
 
         
-    def fit_coordinate_ascent(self, iters, verbose):
+    def fit_coordinate_ascent(self, iters, verbose, weights_only=False):
         """This function contains the iteratrion loop for mean-field 
         variational inference using coordinate ascent
 
@@ -460,6 +471,17 @@ class MultDPRegression:
             be provided during optimization. This sum indicates how many data
             instances are being assigned to each of the K possible
             trajectories.
+
+        weights_only : bool, optional
+            If true, the fitting routine will be fored to only optimize the 
+            trajectory weights. The assumption is that the specified prior file 
+            contains previously modeled trajectory information, and that those 
+            trajectories should be used for the current fit. This option can be 
+            useful if a model learned from one cohort is applied to another 
+            cohort, where it is possible that the relative proportions of 
+            different trajectory subgroups differs. By using this flag, the 
+            proportions of previously determined trajectory subgroups will be 
+            determined for the current data set.
         """
         inc = 0
         while inc < iters:
@@ -467,9 +489,10 @@ class MultDPRegression:
             self.update_v()
             if self.num_binary_targets_ > 0:
                 self.update_w_logistic(em_iters=1)
-            if self.D_ - self.num_binary_targets_ > 0:
+            if (self.D_ - self.num_binary_targets_ > 0) and \
+               (not weights_only):
                 self.update_w_gaussian()
-                self.update_lambda()
+                self.update_lambda() 
 
             self.R_ = self.update_z(self.X_, self.Y_)
             
@@ -1261,7 +1284,8 @@ class MultDPRegression:
             Alpha may be too high.".format(np.sum(init_traj_probs)))
 
         self.R_ = self.predict_proba_(self.X_, self.Y_, init_traj_probs)
-
+        self.sig_trajs_ = np.max(self.R_, 0) > self.prob_thresh_
+        
     def predict_proba_(self, X, Y, traj_probs=None):
         """Compute the probability that each data instance belongs to each of
         the 'k' clusters. Note that 'X' and 'Y' can be "new" data; that is,
