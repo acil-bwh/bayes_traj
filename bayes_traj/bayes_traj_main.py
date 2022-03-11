@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 from bayes_traj.mult_dp_regression import MultDPRegression
 from bayes_traj.prior_from_model import prior_from_model
-from bayes_traj.utils import sample_cos
+from bayes_traj.utils import *
 from bayes_traj.fit_stats import compute_waic2
 from provenance_tools.write_provenance_data import write_provenance_data
 import pdb, pickle, sys, warnings
@@ -23,9 +23,9 @@ def main():
     parser.add_argument('--in_csv', help='Input csv file containing data on \
         which to run Bayesian trajectory analysis', metavar='<string>',
         required=True)
-    parser.add_argument('--preds', help='Comma-separated list of predictor \
-        names. Must appear as column names of the input data file.',
-        dest='preds', metavar='<string>', required=True)
+#    parser.add_argument('--preds', help='Comma-separated list of predictor \
+#        names. Must appear as column names of the input data file.',
+#        dest='preds', metavar='<string>', required=True)
     parser.add_argument('--targets', help='Comma-separated list of target \
         names. Must appear as column names of the input data file.',
         dest='targets', metavar='<string>', required=True)
@@ -84,18 +84,28 @@ def main():
 #        action="store_true")
     parser.add_argument("--verbose", help="Display per-trajectory counts \
         during optimization", action="store_true")
-#    parser.add_argument('--probs_weight', help='Value between 0 and 1 that \
-#        controls how much weight to assign to traj_probs, the marginal \
-#        probability of observing each trajectory. This value is only meaningful \
-#        if traj_probs has been set in the input prior file. Otherwise, it has no \
-#        effect. Higher values place more weight on the model-derived probabilities \
-#        and reflect a stronger belief in those assignment probabilities.',
-#        dest='probs_weight', metavar='<float>', type=float, default=None)
+    parser.add_argument('--probs_weight', help='Value between 0 and 1 that \
+        controls how much weight to assign to traj_probs, the marginal \
+        probability of observing each trajectory. This value is only meaningful \
+        if traj_probs has been set in the input prior file. Otherwise, it has no \
+        effect. Higher values place more weight on the model-derived probabilities \
+        and reflect a stronger belief in those assignment probabilities.',
+        dest='probs_weight', metavar='<float>', type=float, default=None)
+    parser.add_argument('--weights_only', help='Setting this flag will force \
+        the fitting routine to only optimize the trajectory weights. The \
+        assumption is that the specified prior file contains previously \
+        modeled trajectory information, and that those trajectories should be \
+        used for the current fit. This option can be useful if a model \
+        learned from one cohort is applied to another cohort, where it is \
+        possible that the relative proportions of different trajectory \
+        subgroups differs. By using this flag, the proportions of previously \
+        determined trajectory subgroups will be determined for the current \
+        data set.', action='store_true')
     
     op = parser.parse_args()
     iters = int(op.iters)
     repeats = int(op.repeats)
-    preds =  op.preds.split(',')
+    #preds =  op.preds.split(',')
     targets = op.targets.split(',')
     in_csv = op.in_csv
     prior = op.prior
@@ -105,6 +115,88 @@ def main():
     if probs_weight is not None:
         assert probs_weight >=0 and probs_weight <= 1, \
             "Invalide probs_weight value"
+                        
+    #---------------------------------------------------------------------------
+    # Get priors from file
+    #---------------------------------------------------------------------------
+    print("Reading prior...")
+    with open(prior, 'rb') as f:
+        prior_file_info = pickle.load(f)
+
+        preds = get_pred_names_from_prior_info(prior_file_info)
+        
+        D = len(targets)
+        M = len(preds)
+        K = int(op.k)
+        
+        prior_data = {}
+        for i in ['v_a', 'v_b', 'w_mu', 'w_var', 'lambda_a', 'lambda_b',
+                  'traj_probs', 'probs_weight', 'w_mu0', 'w_var0', 'lambda_a0',
+                  'lambda_b0', 'alpha']:
+            prior_data[i] = None
+    
+        prior_data['probs_weight'] = None
+        prior_data['w_mu0'] = np.zeros([M, D])
+        prior_data['w_var0'] = np.ones([M, D])
+        prior_data['lambda_a0'] = np.ones([D])
+        prior_data['lambda_b0'] = np.ones([D])
+        prior_data['v_a'] = None
+        prior_data['v_b'] = None
+        prior_data['w_mu'] = None
+        prior_data['w_var'] = None
+        prior_data['lambda_a'] = None
+        prior_data['lambda_b'] = None
+        prior_data['traj_probs'] = None
+        
+        if 'v_a' in prior_file_info.keys():
+            prior_data['v_a'] = prior_file_info['v_a']
+            if prior_file_info['v_a'] is not None:
+                K = prior_file_info['v_a'].shape[0]
+                print("Using K={} (from prior)".format(K))
+        if 'v_b' in prior_file_info.keys():
+            prior_data['v_b'] = prior_file_info['v_b']            
+
+        if 'w_mu' in prior_file_info.keys():
+            if prior_file_info['w_mu'] is not None:
+                prior_data['w_mu'] = np.zeros([M, D, K])
+        if 'w_var' in prior_file_info.keys():
+            if prior_file_info['w_var'] is not None:
+                prior_data['w_var'] = np.ones([M, D, K])
+        if 'lambda_a' in prior_file_info.keys():
+            if prior_file_info['lambda_a'] is not None:
+                prior_data['lambda_a'] = np.ones([D, K])
+        if 'lambda_b' in prior_file_info.keys():
+            if prior_file_info['lambda_b'] is not None:
+                prior_data['lambda_b'] = np.ones([D, K])
+        if 'traj_probs' in prior_file_info.keys():
+            prior_data['traj_probs'] = prior_file_info['traj_probs']
+        
+        prior_data['alpha'] = prior_file_info['alpha']
+        for (d, target) in enumerate(op.targets.split(',')):
+            prior_data['lambda_a0'][d] = prior_file_info['lambda_a0'][target]
+            prior_data['lambda_b0'][d] = prior_file_info['lambda_b0'][target]            
+
+            if prior_data['lambda_a'] is not None:
+                prior_data['lambda_a'][d, :] = \
+                    prior_file_info['lambda_a'][target]
+            if prior_data['lambda_b'] is not None:
+                prior_data['lambda_b'][d, :] = \
+                    prior_file_info['lambda_b'][target]
+            
+            for (m, pred) in enumerate(preds):
+                prior_data['w_mu0'][m, d] = \
+                    prior_file_info['w_mu0'][target][pred]
+                prior_data['w_var0'][m, d] = \
+                    prior_file_info['w_var0'][target][pred]
+                if prior_data['w_mu'] is not None:
+                    prior_data['w_mu'][m, d, :] = \
+                        prior_file_info['w_mu'][pred][target]
+                if prior_data['w_var'] is not None:
+                    prior_data['w_var'][m, d, :] = \
+                        prior_file_info['w_var'][pred][target]
+                
+    if op.alpha is not None:
+        prior_data['alpha'] = float(op.alpha)
 
     print("Reading data...")
     df = pd.read_csv(in_csv)
@@ -113,50 +205,6 @@ def main():
         print("Warning: identified NaNs in predictor set. \
         Proceeding with non-NaN data")
         df = df.dropna(subset=preds).reset_index()
-        
-    D = len(targets)
-    M = len(preds)
-    K = int(op.k)
-                    
-    prior_data = {}
-    for i in ['v_a', 'v_b', 'w_mu', 'w_var', 'lambda_a', 'lambda_b',
-              'traj_probs', 'probs_weight', 'w_mu0', 'w_var0', 'lambda_a0',
-              'lambda_b0', 'alpha']:
-        prior_data[i] = None
-    
-    prior_data['probs_weight'] = None
-    prior_data['w_mu0'] = np.zeros([M, D])
-    prior_data['w_var0'] = np.ones([M, D])
-    prior_data['lambda_a0'] = np.ones([D])
-    prior_data['lambda_b0'] = np.ones([D])
-    prior_data['v_a'] = None
-    prior_data['v_b'] = None
-    prior_data['w_mu'] = None
-    prior_data['w_var'] = None
-    prior_data['lambda_a'] = None
-    prior_data['lambda_b'] = None
-    prior_data['traj_probs'] = None
-    
-    #---------------------------------------------------------------------------
-    # Get priors from file
-    #---------------------------------------------------------------------------
-    print("Reading prior...")
-    with open(prior, 'rb') as f:
-        prior_file_info = pickle.load(f)
-    
-        prior_data['alpha'] = prior_file_info['alpha']
-        for (d, target) in enumerate(op.targets.split(',')):
-            prior_data['lambda_a0'][d] = prior_file_info['lambda_a0'][target]
-            prior_data['lambda_b0'][d] = prior_file_info['lambda_b0'][target]            
-                
-            for (m, pred) in enumerate(op.preds.split(',')):
-                prior_data['w_mu0'][m, d] = \
-                    prior_file_info['w_mu0'][target][pred]
-                prior_data['w_var0'][m, d] = \
-                    prior_file_info['w_var0'][target][pred] 
-        
-    if op.alpha is not None:
-        prior_data['alpha'] = float(op.alpha)
         
     #---------------------------------------------------------------------------
     # Set up and run the traj alg
@@ -178,15 +226,15 @@ def main():
                               prior_data['lambda_a0'], prior_data['lambda_b0'],
                               op.prec_prior_weight, prior_data['alpha'], K=K,
                               prob_thresh=op.prob_thresh)
-    
+
         mm.fit(target_names=targets, predictor_names=preds, df=df,
                groupby=op.groupby, iters=iters, verbose=op.verbose,           
                traj_probs=prior_data['traj_probs'],
-               traj_probs_weight=prior_data['probs_weight'],
+               traj_probs_weight=op.probs_weight,
                v_a=prior_data['v_a'], v_b=prior_data['v_b'],
                w_mu=prior_data['w_mu'], w_var=prior_data['w_var'],
                lambda_a=prior_data['lambda_a'],
-               lambda_b=prior_data['lambda_b'])
+               lambda_b=prior_data['lambda_b'], weights_only=op.weights_only)
 
         if r == 0:
             if op.out_model is not None:
