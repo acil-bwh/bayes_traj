@@ -1175,6 +1175,16 @@ class MultDPRegression:
             self.w_var_ = np.zeros([self.M_, self.D_, self.K_])
             for k in range(self.K_):
                 self.w_var_[:, :, k] = np.array(self.w_var0_)
+
+        if np.isnan(np.sum(self.w_var_)):
+            for kk in range(self.K_):
+                ids = np.isnan(self.w_var_[:, :, kk])
+                if np.sum(ids) > 0:
+                    self.w_var_[:, :, kk][ids] =self.w_var0_[ids]
+
+        if np.isnan(np.sum(self.w_mu_)):
+            ids = np.isnan(self.w_mu_)
+            self.w_mu_[ids] = 0
             
         if self.lambda_a_ is None and self.lambda_b_ is None:
             if self.gb_ is not None:
@@ -1188,6 +1198,15 @@ class MultDPRegression:
                 scale = 1./self.lambda_b0_[d]
                 shape = self.lambda_a0_[d]                                
                 self.lambda_a_[d, :] *= gamma(shape, scale, size=self.K_)
+
+        if np.isnan(np.sum(self.lambda_a_)):
+            for dd in range(self.D_):
+                for kk in range(self.K_):
+                    if np.isnan(self.lambda_a_[dd, kk]):
+                        self.lambda_b_[dd, kk] = 1
+                        scale = 1./self.lambda_b0_[dd]
+                        shape = self.lambda_a0_[dd]                     
+                        self.lambda_a_[dd, kk] = gamma(shape, scale, size=1)
 
         w_mu_tmp = np.zeros([self.M_, self.D_, 1])
         w_mu_tmp[:, :, 0] = self.w_mu0_
