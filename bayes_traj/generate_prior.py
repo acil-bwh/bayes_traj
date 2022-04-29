@@ -344,9 +344,18 @@ class PriorGenerator:
             gamma_var = \
                 (np.max(np.abs(gamma_means[np.where(self.mm_.sig_trajs_)[0]] - \
                                gamma_mean))/2.5)**2
-
-            self.prior_info_['lambda_b0'][target] = gamma_mean/gamma_var
-            self.prior_info_['lambda_a0'][target] = gamma_mean**2/gamma_var
+            if gamma_var > 0:
+                self.prior_info_['lambda_b0'][target] = gamma_mean/gamma_var
+                self.prior_info_['lambda_a0'][target] = gamma_mean**2/gamma_var
+            else:
+                # If we're here, all trajectories have the exact same residual
+                # variance, so gamma_var = 0. In this case, we can just set the
+                # prior to be equal to the residual variance of any one
+                # trajectory (as they are all the same)
+                self.prior_info_['lambda_b0'][target] = \
+                    self.mm_.lambda_b_[target_index][0]
+                self.prior_info_['lambda_a0'][target] = \
+                    self.mm_.lambda_a_[target_index][0]
         else:
             # If we're here, there is only one trajectory
             self.prior_info_['lambda_a0'][target] = \
