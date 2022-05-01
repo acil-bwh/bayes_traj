@@ -34,15 +34,30 @@ def main():
         also contain columns with the traj_ prefix, followed by a numer. These \
         columns contain the probability of assignment to the corresponding \
         trajectory.', type=str, default=None)
+    args.add_argument('--traj_map', help='The default trajectory numbering \
+        scheme is somewhat arbitrary. Use this flag to provide a mapping \
+        between the defualt trajectory numbers and a desired numbering scheme. \
+        Provide as a comma-separated list of hyphenated mappings. \
+        E.g.: 3-1,18-2,7-3 would indicate a mapping from 3 to 1, from 18 to 2, \
+        and from 7 to 3. Original trajectory values not used in the mapping \
+        will be reassigned to NaNs ', type=str, default=None)        
 
     op = args.parse_args()
-
+    
     print("Reading data...")
     df = pd.read_csv(op.in_csv)
 
     print("Reading model...")
     mm = pickle.load(open(op.model, 'rb'))['MultDPRegression']
 
+    traj_map = {}
+    if op.traj_map is not None:
+        for ii in op.traj_map.split(','):
+            traj_map[int(ii.split('-')[0])] = int(ii.split('-')[1])
+    else:
+        for ii in np.where(mm.sig_trajs_)[0]:
+            traj_map[ii] = ii
+    
     print("Assigning...")
     groupby_col = None
     if op.gb is not None:
@@ -52,7 +67,8 @@ def main():
         
     df_out = mm.augment_df_with_traj_info(mm.target_names_,
         mm.predictor_names_, df, groupby_col)
-
+    df_out.replace({'traj': traj_map}, inplace=True)
+    
     if op.out_csv is not None:
         print("Saving data with trajectory info...")
         df_out.to_csv(op.out_csv, index=False)
