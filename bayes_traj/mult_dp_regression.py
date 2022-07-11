@@ -1171,6 +1171,7 @@ class MultDPRegression:
             graft the values determined by the method implemented here onto
             w_mu_, etc.
         """
+        
         if self.w_var_ is None:
             self.w_var_ = np.zeros([self.M_, self.D_, self.K_])
             for k in range(self.K_):
@@ -1182,9 +1183,10 @@ class MultDPRegression:
                 if np.sum(ids) > 0:
                     self.w_var_[:, :, kk][ids] =self.w_var0_[ids]
 
-        if np.isnan(np.sum(self.w_mu_)):
-            ids = np.isnan(self.w_mu_)
-            self.w_mu_[ids] = 0
+        if self.w_mu_ is not None:
+            if np.isnan(np.sum(self.w_mu_)):
+                ids = np.isnan(self.w_mu_)
+                self.w_mu_[ids] = 0
             
         if self.lambda_a_ is None and self.lambda_b_ is None:
             if self.gb_ is not None:
