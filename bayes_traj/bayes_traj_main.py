@@ -218,23 +218,31 @@ def main():
     best_bics = (bic_thresh, bic_thresh)
 
     print("Fitting...")
-    for r in np.arange(repeats):
+    for r in np.arange(repeats):        
         if r > 0:
             print("---------- Repeat {}, Best WAIC2: {} ----------".\
                   format(r, best_waic2))
-        mm = MultDPRegression(prior_data['w_mu0'], prior_data['w_var0'],
-                              prior_data['lambda_a0'], prior_data['lambda_b0'],
-                              op.prec_prior_weight, prior_data['alpha'], K=K,
+
+        
+        mm = MultDPRegression(prior_data['w_mu0'],
+                              prior_data['w_var0'],
+                              prior_data['lambda_a0'],
+                              prior_data['lambda_b0'],
+                              op.prec_prior_weight,
+                              prior_data['alpha'], K=K,
                               prob_thresh=op.prob_thresh)
 
         mm.fit(target_names=targets, predictor_names=preds, df=df,
                groupby=op.groupby, iters=iters, verbose=op.verbose,           
                traj_probs=prior_data['traj_probs'],
                traj_probs_weight=op.probs_weight,
-               v_a=prior_data['v_a'], v_b=prior_data['v_b'],
-               w_mu=prior_data['w_mu'], w_var=prior_data['w_var'],
+               v_a=prior_data['v_a'],
+               v_b=prior_data['v_b'],
+               w_mu=prior_data['w_mu'],
+               w_var=prior_data['w_var'],
                lambda_a=prior_data['lambda_a'],
-               lambda_b=prior_data['lambda_b'], weights_only=op.weights_only)
+               lambda_b=prior_data['lambda_b'],
+               weights_only=op.weights_only)
 
         if r == 0:
             if op.out_model is not None:
@@ -246,7 +254,7 @@ def main():
                 write_provenance_data(op.out_model, generator_args=op,
                                       desc=provenance_desc,
                                       module_name='bayes_traj')
-    
+
             if op.out_csv is not None:
                 print("Saving data file with trajectory info...")
                 mm.to_df().to_csv(op.out_csv, index=False)
@@ -263,7 +271,7 @@ def main():
             waic2 = compute_waic2(mm)
             if waic2 < best_waic2:
                 best_waic2 = waic2
-
+        
                 if op.out_model is not None:
                     print("Saving model...")
                     pickle.dump({'MultDPRegression': mm},
@@ -274,7 +282,7 @@ def main():
                     write_provenance_data(op.out_model, generator_args=op,
                                           desc=provenance_desc,
                                           module_name='bayes_traj')
-        
+
                 if op.out_csv is not None:
                     print("Saving data file with trajectory info...")
                     mm.to_df().to_csv(op.out_csv, index=False)

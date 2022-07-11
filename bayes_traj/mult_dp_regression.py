@@ -104,10 +104,10 @@ class MultDPRegression:
         if len(args) == 1 and len(kwargs.keys()) == 0:
             self.copy(args[0])
         else:
-            self.w_mu0_ = args[0]
-            self.w_var0_ = args[1]
-            self.lambda_a0_ = args[2]
-            self.lambda_b0_ = args[3]
+            self.w_mu0_ = np.copy(args[0])
+            self.w_var0_ = np.copy(args[1])
+            self.lambda_a0_ = np.copy(args[2])
+            self.lambda_b0_ = np.copy(args[3])
             self.prec_prior_weight_ = args[4]
             self.alpha_ = args[5]
 
