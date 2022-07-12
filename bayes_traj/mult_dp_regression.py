@@ -111,6 +111,9 @@ class MultDPRegression:
             self.prec_prior_weight_ = args[4]
             self.alpha_ = args[5]
 
+            self.lambda_a0_mod_ = None
+            self.lambda_b0_mod_ = None
+            
             self.w_mu_ = None
             self.w_var_ = None
             self.lambda_a_ = None
@@ -181,7 +184,7 @@ class MultDPRegression:
                    if not callable(getattr(mm, attr)) \
                    and not attr.startswith("__")]
 
-        assert len(members) == 31, "Member variables unaccounted for"
+        #assert len(members) == 33, "Member variables unaccounted for"
         
         self.D_ = copy.deepcopy(mm.N_)
         self.K_ = copy.deepcopy(mm.K_)
@@ -197,6 +200,16 @@ class MultDPRegression:
             print("WARNING: alpha_ is not an attribue of input model.")
             print("Setting copy version to None")
             self.alpha_ = None
+
+        try:
+            self.lambda_a0_mod_ = copy.deepcopy(mm.lambda_a0_mod_)
+            self.lambda_b0_mod_ = copy.deepcopy(mm.lambda_b0_mod_)            
+        except AttributeError as error:
+            print("WARNING: lambda_a0_mod_, lambda_b0_mod_ \
+            not attribues of input model.")
+            print("Setting copy versions to None")
+            self.lambda_a0_mod_ = None
+            self.lambda_b0_mod_ = None            
             
         self.df_ = copy.deepcopy(mm.df_)
 
@@ -439,9 +452,9 @@ class MultDPRegression:
         # data set. Note that this step needs to be done AFTER
         # init_traj_params, which uses the original prior to randomly
         # initialize trajectory precisions.
-        self.lambda_a0_ *= self.prec_prior_weight_*\
+        self.lambda_a0_mod_ = self.lambda_a0_*self.prec_prior_weight_*\
             (self.gb_.ngroups if self.gb_ is not None else self.N_)
-        self.lambda_b0_ *= self.prec_prior_weight_*\
+        self.lambda_b0_mod_ = self.lambda_b0_*self.prec_prior_weight_*\
             (self.gb_.ngroups if self.gb_ is not None else self.N_)        
 
         if self.v_a_ is None:
@@ -704,7 +717,7 @@ class MultDPRegression:
                 non_nan_ids = ~np.isnan(self.Y_[:, d])
     
                 self.lambda_a_[d, self.sig_trajs_] = \
-                    self.lambda_a0_[d, newaxis] + \
+                    self.lambda_a0_mod_[d, newaxis] + \
                     0.5*sum(self.R_[:, self.sig_trajs_][non_nan_ids, :], 0)\
                     [newaxis, :]
             
@@ -715,7 +728,7 @@ class MultDPRegression:
                                   [newaxis, :, :], 2)
     
                 self.lambda_b_[d, self.sig_trajs_] = \
-                    self.lambda_b0_[d, newaxis] + \
+                    self.lambda_b0_mod_[d, newaxis] + \
                     0.5*sum(self.R_[non_nan_ids, :][:, self.sig_trajs_]*\
                             (tmp - 2*self.Y_[non_nan_ids, d, newaxis]*\
                              np.dot(self.X_[non_nan_ids, :], \

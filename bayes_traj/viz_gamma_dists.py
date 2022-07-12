@@ -47,11 +47,14 @@ def main():
     
         target_index = np.where(np.array(mm.target_names_) == target)[0][0]
 
-        prec_prior_scale = mm.prec_prior_weight_*\
-            (mm.gb_.ngroups if mm.gb_ is not None else mm.N_)
+        #prec_prior_scale = mm.prec_prior_weight_*\
+        #    (mm.gb_.ngroups if mm.gb_ is not None else mm.N_)
         
-        lambda_a0 = mm.lambda_a0_[target_index]/prec_prior_scale
-        lambda_b0 = mm.lambda_b0_[target_index]/prec_prior_scale
+        #lambda_a0 = mm.lambda_a0_[target_index]/prec_prior_scale
+        #lambda_b0 = mm.lambda_b0_[target_index]/prec_prior_scale
+
+        lambda_a0 = mm.lambda_a0_[target_index]
+        lambda_b0 = mm.lambda_b0_[target_index]
         
         m = lambda_a0/lambda_b0
         v = lambda_a0/(lambda_b0**2)
