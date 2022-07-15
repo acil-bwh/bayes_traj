@@ -52,6 +52,8 @@ def main():
 
     traj_map = {}
     if op.traj_map is not None:
+        for ii in np.where(mm.sig_trajs_)[0]:
+            traj_map[ii] = np.nan
         for ii in op.traj_map.split(','):
             traj_map[int(ii.split('-')[0])] = int(ii.split('-')[1])
     else:
