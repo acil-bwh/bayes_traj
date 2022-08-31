@@ -82,8 +82,8 @@ def main():
                 edgecolor='k', alpha=0.2)
     
     num_dom_locs = 100
-    x_dom = np.linspace(np.min(df[op.x_axis].values), \
-                        np.max(df[op.x_axis].values), num_dom_locs)
+    x_dom = np.linspace(np.nanmin(df[op.x_axis].values), \
+                        np.nanmax(df[op.x_axis].values), num_dom_locs)
     
     for nn in range(op.num_draws):
         target_index = np.where(np.array(targets) == op.y_axis)[0][0]
