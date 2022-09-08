@@ -41,7 +41,9 @@ def main():
         E.g.: 3-1,18-2,7-3 would indicate a mapping from 3 to 1, from 18 to 2, \
         and from 7 to 3. Only the default trajectories in the mapping will be \
         plotted. If this flag is specified, it will override --trajs', type=str,
-        default=None)    
+        default=None)
+    parser.add_argument('--ylim', help='Comma-separated tuple to set the \
+        limits of display for the y-axis', type=str, default=None)        
     
     op = parser.parse_args()
 
@@ -69,7 +71,11 @@ def main():
             ax = mm.plot(op.x_axis, op.y_axis, op.x_label, op.y_label,
                          show=show, min_traj_prob=op.min_traj_prob,
                          max_traj_prob=op.max_traj_prob, traj_map=traj_map)
-        
+            
+        if op.ylim is not None:
+            plt.ylim(float(op.ylim.strip('--').split(',')[0]),
+                     float(op.ylim.strip('--').split(',')[1]))
+            
         if op.fig_file is not None:
             print("Saving figure...")
             plt.savefig(op.fig_file)
