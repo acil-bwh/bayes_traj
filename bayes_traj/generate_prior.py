@@ -87,7 +87,7 @@ class PriorGenerator:
                 #self.prior_info_['w_mu'][tt][pp] = None
                 #self.prior_info_['w_var'][tt][pp] = None
 
-    def set_model(self, mm):
+    def set_model(self, mm, model_trajs=None):
         """Sets input model. Once set, a data frame corresponding to the model
         will be computed and set as well.
 
@@ -95,12 +95,25 @@ class PriorGenerator:
         ----------
         mm : MultDPRegression instance
             Input model
+
+        model_trajs : array, optional
+            Array of integers indicating which trajectories to use for creating
+            the prior. If None, all model trajectories with non-zero probability
+            will be considered.
         """
         self.mm_ = mm
 
         # The following are independent of the targets and predictors
         self.K_ = mm.K_
-        self.prior_info_['traj_probs'] = self.mm_.get_traj_probs()
+
+        if model_trajs is not None:
+            self.prior_info_['traj_probs'] = np.zeros(self.K_)
+            self.prior_info_['traj_probs'][model_trajs] = \
+                self.mm_.get_traj_probs()[model_trajs]/\
+                np.sum(self.mm_.get_traj_probs()[model_trajs])            
+        else:         
+            self.prior_info_['traj_probs'] = self.mm_.get_traj_probs()
+            
         self.prior_info_['v_a'] = self.mm_.v_a_
         self.prior_info_['v_b'] = self.mm_.v_b_
     
@@ -303,7 +316,7 @@ class PriorGenerator:
         target_index = np.where(np.array(self.mm_.target_names_) == \
                                 target)[0][0]
         
-        probs = self.mm_.get_traj_probs()
+        probs = self.prior_info_['traj_probs']
         for m in self.preds_:
             pred_index = \
                 np.where(np.array(self.mm_.predictor_names_) == m)[0][0]
@@ -779,12 +792,12 @@ def main():
     parser.add_argument('--model', help='Pickled bayes_traj model that \
         has been fit to data and from which information will be extracted to \
         produce an updated prior file', type=str, default=None)
-#    parser.add_argument('--model_trajs', help='Comma-separated list of integers \
-#        indicating which trajectories to use from the specified model. If a model \
-#        is not specified, the values specified with this flag will be ignored. If \
-#        a model is specified, and specific trajectories are not specified with \
-#        this flag, then all trajectories will be used to inform the prior', \
-#        default=None)
+    parser.add_argument('--model_trajs', help='Comma-separated list of integers \
+        indicating which trajectories to use from the specified model. If a model \
+        is not specified, the values specified with this flag will be ignored. If \
+        a model is specified, and specific trajectories are not specified with \
+        this flag, then all trajectories will be used to inform the prior', \
+        default=None)
     parser.add_argument('--groupby', help='Column name in input data file \
         indicating those data instances that must be in the same trajectory. This \
         is typically a subject identifier (e.g. in the case of a longitudinal data \
@@ -817,7 +830,11 @@ def main():
         with open(op.model, 'rb') as f:
             print("Reading model...")
             mm = pickle.load(f)['MultDPRegression']
-            pg.set_model(mm)
+            if op.model_trajs is not None:
+                pg.set_model(mm, \
+                    np.array(op.model_trajs.split(','), dtype='int'))
+            else:
+                pg.set_model(mm)                    
 
     if op.in_data is not None:
         print("Reading data...")
