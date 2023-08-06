@@ -2079,23 +2079,24 @@ class MultDPRegression:
         #vec = torch.Tensor([torch.prod(one_tmp[0:k])*tmp[k] for k in range(self.K_)])
     
         # Each trajectory gets equal weight
-        vec = torch.ones(self.K_)/self.K_
+        vec = (torch.ones(self.K_)/self.K_).double()
     
         if (traj_probs is None and traj_probs_weight is not None) or \
            (traj_probs_weight is None and traj_probs is not None):
             warnings.warn('Both traj_probs and traj_probs_weight \
             should be None or non-None')
-    
+
         if traj_probs is not None and traj_probs_weight is not None:
             assert traj_probs_weight >= 0 and traj_probs_weight <= 1, \
                 "Invalid traj_probs_weight"
-            assert torch.isclose(torch.sum(traj_probs), torch.tensor(1.)), \
+            assert torch.isclose(torch.sum(traj_probs),
+                                 torch.tensor(1.).double()), \
                 "Invalid traj_probs"
             init_traj_probs = traj_probs_weight*traj_probs + \
                 (1-traj_probs_weight)*vec
         else:
             init_traj_probs = vec
-    
+
         if torch.sum(init_traj_probs) < 0.95:
             warnings.warn("Initial trajectory probabilities sum to {}. \
             Alpha may be too high.".format(torch.sum(init_traj_probs)))

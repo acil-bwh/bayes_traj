@@ -1,3 +1,4 @@
+import torch
 from bayes_traj.mult_dp_regression import MultDPRegression
 import numpy as np
 import pandas as pd
@@ -256,21 +257,23 @@ def test_init_R_mat():
     y2 = m2*x + b2 + std2*np.random.randn(num_per_traj)
     y3 = m3*x + b3 + std3*np.random.randn(num_per_traj)
 
-    X_mat = np.ones([num_per_traj*3, 2])
-    X_mat[:, 1] = np.vstack([x, x, x]).reshape(-1)
-    Y_mat = np.atleast_2d(np.vstack([y1, y2, y3]).reshape(-1)).T
+    X_mat = torch.ones([num_per_traj*3, 2]).double()
+    X_mat[:, 1] = torch.from_numpy(np.vstack([x, x, x]).reshape(-1)).double()
+    Y_mat = torch.from_numpy(np.atleast_2d(\
+            np.vstack([y1, y2, y3]).reshape(-1)).T).double()
     
     M = X_mat.shape[1]
     D = Y_mat.shape[1]
     N = Y_mat.shape[0]
     
-    w_mu0 = np.zeros([M, D])
-    w_var0 = np.ones([M, D])
-    lambda_a0 = np.ones(D)
-    lambda_b0 = np.ones(D)
+    w_mu0 = torch.zeros([M, D]).double()
+    w_var0 = torch.ones([M, D]).double()
+    lambda_a0 = torch.ones(D).double()
+    lambda_b0 = torch.ones(D).double()
     prec_prior_weight = 1
     alpha = 5
     K = 30
+
     mm = MultDPRegression(w_mu0, w_var0, lambda_a0, lambda_b0,
                           prec_prior_weight, alpha, K)
 
@@ -278,13 +281,13 @@ def test_init_R_mat():
     mm.target_type_[0] = 'gaussian'
     mm.target_type_[1] = 'gaussian'
     mm.gb_ = None
-    lambda_a = np.ones([D, K])
-    lambda_b = np.ones([D, K])
-    w_mu = np.zeros([M, D, K])
-    w_mu[:, 0, 0] = np.array([b1, m1])
-    w_mu[:, 0, 1] = np.array([b2, m2])
-    w_mu[:, 0, 2] = np.array([b3, m3])    
-    w_var = np.ones([M, D, K])
+    lambda_a = torch.ones([D, K]).double()
+    lambda_b = torch.ones([D, K]).double()
+    w_mu = torch.zeros([M, D, K]).double()
+    w_mu[:, 0, 0] = torch.tensor([b1, m1]).double()
+    w_mu[:, 0, 1] = torch.tensor([b2, m2]).double()
+    w_mu[:, 0, 2] = torch.tensor([b3, m3]).double()
+    w_var = torch.ones([M, D, K]).double()
     for d in range(D):
         lambda_a[d, :] = lambda_a0[d]
         lambda_b[d, :] = lambda_b0[d]
@@ -302,18 +305,18 @@ def test_init_R_mat():
     mm.N_ = N
     mm.X_ = X_mat
     mm.Y_ = Y_mat
-    traj_probs = np.zeros(K)
+    traj_probs = torch.zeros(K).double()
     traj_probs[0] = .25
     traj_probs[1] = .25
     traj_probs[2] = .25
     traj_probs[3] = .25    
 
     mm.init_R_mat(traj_probs, traj_probs_weight=1)
-    assert np.sum(np.isclose(np.ones(K), np.sum(mm.R_, 1))) == K, \
+    assert np.sum(np.isclose(np.ones(K), torch.sum(mm.R_, 1).numpy())) == K, \
         "Unexpected R_ sum"
 
-    traj_assignments = np.array([np.where(mm.R_[i, :] == \
-        np.max(mm.R_[i, :]))[0][0] for i in range(N)])
+    traj_assignments = np.array([np.where(mm.R_[i, :].numpy() == \
+            np.max(mm.R_[i, :].numpy()))[0][0] for i in range(N)])
     assert np.sum(traj_assignments == \
                   np.array([0]*10 + [1]*10 + [2]*10)) == 30, \
                   "Unexpected trajectory assignments"
@@ -441,7 +444,7 @@ def test_init_traj_parmas():
     assert np.sum(prior_info['v_b'] == mm.v_b_) == 20, \
         "Trajs params not initialized properly"        
     
-def test_init_R_mat():
+def test_init_R_mat_2():
     data_file_name = os.path.split(os.path.realpath(__file__))[0] + \
         '/../resources/data/trajectory_data_1.csv'
     df = pd.read_csv(data_file_name)
