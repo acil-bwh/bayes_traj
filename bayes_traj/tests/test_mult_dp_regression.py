@@ -365,7 +365,7 @@ def test_predict_proba():
     #                  [0.5, 0.5]])
     #assert np.sum(np.isclose(R, R_ref)) == 6, "Unexpected R value"
 
-def test_init_traj_parmas():
+def test_init_traj_params():
     data_file_name = os.path.split(os.path.realpath(__file__))[0] + \
         '/../resources/data/trajectory_data_1.csv'
     df = pd.read_csv(data_file_name)
@@ -414,10 +414,11 @@ def test_init_traj_parmas():
     w_var = None
     lambda_a = None
     lambda_b = None
-    
+
     mm = MultDPRegression(prior_data['w_mu0'], prior_data['w_var0'],
                           prior_data['lambda_a0'], prior_data['lambda_b0'],
                           prec_prior_weight, prior_data['alpha'], K)
+
     mm.fit(target_names=targets, predictor_names=preds, df=df, groupby='id',
            iters=0, verbose=True, traj_probs=traj_probs,
            traj_probs_weight=traj_probs_weight,
@@ -425,23 +426,23 @@ def test_init_traj_parmas():
            w_mu=prior_data['w_mu'], w_var=prior_data['w_var'],
            lambda_a=prior_data['lambda_a'], lambda_b=prior_data['lambda_b'])
 
-    assert np.sum(mm.w_mu_[:, :, traj_probs > 0] == \
+    assert np.sum((mm.w_mu_).numpy()[:, :, traj_probs > 0] == \
                   prior_data['w_mu'][:, :, traj_probs > 0]) == 4, \
                   "Trajs params not initialized properly"
-    
-    assert np.sum(prior_data['w_var'] == mm.w_var_) == 40, \
+
+    assert np.sum(prior_data['w_var'] == (mm.w_var_).numpy()) == 40, \
         "Trajs params not initialized properly"
 
-    assert np.sum(prior_data['lambda_a'] == mm.lambda_a_) == 20, \
+    assert np.sum(prior_data['lambda_a'] == (mm.lambda_a_).numpy()) == 20, \
         "Trajs params not initialized properly"
 
-    assert np.sum(prior_data['lambda_b'] == mm.lambda_b_) == 20, \
+    assert np.sum(prior_data['lambda_b'] == (mm.lambda_b_).numpy()) == 20, \
         "Trajs params not initialized properly"    
 
-    assert np.sum(prior_info['v_a'] == mm.v_a_) == 20, \
+    assert np.sum(prior_info['v_a'] == (mm.v_a_).numpy()) == 20, \
         "Trajs params not initialized properly"
 
-    assert np.sum(prior_info['v_b'] == mm.v_b_) == 20, \
+    assert np.sum(prior_info['v_b'] == (mm.v_b_).numpy()) == 20, \
         "Trajs params not initialized properly"        
     
 def test_init_R_mat_2():

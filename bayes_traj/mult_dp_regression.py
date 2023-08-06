@@ -333,7 +333,7 @@ class MultDPRegression:
         iters : int, optional
             Number of variational inference iterations to run. 
 
-        R : torch tensor, shape ( N, K ), optional
+        R : array, shape ( N, K ), optional
             Each element of this matrix represents the posterior probability
             that instance 'n' belongs to cluster 'k'. If specified, the
             algorithm will be initialized with this matrix, otherwise a default
@@ -341,7 +341,7 @@ class MultDPRegression:
             value is also specified, this matrix will be combined with a 
             randomly generated matrix in a weighted fashion.
 
-        traj_probs : torch tensor, shape ( K ), optional
+        traj_probs : array, shape ( K ), optional
             A priori probabilitiey of each of the K trajectories. Each element 
             must be >=0 and <= 1, and all elements must sum to one.
 
@@ -352,40 +352,40 @@ class MultDPRegression:
             specified, it will be assumed equal to 1. If R is not specified, 
             traj_probs_weightd has no effect.
 
-        v_a : torch tensor, shape ( K, 1 ), optional
+        v_a : array, shape ( K, 1 ), optional
             For each of the 'K' elements in the truncated DP, this is the first
             parameter of posterior Beta distribution describing the latent
             vector, 'v', which is involved in the stick-breaking construction
             of the DP. If specified, the algorithm will be initialized with this
             vector.
 
-        v_b : torch tensor, shape ( K, 1 ), optional
+        v_b : array, shape ( K, 1 ), optional
             For each of the 'K' elements in the truncated DP, this is the second
             parameter of posterior Beta distribution describing the latent
             vector, 'v', which is involved in the stick-breaking construction
             of the DP. If specified, the algorithm will be initialized with this
             vector.
 
-        w_mu : torch tensor, shape ( M, D, K ), optional
+        w_mu : array, shape ( M, D, K ), optional
             The posterior means of the Normal distributions describing each of
             the predictor coefficients, for each dimension of the proportion
             vector, for each of the 'K' components. If specified, the algorithm
             will be initialized with this matrix.
 
-        w_var : torch tensor, shape ( M, D, K ), optional
+        w_var : array, shape ( M, D, K ), optional
             The posterior variances of the Normal distributions describing each
             of the predictor coefficients, for each dimension of the proportion
             vector, for each of the 'K' components. If specified, the algorithm
             will be initialized with this matrix.
 
-        lambda_a : torch tensor, shape ( D, K ), optional
+        lambda_a : array, shape ( D, K ), optional
             For component 'K' and target dimension 'D', this is the first
             parameter of the posterior Gamma distribution describing the
             precision of the target variable. If specified, the algorithm will
             be initialized with this matrix. Only relevant for continuous 
            (Gaussian) target variables.
 
-        lambda_b : torch tensor, shape ( D, K ), optional
+        lambda_b : array, shape ( D, K ), optional
             For component 'K' and target dimension 'D', this is the second
             parameter of the posterior Gamma distribution describing the
             precision of the target variable. If specified, the algorithm will
@@ -433,13 +433,34 @@ class MultDPRegression:
         self.N_ = self.X_.shape[0]
         self.M_ = self.X_.shape[1]
         self.D_ = self.Y_.shape[1]
-        self.lambda_a_ = lambda_a
-        self.lambda_b_ = lambda_b
-        self.w_mu_ = w_mu
-        self.w_var_ = w_var
-        self.v_a_ = v_a
-        self.v_b_ = v_b
-        self.R_ = R
+        if lambda_a is not None:
+            self.lambda_a_ = torch.from_numpy(lambda_a).double()
+        else:
+            self.lambda_a_ is None
+        if lambda_b is not None:
+            self.lambda_b_ = torch.from_numpy(lambda_b).double()
+        else:
+            self.lambda_b_ is None
+        if w_mu is not None:
+            self.w_mu_ = torch.from_numpy(w_mu).double()
+        else:
+            self.w_mu_ = None
+        if w_var is not None:
+            self.w_var_ = torch.from_numpy(w_var).double()
+        else:
+            self.w_var_ is None
+        if v_a is not None:
+            self.v_a_ = torch.from_numpy(v_a).double()
+        else:
+            self.v_a_ = None
+        if v_b is not None:
+            self.v_b_ = torch.from_numpy(v_b).double()
+        else:
+            self.v_b_ = None
+        if R is not None:
+            self.R_ = torch.from_numpy(R).double()
+        else:
+            R = None
 
         self.df_ = df
         self.gb_ = None        
@@ -2089,10 +2110,11 @@ class MultDPRegression:
         if traj_probs is not None and traj_probs_weight is not None:
             assert traj_probs_weight >= 0 and traj_probs_weight <= 1, \
                 "Invalid traj_probs_weight"
-            assert torch.isclose(torch.sum(traj_probs),
+            assert torch.isclose(torch.sum(torch.from_numpy(traj_probs)),
                                  torch.tensor(1.).double()), \
                 "Invalid traj_probs"
-            init_traj_probs = traj_probs_weight*traj_probs + \
+            init_traj_probs = \
+                traj_probs_weight*torch.from_numpy(traj_probs) + \
                 (1-traj_probs_weight)*vec
         else:
             init_traj_probs = vec
@@ -2100,7 +2122,7 @@ class MultDPRegression:
         if torch.sum(init_traj_probs) < 0.95:
             warnings.warn("Initial trajectory probabilities sum to {}. \
             Alpha may be too high.".format(torch.sum(init_traj_probs)))
-    
+
         self.R_ = self.predict_proba_(self.X_, self.Y_, init_traj_probs)
         self.sig_trajs_ = torch.max(self.R_, 0)[0] > self.prob_thresh_
             
