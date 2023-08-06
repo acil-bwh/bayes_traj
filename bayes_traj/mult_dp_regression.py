@@ -282,7 +282,7 @@ class MultDPRegression:
             self.prec_prior_weight_ = 0.25
     
         try:
-            self.group_first_index_ = mm.group_first_index_.clone()
+            self.group_first_index_ = np.array(mm.group_first_index_)
         except:
             self._set_group_first_index()                
     
@@ -297,12 +297,12 @@ class MultDPRegression:
     def _set_group_first_index(self):
         """
         """
-        self.group_first_index_ = torch.zeros(self.N_, dtype=torch.bool)
+        self.group_first_index_ = np.zeros(self.N_)
         if self.gb_ is not None:
             for kk in self.gb_.groups.keys():
                 self.group_first_index_[self.gb_.get_group(kk).index[0]] = True
         else:
-            self.group_first_index_ = torch.ones(self.N_, dtype=torch.bool) 
+            self.group_first_index_ = np.ones(self.N_, dtype=bool) 
 
             
 
@@ -2394,8 +2394,8 @@ class MultDPRegression:
         traj_probs : array, shape ( K )
             Each element is the probability of the corresponding trajectory.
         """
-        traj_probs = np.sum(self.R_[self.group_first_index_, :], 0)/\
-            np.sum(self.R_[self.group_first_index_, :])
+        traj_probs = torch.sum(self.R_[self.group_first_index_, :], 0)/\
+            torch.sum(self.R_[self.group_first_index_, :])
 
         return traj_probs
     

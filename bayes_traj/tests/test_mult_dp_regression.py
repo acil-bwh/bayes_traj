@@ -327,10 +327,10 @@ def test_predict_proba():
     D = 1
     M = 2
     K = 2    
-    w_mu0 = np.zeros([M, D])
-    w_var0 = np.ones([M, D])
-    lambda_a0 = np.ones(D)
-    lambda_b0 = np.ones(D)
+    w_mu0 = torch.zeros([M, D]).double()
+    w_var0 = torch.ones([M, D]).double()
+    lambda_a0 = torch.ones(D).double()
+    lambda_b0 = torch.ones(D).double()
     prec_prior_weight = 1
     alpha = 5
     mm = MultDPRegression(w_mu0, w_var0, lambda_a0, lambda_b0,
@@ -339,16 +339,16 @@ def test_predict_proba():
     mm.target_type_ = {}
     mm.target_type_[0] = 'gaussian'
 
-    mm.w_mu_ = np.zeros([M, D, K])
-    mm.w_mu_[:, 0, 0] = np.array([2, 1])
-    mm.w_mu_[:, 0, 1] = np.array([-2, -1])    
-    mm.R_ = 0.5*np.ones([3, 2])
-    mm.lambda_b_ = np.ones([D, K])
-    mm.lambda_a_ = np.ones([D, K])
+    mm.w_mu_ = torch.zeros([M, D, K]).double()
+    mm.w_mu_[:, 0, 0] = torch.tensor([2, 1]).double()
+    mm.w_mu_[:, 0, 1] = torch.tensor([-2, -1]).double()
+    mm.R_ = 0.5*torch.ones([3, 2]).double()
+    mm.lambda_b_ = torch.ones([D, K]).double()
+    mm.lambda_a_ = torch.ones([D, K]).double()
     mm.gb_ = None
     
-    X = np.array([[1, 2], [1, 2], [1, 2]])
-    Y = np.array([[3], [0], [-3]])
+    X = torch.tensor([[1, 2], [1, 2], [1, 2]]).double()
+    Y = torch.tensor([[3], [0], [-3]]).double()
 
     mm.group_first_index_ = np.ones(X.shape[0], dtype=bool)
     
