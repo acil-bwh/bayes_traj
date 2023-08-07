@@ -147,10 +147,16 @@ def get_group_likelihood_samples(mm, num_samples=100):
     """
     # Impute any missing target values by sampling from the posterior
     # distribution
-    Y = mm.Y_.numpy()
-    tmp_indices = np.where(np.isnan(np.sum(mm.Y_.numpy(), 1)))[0]
+    if torch.is_tensor(mm.Y_):
+        Y = mm.Y_.numpy()
+    else:
+        Y = mm.Y_
+        
+    tmp_indices = np.where(np.isnan(np.sum(Y, 1)))[0]
+
     for tt in tmp_indices:
         tmp_sample = mm.sample(index=tt)
+
         Y[tt, np.isnan(mm.Y_[tt, :].numpy())] = \
             tmp_sample[0, np.isnan(mm.Y_[tt, :].numpy())]        
 

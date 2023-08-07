@@ -83,42 +83,41 @@ def test_get_group_likelihood_samples_2():
     
     mm = MultDPRegression(w_mu0, w_var0, lambda_a0, lambda_b0,
                           prec_prior_weight, alpha, K=K)
-    mm.R_ = np.zeros([N, K])
+    mm.R_ = torch.zeros([N, K]).double()
     mm.R_[:, 0] = 1.
 
     mm.target_type_ = {}
     mm.target_type_[0] = 'gaussian'
     mm.target_type_[1] = 'gaussian'
     
-    mm.w_mu_ = np.zeros([M, D, K])
-    mm.w_var_ = 1e-10*np.ones([M, D, K])
-    mm.w_mu_[:, 0, 0] = np.array([10, -1])
-    mm.w_mu_[:, 1, 0] = np.array([0, 1])    
+    mm.w_mu_ = torch.zeros([M, D, K]).double()
+    mm.w_var_ = 1e-10*torch.ones([M, D, K]).double()
+    mm.w_mu_[:, 0, 0] = torch.tensor([10, -1]).double()
+    mm.w_mu_[:, 1, 0] = torch.tensor([0, 1]).double()
     
-    mm.lambda_a_ = np.ones([D, K])
-    mm.lambda_b_ = np.ones([D, K])
+    mm.lambda_a_ = torch.ones([D, K]).double()
+    mm.lambda_b_ = torch.ones([D, K]).double()
     mm.lambda_a_[0, 0] = (prec_mu**2)/prec_var
     mm.lambda_b_[0, 0] = prec_mu/prec_var
     mm.lambda_a_[1, 0] = (prec_mu**2)/prec_var
     mm.lambda_b_[1, 0] = prec_mu/prec_var        
     
     mm.gb_ = df.groupby('sid')
-    mm.X_ = df[['intercept', 'x']].values
-    mm.Y_ = df[['y1', 'y2']].values
+    mm.X_ = torch.from_numpy(df[['intercept', 'x']].values).double()
+    mm.Y_ = torch.from_numpy(df[['y1', 'y2']].values).double()
     mm.N_ = N 
     
     tmp_1 = get_group_likelihood_samples(mm, num_samples=1000)
     assert np.isclose(np.mean(tmp_1), (1/np.sqrt(2*np.pi))**6), \
         "Likelihood not as expected"
-
+    
     # Internally, the missing target values will be imputed using the
-    # posterior. This will not be the optimal value in this toy
-    # data set (which should be 10). As such, we expect the mean from tmp_1
-    # to be greater than the mean for tmp_2.
+    # posterior. 
+    Y_ref = mm.Y_.clone().detach()
     mm.Y_[0, 0] = np.nan
     tmp_2 = get_group_likelihood_samples(mm, num_samples=1000)
-
-    assert np.mean(tmp_1) > np.mean(tmp_2), "Unexpected likelihood comparison"
+    assert torch.allclose(mm.Y_, Y_ref) and mm.Y_[0, 0] != Y_ref[0,0], \
+        "Interpolation error"
 
 def test_compute_waic2_1():
     # Create a model
@@ -145,56 +144,56 @@ def test_compute_waic2_1():
     
     mm_1 = MultDPRegression(w_mu0, w_var0, lambda_a0, lambda_b0,
                             prec_prior_weight, alpha, K=K)
-    mm_1.R_ = np.zeros([N, K])
+    mm_1.R_ = torch.zeros([N, K]).double()
     mm_1.R_[:, 0] = 1.
 
     mm_1.target_type_ = {}
     mm_1.target_type_[0] = 'gaussian'
     mm_1.target_type_[1] = 'gaussian'
     
-    mm_1.w_mu_ = np.zeros([M, D, K])
-    mm_1.w_var_ = 1e-10*np.ones([M, D, K])
-    mm_1.w_mu_[:, 0, 0] = np.array([10, -1])
-    mm_1.w_mu_[:, 1, 0] = np.array([0, 1])    
+    mm_1.w_mu_ = torch.zeros([M, D, K]).double()
+    mm_1.w_var_ = 1e-10*torch.ones([M, D, K]).double()
+    mm_1.w_mu_[:, 0, 0] = torch.tensor([10, -1]).double()
+    mm_1.w_mu_[:, 1, 0] = torch.tensor([0, 1]).double()
     
-    mm_1.lambda_a_ = np.ones([D, K])
-    mm_1.lambda_b_ = np.ones([D, K])
+    mm_1.lambda_a_ = torch.ones([D, K]).double()
+    mm_1.lambda_b_ = torch.ones([D, K]).double()
     mm_1.lambda_a_[0, 0] = (prec_mu**2)/prec_var
     mm_1.lambda_b_[0, 0] = prec_mu/prec_var
     mm_1.lambda_a_[1, 0] = (prec_mu**2)/prec_var
     mm_1.lambda_b_[1, 0] = prec_mu/prec_var        
     
     mm_1.gb_ = df.groupby('sid')
-    mm_1.X_ = df[['intercept', 'x']].values
-    mm_1.Y_ = df[['y1', 'y2']].values
+    mm_1.X_ = torch.from_numpy(df[['intercept', 'x']].values).double()
+    mm_1.Y_ = torch.from_numpy(df[['y1', 'y2']].values).double()
     mm_1.N_ = N 
 
     waic2_1 = compute_waic2(mm_1)
 
     mm_2 = MultDPRegression(w_mu0, w_var0, lambda_a0, lambda_b0,
                             prec_prior_weight, alpha, K=K)
-    mm_2.R_ = np.zeros([N, K])
+    mm_2.R_ = torch.zeros([N, K]).double()
     mm_2.R_[:, 0] = 1.
 
     mm_2.target_type_ = {}
     mm_2.target_type_[0] = 'gaussian'
     mm_2.target_type_[1] = 'gaussian'
     
-    mm_2.w_mu_ = np.zeros([M, D, K])
-    mm_2.w_var_ = 1e-10*np.ones([M, D, K])
-    mm_2.w_mu_[:, 0, 0] = np.array([11, -1]) # Poorer value
-    mm_2.w_mu_[:, 1, 0] = np.array([0, 1])    
+    mm_2.w_mu_ = torch.zeros([M, D, K]).double()
+    mm_2.w_var_ = 1e-10*torch.ones([M, D, K]).double()
+    mm_2.w_mu_[:, 0, 0] = torch.tensor([11, -1]).double() # Poorer value
+    mm_2.w_mu_[:, 1, 0] = torch.tensor([0, 1]).double()
     
-    mm_2.lambda_a_ = np.ones([D, K])
-    mm_2.lambda_b_ = np.ones([D, K])
+    mm_2.lambda_a_ = torch.ones([D, K]).double()
+    mm_2.lambda_b_ = torch.ones([D, K]).double()
     mm_2.lambda_a_[0, 0] = (prec_mu**2)/prec_var
     mm_2.lambda_b_[0, 0] = prec_mu/prec_var
     mm_2.lambda_a_[1, 0] = (prec_mu**2)/prec_var
     mm_2.lambda_b_[1, 0] = prec_mu/prec_var        
     
     mm_2.gb_ = df.groupby('sid')
-    mm_2.X_ = df[['intercept', 'x']].values
-    mm_2.Y_ = df[['y1', 'y2']].values
+    mm_2.X_ = torch.from_numpy(df[['intercept', 'x']].values).double()
+    mm_2.Y_ = torch.from_numpy(df[['y1', 'y2']].values).double()
     mm_2.N_ = N 
 
     waic2_2 = compute_waic2(mm_2)

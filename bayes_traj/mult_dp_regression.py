@@ -1011,7 +1011,7 @@ class MultDPRegression:
             y_rep = torch.zeros([self.N_, self.D_])
             X = self.X_
         else:
-            if not isinstance(index, int):
+            if not isinstance(index, int) and not isinstance(index, np.int64):
                 raise ValueError('index must be an integer if specified')
 
             indices = range(index, index+1)
@@ -1040,6 +1040,7 @@ class MultDPRegression:
                     co = dist.sample()
 
                     mu = torch.matmul(co, x if x is not None else self.X_[n, :])
+
                     y_rep[n if index is None else 0, d] = \
                         torch.sqrt(var)*torch.randn(1) + mu
 
@@ -1529,96 +1530,39 @@ class MultDPRegression:
         ----------
         Gelman et al, 'Bayesian Data Analysis, 3rd Edition'
         """
-        accum = torch.zeros([self.N_, self.D_, S])
-        for k in torch.where(self.sig_trajs_)[0]:
+        accum = np.zeros([self.N_, self.D_, S])
+        for k in np.where(self.sig_trajs_)[0]:
             for d in range(0, self.D_):
                 if self.target_type_[d] == 'gaussian':
-                    co = pyro.distributions.MultivariateNormal(self.w_mu_[:, d, k],
-                        torch.diag(self.w_var_[:, d, k])).sample([S])
-                    mu = torch.mm(co, self.X_.T)
+                    co = multivariate_normal(self.w_mu_.numpy()[:, d, k],
+                        diag(self.w_var_.numpy()[:, d, k]), S)
+                    mu = dot(co, self.X_.numpy().T)
 
-                    # Draw a precision value from the gamma distribution.
-                    scale = 1./self.lambda_b_[d, k]
-                    shape = self.lambda_a_[d, k]
-                    var = 1./pyro.distributions.Gamma(shape, scale).sample([S])
+                    # Draw a precision value from the gamma distribution. Note
+                    # that numpy uses a slightly different parameterization
+                    scale = 1./self.lambda_b_.numpy()[d, k]
+                    shape = self.lambda_a_.numpy()[d, k]
+                    var = 1./gamma(shape, scale, size=1)
 
-                    prob = ((1/torch.sqrt(2*torch.pi*var))[:, None]*\
-                        torch.exp(-(1/(2*var))[:, None]*\
-                            (mu - self.Y_[:, d])**2)).T
+                    prob = ((1/sqrt(2*np.pi*var))[:, newaxis]*\
+                        exp(-(1/(2*var))[:, newaxis]*\
+                            (mu - self.Y_[:, d].numpy())**2)).T
                 else:
                     # Target assumed to be binary
-                    co = pyro.distributions.MultivariateNormal(self.w_mu_[:, d, k],
-                        self.w_covmat_[:, :, d, k]).sample([S])
-                    mu = torch.mm(co, self.X_.T)
-                    prob = ((torch.exp(mu)**self.Y_[:, d])/(1 + torch.exp(mu))).T
+                    co = multivariate_normal(self.w_mu_[:, d, k].numpy(),
+                        self.w_covmat_[:, :, d, k].numpy(), S)
+                    mu = dot(co, self.X_.numpy().T)
+                    prob = ((np.exp(mu)**self.Y_[:, d].numpy())/(1 + np.exp(mu))).T
 
-                accum[:, d, :] = accum[:, d, :] + \
-                    self.R_[:, k][:, None]*prob
+                accum[:, d, :] += self.R_.numpy()[:, k][:, newaxis]*prob
 
-        lppd = torch.nansum(torch.log(torch.nanmean(accum, axis=2)))
-        mean_ln_accum = torch.nanmean(torch.log(accum), axis=2)
-        p_waic2 = torch.nansum((1./(S-1.))*(torch.log(accum) - \
-            mean_ln_accum[:, :, None])**2)
+        lppd = np.nansum(log(np.nanmean(accum, axis=2)))
+        mean_ln_accum = np.nanmean(log(accum), axis=2)
+        p_waic2 = np.nansum((1./(S-1.))*(log(accum) - \
+            mean_ln_accum[:, :, newaxis])**2)
         waic2 = -2.*(lppd - p_waic2)
 
         return waic2
-
-
-#    def compute_waic2_orig(self, S=1000):
-#        """Computes the Watanabe-Akaike (aka widely available) information
-#        criterion, using the variance of individual terms in the log predictive
-#        density summed over the n data points.
-#
-#        TODO: Test implementation of binary target accomodation
-#
-#        Parameters
-#        ----------
-#        S : integer, optional
-#            The number of draws from the posterior to use when computing the
-#            required expectations.
-#
-#        Returns
-#        -------
-#        waic2 : float
-#            The Watanable-Akaike information criterion.
-#
-#        References
-#        ----------
-#        Gelman et al, 'Bayesian Data Analysis, 3rd Edition'
-#        """
-#        accum = np.zeros([self.N_, self.D_, S])
-#        for k in np.where(self.sig_trajs_)[0]:
-#            for d in range(0, self.D_):
-#                if self.target_type_[d] == 'gaussian':
-#                    co = multivariate_normal(self.w_mu_[:, d, k],
-#                        diag(self.w_var_[:, d, k]), S)
-#                    mu = dot(co, self.X_.T)
-#
-#                    # Draw a precision value from the gamma distribution. Note
-#                    # that numpy uses a slightly different parameterization
-#                    scale = 1./self.lambda_b_[d, k]
-#                    shape = self.lambda_a_[d, k]
-#                    var = 1./gamma(shape, scale, size=1)
-#
-#                    prob = ((1/sqrt(2*np.pi*var))[:, newaxis]*\
-#                        exp(-(1/(2*var))[:, newaxis]*\
-#                            (mu - self.Y_[:, d])**2)).T
-#                else:
-#                    # Target assumed to be binary
-#                    co = multivariate_normal(self.w_mu_[:, d, k],
-#                        self.w_covmat_[:, :, d, k], S)
-#                    mu = dot(co, self.X_.T)
-#                    prob = ((np.exp(mu)**self.Y_[:, d])/(1 + np.exp(mu))).T
-#
-#                accum[:, d, :] += self.R_[:, k][:, newaxis]*prob
-#
-#        lppd = np.nansum(log(np.nanmean(accum, axis=2)))
-#        mean_ln_accum = np.nanmean(log(accum), axis=2)
-#        p_waic2 = np.nansum((1./(S-1.))*(log(accum) - \
-#            mean_ln_accum[:, :, newaxis])**2)
-#        waic2 = -2.*(lppd - p_waic2)
-#
-#        return waic2
 
 
     def expand_mat(self, mat, which_m, which_d, expand_vec):
