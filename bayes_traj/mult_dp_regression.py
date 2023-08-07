@@ -666,11 +666,12 @@ class MultDPRegression:
         for k in range(1, self.K_):
             tmp[k] = tmp[k] + torch.sum(expec_ln_1_minus_v[0:k])
     
-        ln_rho = torch.ones([self.N_, self.K_])*tmp.unsqueeze(0)
+        ln_rho = torch.ones([self.N_, self.K_], \
+                            dtype=torch.float64)*tmp.unsqueeze(0)
     
         if self.num_binary_targets_ > 0:
             num_samples = 100 # Arbitrary. Should be "big enough"
-            mc_term = torch.zeros([self.N_, self.K_])
+            mc_term = torch.zeros([self.N_, self.K_]).double()
         for d in range(0, self.D_):
             non_nan_ids = ~torch.isnan(Y[:, d])
             if self.target_type_[d] == 'gaussian':
@@ -693,13 +694,14 @@ class MultDPRegression:
                     dist = MultivariateNormal(self.w_mu_[:, d, k],
                                               self.w_covmat_[:, :, d, k])
                     samples = dist.sample((num_samples,))
+
                     mc_term[non_nan_ids, k] = \
                         torch.mean(torch.log1p(torch.exp(\
                         torch.matmul(self.X_[non_nan_ids, :], samples.T))), dim=1)
                     ln_rho[non_nan_ids, k] = ln_rho[non_nan_ids, k] + \
                         Y[non_nan_ids, d]*\
                         torch.matmul(X[non_nan_ids, :], self.w_mu_[:, d, k]) - \
-                        mc_term[non_nan_ids, k]                
+                        mc_term[non_nan_ids, k]
 
         # The values of 'ln_rho' will in general have large magnitude, causing
         # exponentiation to result in overflow. All we really care about is the

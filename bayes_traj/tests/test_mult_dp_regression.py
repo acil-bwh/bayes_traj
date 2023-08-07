@@ -155,15 +155,15 @@ def test_update_z_logistic():
     mm.w_var_ = None
     mm.lambda_a_ = None
     mm.lambda_b_ = None    
-    mm.X_ = df[['intercept', 'pred']].values
-    mm.Y_ = np.atleast_2d(df.target.values).T
+    mm.X_ = torch.from_numpy(df[['intercept', 'pred']].values).double()
+    mm.Y_ = torch.from_numpy(np.atleast_2d(df.target.values).T).double()
     mm.gb_ = None
     mm.group_first_index_ = np.ones(mm.N_, dtype=bool)
-    mm.w_covmat_ = np.ones([M, M, D, K])
+    mm.w_covmat_ = torch.ones([M, M, D, K]).double()
     
     mm.init_traj_params()
-    mm.v_a_ = np.ones(mm.K_)
-    mm.v_b_ = mm.alpha_*np.ones(mm.K_)
+    mm.v_a_ = torch.ones(mm.K_).double()
+    mm.v_b_ = mm.alpha_*torch.ones(mm.K_).double()
 
     # Set w_mu_ to be correct
     mm.w_mu_[0, 0, 0] = 0
@@ -172,23 +172,23 @@ def test_update_z_logistic():
     mm.w_mu_[1, 0, 1] = -50
     
     # Set w_covmat_ to be correct
-    mm.w_covmat_ = np.zeros([M, M, D, K])
-    mm.w_covmat_[:, :, 0, 0] = 1e-50*np.diag([M, M])
-    mm.w_covmat_[:, :, 0, 1] = 1e-50*np.diag([M, M])    
-    
+    mm.w_covmat_ = torch.zeros([M, M, D, K]).double()
+    mm.w_covmat_[:, :, 0, 0] = 1e-50*torch.diag(torch.tensor([M, M])).double()
+    mm.w_covmat_[:, :, 0, 1] = 1e-50*torch.diag(torch.tensor([M, M])).double()
+
     # Set R to be correct
-    mm.R_ = np.zeros([mm.N_, mm.K_])
+    mm.R_ = torch.zeros([mm.N_, mm.K_]).double()
     mm.R_[0:int(mm.N_/2), 0] = 1
     mm.R_[int(mm.N_/2)::, 1] = 1
 
     mm.update_v()
-
+    
     # Scramble R
-    mm.R_[:, 0] = np.random.uniform(0.001, .999, mm.N_)
+    mm.R_[:, 0] = torch.distributions.Uniform(0.001, .999).sample((mm.N_, ))
     mm.R_[:, 1] = 1. - mm.R_[:, 0]
     
     # test update_z
-    R_updated = mm.update_z(mm.X_, mm.Y_)
+    R_updated = mm.update_z(mm.X_, mm.Y_).numpy()
 
     assert np.isclose(np.mean(R_updated[int(mm.N_/2)::], 0)[1], .999,
                       atol=0, rtol=.01), "R not updated correctly"
@@ -305,7 +305,7 @@ def test_init_R_mat():
     mm.N_ = N
     mm.X_ = X_mat
     mm.Y_ = Y_mat
-    traj_probs = torch.zeros(K).double()
+    traj_probs = np.zeros(K)
     traj_probs[0] = .25
     traj_probs[1] = .25
     traj_probs[2] = .25
