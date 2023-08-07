@@ -1,3 +1,4 @@
+import torch
 import numpy as np
 import pandas as pd
 import pdb
@@ -27,32 +28,32 @@ def test_get_group_likelihood_samples_1():
     
     mm = MultDPRegression(w_mu0, w_var0, lambda_a0, lambda_b0,
                           prec_prior_weight, alpha, K=K)
-    mm.R_ = np.zeros([N, K])
+    mm.R_ = torch.zeros([N, K]).double()
     mm.R_[0, 0] = 1
     
-    mm.w_mu_ = np.zeros([M, D, K])
-    mm.w_var_ = np.ones([M, D, K])
-    mm.w_mu_[:, 0, 0] = np.array([10, -1])
-    mm.w_var_[:, 0, 0] = 1e-10*np.array([1, 1])
+    mm.w_mu_ = torch.zeros([M, D, K]).double()
+    mm.w_var_ = torch.ones([M, D, K]).double()
+    mm.w_mu_[:, 0, 0] = torch.tensor([10, -1], dtype=torch.float64)
+    mm.w_var_[:, 0, 0] = 1e-10*torch.tensor([1, 1], dtype=torch.float64)
 
-    mm.w_mu_[:, 0, 1] = np.array([11, -1])
-    mm.w_var_[:, 0, 1] = 1e-10*np.array([1, 1])
+    mm.w_mu_[:, 0, 1] = torch.tensor([11, -1], dtype=torch.float64)
+    mm.w_var_[:, 0, 1] = 1e-10*torch.tensor([1, 1], dtype=torch.float64)
     
-    mm.lambda_a_ = np.ones([D, K])
-    mm.lambda_b_ = np.ones([D, K])
+    mm.lambda_a_ = torch.ones([D, K]).double()
+    mm.lambda_b_ = torch.ones([D, K]).double()
     mm.lambda_a_[0, 0] = (prec_mu**2)/prec_var
     mm.lambda_b_[0, 0] = prec_mu/prec_var    
     
     mm.gb_ = df.groupby('sid')
-    mm.X_ = df[['intercept', 'x']].values
-    mm.Y_ = np.atleast_2d(df.y.values)
+    mm.X_ = torch.from_numpy(df[['intercept', 'x']].values).double()
+    mm.Y_ = torch.from_numpy(np.atleast_2d(df.y.values)).double()
     mm.N_ = N 
     
     tmp = get_group_likelihood_samples(mm, num_samples=1000)
     assert np.isclose(np.mean(tmp), 1/np.sqrt(2*np.pi)), \
         "Likelihood not as expected"
 
-    mm.R_[0, [0, 1]] = np.array([0, 1])
+    mm.R_[0, [0, 1]] = torch.tensor([0, 1]).double()
     tmp_2 = get_group_likelihood_samples(mm, num_samples=1000)
 
     assert np.mean(tmp) > np.mean(tmp_2), "Unexpected likelihood comparison"
