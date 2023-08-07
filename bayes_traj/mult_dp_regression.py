@@ -1,5 +1,3 @@
-#I'm going to paste a function of the class 'MultDPRegression'. I want you to make any changes necessary so that it is compatible with torch (and pyro if applicable). Ready?
-
 import torch
 from torch.distributions import Normal, Gamma, Beta, constraints
 from torch.distributions import MultivariateNormal, Bernoulli
@@ -1906,7 +1904,7 @@ class MultDPRegression:
                             torch.distributions.Gamma(shape, scale).sample()
 
         w_mu_tmp = torch.zeros([self.M_, self.D_, 1])
-        w_mu_tmp[:, :, 0] = torch.tensor(self.w_mu0_)
+        w_mu_tmp[:, :, 0] = self.w_mu0_.clone().detach()
 
         num_param_levels = 5
         if num_param_levels**(self.M_*self.D_) < self.K_:

@@ -92,20 +92,20 @@ def test_update_w_logistic_2():
     mm.target_type_[0] = 'binary'
     mm.num_binary_targets_ = 1
     mm.w_var_ = None
-    mm.w_covmat_ = np.nan*np.ones([M, M, D, K])
+    mm.w_covmat_ = torch.from_numpy(np.nan*np.ones([M, M, D, K])).double()
     mm.lambda_a_ = None
     mm.lambda_b_ = None    
-    mm.X_ = df[['intercept', 'pred']].values
-    mm.Y_ = np.atleast_2d(df.target.values).T
+    mm.X_ = torch.from_numpy(df[['intercept', 'pred']].values).double()
+    mm.Y_ = torch.from_numpy(np.atleast_2d(df.target.values).T).double()
     mm.gb_ = None
     
     mm.init_traj_params()
 
-    mm.R_ = np.zeros([mm.N_, K])
+    mm.R_ = torch.zeros([mm.N_, K]).double()
     mm.R_[0:int(mm.N_/2), 0] = 1
     mm.R_[int(mm.N_/2):-1, 1] = 1
 
-    mm.R_ = np.zeros([mm.N_, K]) + 1e-4 #+ .00000000001
+    mm.R_ = torch.zeros([mm.N_, K]).double() + 1e-4 #+ .00000000001
     mm.R_[0:int(mm.N_/2), 0] = 1-1e-4#.99999999999
     mm.R_[int(mm.N_/2)::, 1] = 1-1e-4#.99999999999
 
