@@ -510,7 +510,7 @@ class MultDPRegression:
     
         if self.R_ is None:
             self.init_R_mat(traj_probs, traj_probs_weight)
-    
+
         self.fit_coordinate_ascent(iters, verbose, weights_only)
 
                 
@@ -778,19 +778,20 @@ class MultDPRegression:
     
                         self.w_var_[:, d, k] = \
                             torch.diag(self.w_covmat_[:, :, d, k])
+
                         self.w_mu_[:, d, k] = \
-                            torch.mm(self.w_covmat_[:, :, d, k], \
-                                   torch.mm(self.X_[non_nan_ids, :].t(),
+                            torch.mv(self.w_covmat_[:, :, d, k], \
+                                   torch.mv(self.X_[non_nan_ids, :].t(),
                                 self.R_[non_nan_ids, k]*\
                                       (self.Y_[non_nan_ids, d] - 0.5)) + \
-                                    torch.mm(torch.inverse(sig_mat_0), mu_0))
+                                    torch.mv(torch.inverse(sig_mat_0), mu_0))
 
                         # M-step
                         self.xi_[non_nan_ids, d_bin, k] = \
                             torch.sqrt(torch.sum((self.X_[non_nan_ids, :]*\
                                 torch.mm(self.w_covmat_[:, :, d, k], \
                                 self.X_[non_nan_ids, :].t()).t()), 1) + \
-                                torch.pow(torch.mm(self.X_[non_nan_ids, :], \
+                                torch.pow(torch.mv(self.X_[non_nan_ids, :], \
                                             self.w_mu_[:, d, k]), 2))
 
     
@@ -1939,7 +1940,9 @@ class MultDPRegression:
         # Initialize xi if needed
         #-----------------------------------------------------------------------            
         if self.num_binary_targets_ > 0:
-            self.xi_ = torch.ones([self.N_, self.num_binary_targets_, self.K_])
+            self.xi_ = \
+                torch.ones([self.N_, self.num_binary_targets_, self.K_]).\
+                double()
         else:
             self.xi_ = None 
     
@@ -1950,7 +1953,6 @@ class MultDPRegression:
 
                 for k in np.where(self.sig_trajs_)[0]:
                     non_nan_ids = ~torch.isnan(self.Y_[:, d])
-    
                     self.w_covmat_[:, :, d, k] = torch.diag(self.w_var_[:, d, k])
     
                     self.xi_[non_nan_ids, d_bin, k] = \

@@ -17,10 +17,10 @@ def test_update_w_logistic():
     D = 1
     K = 1
     prior_data = {}
-    prior_data['w_mu0'] = np.zeros([M, D])    
-    prior_data['w_var0'] = 100*np.ones([M, D])
-    prior_data['lambda_a0'] = np.ones([D])
-    prior_data['lambda_b0'] = np.ones([D])
+    prior_data['w_mu0'] = torch.zeros([M, D]).double()
+    prior_data['w_var0'] = 100.*torch.ones([M, D]).double()
+    prior_data['lambda_a0'] = torch.ones([D]).double()
+    prior_data['lambda_b0'] = torch.ones([D]).double()
     prior_data['alpha'] = 1
 
     mm = MultDPRegression(prior_data['w_mu0'], prior_data['w_var0'],
@@ -31,16 +31,16 @@ def test_update_w_logistic():
     mm.target_type_[0] = 'binary'
     mm.num_binary_targets_ = 1
     mm.w_var_ = None
-    mm.w_covmat_ = np.nan*np.ones([M, M, D, K])
+    mm.w_covmat_ = torch.from_numpy(np.nan*np.ones([M, M, D, K])).double()
     mm.lambda_a_ = None    
     mm.lambda_b_ = None    
-    mm.X_ = df[['intercept', 'pred']].values
-    mm.Y_ = np.atleast_2d(df.target.values).T
+    mm.X_ = torch.from_numpy(df[['intercept', 'pred']].values).double()
+    mm.Y_ = torch.from_numpy(np.atleast_2d(df.target.values).T).double()
     mm.gb_ = None
     
     mm.init_traj_params()
 
-    mm.R_ = np.ones([mm.N_, K])
+    mm.R_ = torch.ones([mm.N_, K]).double()
     
     mm.update_w_logistic(25)
 
@@ -505,20 +505,23 @@ def test_init_R_mat_2():
            w_mu=prior_data['w_mu'], w_var=prior_data['w_var'],
            lambda_a=prior_data['lambda_a'], lambda_b=prior_data['lambda_b'])
 
-    assert np.sum((traj_probs > 0) | (np.sum(mm.R_, 0) > 0)) == 2, \
+    assert np.sum((traj_probs > 0) | (np.sum(mm.R_.numpy(), 0) > 0)) == 2, \
         "R_mat not initialized properly"
-    
-    mm.fit(target_names=targets, predictor_names=preds, df=df, groupby='id',
+
+    mm2 = MultDPRegression(prior_data['w_mu0'], prior_data['w_var0'],
+                          prior_data['lambda_a0'], prior_data['lambda_b0'],
+                          prec_prior_weight, prior_data['alpha'], K)    
+    mm2.fit(target_names=targets, predictor_names=preds, df=df, groupby='id',
            iters=0, verbose=True, traj_probs=traj_probs,
-           traj_probs_weight=0,
+           traj_probs_weight=0, R=None,
            v_a=prior_info['v_a'], v_b=prior_info['v_b'],
            w_mu=prior_data['w_mu'], w_var=prior_data['w_var'],
            lambda_a=prior_data['lambda_a'], lambda_b=prior_data['lambda_b'])
 
-    # It's possible, thoush highly unlikely that the following sum is <=2. With
+    # It's possible, though highly unlikely that the following sum is <=2. With
     # traj_probs_weight set to 0, a number of initialized trajectories should
     # have non-zero weight
-    assert np.sum((traj_probs > 0) | (np.sum(mm.R_, 0) > 0)) > 2, \
+    assert np.sum((traj_probs > 0) | (np.sum(mm2.R_.numpy(), 0) > 0)) > 2, \
         "R_mat may not be initialized properly"
 
     
