@@ -10,6 +10,7 @@ def test_prior_info_from_model():
     """
     model_file_name = os.path.split(os.path.realpath(__file__))[0] + \
         '/../resources/models/model_1.p'
+
     mm = pickle.load(open(model_file_name, 'rb'))['MultDPRegression']
     
     targets = ['y']

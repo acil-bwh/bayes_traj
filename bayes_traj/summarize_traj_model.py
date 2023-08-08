@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import torch
 import numpy as np
 import pdb
 import pickle
@@ -28,8 +29,11 @@ def main():
     
     with open(op.model, 'rb') as f:
         mm = pickle.load(f)['MultDPRegression']
-    
-    traj_probs = np.sum(mm.R_, 0)/np.sum(mm.R_)
+
+    if torch.is_tensor(mm.R_):
+        traj_probs = np.sum(mm.R_.numpy(), 0)/np.sum(mm.R_.numpy())
+    else:
+        traj_probs = np.sum(mm.R_, 0)/np.sum(mm.R_)
         
     if op.trajs is not None:
         traj_ids = np.array(op.trajs.split(','), dtype=int)
@@ -70,11 +74,16 @@ def main():
             
     first_col_width = max_tar_name_len + max_pred_name_len + 3
     row_width = first_col_width + 60
+
+    if torch.is_tensor(mm.sig_trajs_):
+        sig_trajs = mm.sig_trajs_.numpy()
+    else:
+        sig_trajs = mm.sig_trajs_
     
     print("Summary".center(row_width))
     print("="*row_width)
     print("{}{}".format("Num. Trajs:".ljust(20),
-                        "{}".format(np.sum(mm.sig_trajs_))))
+                        "{}".format(np.sum(sig_trajs))))
     print("{}{}".format("Trajectories:".ljust(20),
         "{}".format(','.join(list(all_traj_ids.astype('str')))).ljust(40)))
     

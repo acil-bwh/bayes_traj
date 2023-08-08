@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 from argparse import ArgumentParser
+import torch
 import pickle
 import pandas as pd
 import statsmodels.api as sm
@@ -315,7 +316,19 @@ class PriorGenerator:
 
         target_index = np.where(np.array(self.mm_.target_names_) == \
                                 target)[0][0]
-        
+
+        if torch.is_tensor(self.mm_.w_mu_):
+            w_mu = self.mm_.w_mu_.numpy()
+            w_var = self.mm_.w_var_.numpy()            
+        else:
+            w_mu = self.mm_.w_mu_
+            w_var = self.mm_.w_var_            
+
+        if torch.is_tensor(self.mm_.sig_trajs_):
+            sig_trajs = self.mm_.sig_trajs_.numpy()
+        else:
+            sig_trajs = self.mm_.sig_trajs_
+            
         probs = self.prior_info_['traj_probs']
         for m in self.preds_:
             pred_index = \
@@ -323,9 +336,9 @@ class PriorGenerator:
 
             # w_mu0 is a weighted combination of the trajectory means
             self.prior_info_['w_mu0'][target][m] = \
-                np.dot(probs, self.mm_.w_mu_[pred_index, target_index, :])
+                np.dot(probs, w_mu[pred_index, target_index, :])
 
-            if np.sum(self.mm_.sig_trajs_) > 1:
+            if np.sum(sig_trajs) > 1:
                 # Normally, the variance of a r.v. that is the sum of other
                 # normally distributed r.v.s has a variance equal to a weighted
                 # sum of the constituent r.v.s (where the weight is squared).
@@ -337,25 +350,29 @@ class PriorGenerator:
                 # mean +/- 2.5*sig will cover each of the observed trajectory
                 # values.
                 self.prior_info_['w_var0'][target][m] = \
-                    (np.max(np.abs(self.mm_.w_mu_[pred_index, target_index, \
-                                                  self.mm_.sig_trajs_] - \
+                    (np.max(np.abs(w_mu[pred_index, target_index, sig_trajs] - \
                                 self.prior_info_['w_mu0'][target][m]))/2.5)**2
             else:
                 # If we're here, there is only 1 trajectory 
                 self.prior_info_['w_var0'][target][m] = \
-                    self.mm_.w_var_[pred_index, \
-                                    target_index, self.mm_.sig_trajs_][0]
+                    w_var[pred_index, target_index, sig_trajs][0]
 
-        if np.sum(self.mm_.sig_trajs_) > 1:
+        if torch.is_tensor(self.mm_.lambda_a_):
+            lambda_a = self.mm_.lambda_a_.numpy()
+            lambda_b = self.mm_.lambda_b_.numpy()
+        else:
+            lambda_a = self.mm_.lambda_a_
+            lambda_b = self.mm_.lambda_b_
+            
+        if np.sum(sig_trajs) > 1:
             gamma_mean = 0
             gamma_var = 0
 
-            gamma_means = self.mm_.lambda_a_[target_index]/\
-                self.mm_.lambda_b_[target_index]
+            gamma_means = lambda_a[target_index]/lambda_b[target_index]
             gamma_mean = np.dot(probs, gamma_means)
             # See argument above about estimating variances
             gamma_var = \
-                (np.max(np.abs(gamma_means[np.where(self.mm_.sig_trajs_)[0]] - \
+                (np.max(np.abs(gamma_means[np.where(sig_trajs)[0]] - \
                                gamma_mean))/2.5)**2
             if gamma_var > 0:
                 self.prior_info_['lambda_b0'][target] = gamma_mean/gamma_var
@@ -366,15 +383,15 @@ class PriorGenerator:
                 # prior to be equal to the residual variance of any one
                 # trajectory (as they are all the same)
                 self.prior_info_['lambda_b0'][target] = \
-                    self.mm_.lambda_b_[target_index][0]
+                    lambda_b[target_index][0]
                 self.prior_info_['lambda_a0'][target] = \
-                    self.mm_.lambda_a_[target_index][0]
+                    lambda_a[target_index][0]
         else:
             # If we're here, there is only one trajectory
             self.prior_info_['lambda_a0'][target] = \
-                self.mm_.lambda_a_[target_index][self.mm_.sig_trajs_][0]
+                lambda_a[target_index][sig_trajs][0]
             self.prior_info_['lambda_b0'][target] = \
-                self.mm_.lambda_b_[target_index][self.mm_.sig_trajs_][0]
+                lambda_b[target_index][sig_trajs][0]
             
     def compute_prior_info(self):
         """
@@ -706,20 +723,37 @@ def prior_info_from_model(target_name, mm, prior_info, traj_ids=None):
     assert set(prior_info['w_mu0'][target_name].keys()) == \
         set(mm.predictor_names_), "Predictor name mismatch"
 
-    if traj_ids is None:
-        traj_ids = np.where(mm.sig_trajs_)[0]
+    if torch.is_tensor(mm.sig_trajs_):
+        sig_trajs = mm.sig_trajs_.numpy()
+    else:
+        sig_trajs = mm.sig_trajs_
+
+    if torch.is_tensor(mm.R_):
+        R = mm.R_.numpy()
+    else:
+        R = mm.R_
         
-    traj_probs = np.sum(mm.R_, 0)/np.sum(mm.R_)
+    if traj_ids is None:
+        traj_ids = np.where(sig_trajs)[0]
+        
+    traj_probs = np.sum(R, 0)/np.sum(R)
     num_traj_samples = np.random.multinomial(10000, traj_probs)
 
     model_target_index = \
         np.where(np.array(mm.target_names_, dtype=str) == target_name)[0][0]
-    
+
+    if torch.is_tensor(mm.w_mu_):
+        w_mu = mm.w_mu_.numpy()
+        w_var = mm.w_var_.numpy()
+    else:
+        w_mu = mm.w_mu_
+        w_var = mm.w_var_
+        
     for m in range(mm.M_):
         samples = []
         for t in traj_ids:
-            samples.append(mm.w_mu_[m, model_target_index, t] + \
-                           np.sqrt(mm.w_var_[m, model_target_index, t])*\
+            samples.append(w_mu[m, model_target_index, t] + \
+                           np.sqrt(w_var[m, model_target_index, t])*\
                            np.random.randn(num_traj_samples[t]))
 
         prior_info['w_mu0'][target_name][mm.predictor_names_[m]] = \
@@ -727,8 +761,20 @@ def prior_info_from_model(target_name, mm, prior_info, traj_ids=None):
         prior_info['w_var0'][target_name][mm.predictor_names_[m]] = \
             np.var(np.hstack(samples))  
 
-    nonnan_ids = ~np.isnan(mm.Y_[:, model_target_index])
-    if set(mm.Y_[nonnan_ids, model_target_index]).issubset({1.0, 0.0}):
+    if torch.is_tensor(mm.Y_):
+        Y = mm.Y_.numpy()
+    else:
+        Y = mm.Y_
+
+    if torch.is_tensor(mm.lambda_a_):
+        lambda_a = mm.lambda_a_.numpy()
+        lambda_b = mm.lambda_b_.numpy()
+    else:
+        lambda_a = mm.lambda_a_
+        lambda_b = mm.lambda_b_
+        
+    nonnan_ids = ~np.isnan(Y[:, model_target_index])
+    if set(Y[nonnan_ids, model_target_index]).issubset({1.0, 0.0}):
         # The target is binary. These parameters don't apply
         prior_info['lambda_a0'][target_name] = None
         prior_info['lambda_b0'][target_name] = None
@@ -737,8 +783,8 @@ def prior_info_from_model(target_name, mm, prior_info, traj_ids=None):
         # was done for the coefficients
         samples = []
         for t in traj_ids:
-            scale_tmp = 1./mm.lambda_b_[model_target_index, t]
-            shape_tmp = mm.lambda_a_[model_target_index, t]
+            scale_tmp = 1./lambda_b[model_target_index, t]
+            shape_tmp = lambda_a[model_target_index, t]
             samples.append(np.random.gamma(shape_tmp, scale_tmp,
                                            num_traj_samples[t]))
 

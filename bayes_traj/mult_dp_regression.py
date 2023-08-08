@@ -448,11 +448,17 @@ class MultDPRegression:
         else:
             self.w_var_ is None
         if v_a is not None:
-            self.v_a_ = torch.from_numpy(v_a).double()
+            if torch.is_tensor(v_a):                
+                self.v_a_ = v_a.clone().detach()
+            else:
+                self.v_a_ = torch.from_numpy(v_a).double()                
         else:
             self.v_a_ = None
         if v_b is not None:
-            self.v_b_ = torch.from_numpy(v_b).double()
+            if torch.is_tensor(v_b):
+                self.v_b_ = v_b.clone().detach()
+            else:
+                self.v_b_ = torch.from_numpy(v_b).double()
         else:
             self.v_b_ = None
         if R is not None:
@@ -1340,11 +1346,11 @@ class MultDPRegression:
                 # Some of the target variables can be missing (NaNs). Exclude
                 # these from the computation.
                 ids = torch.isnan(self.Y_[:, d]) == 0
-                mu = torch.mm(self.X_, self.w_mu_[:, d, k])
+                mu = torch.mv(self.X_, self.w_mu_[:, d, k])
                 
                 if self.target_type_[d] == 'gaussian':
                     v = self.lambda_b_[d, k]/self.lambda_a_[d, k]
-                    co = 1/torch.sqrt(2.*math.pi*v)
+                    co = 1/torch.sqrt(2.*torch.pi*v)
     
                     tmp_d[ids] = tmp_d[ids]*(co*torch.exp(-((self.Y_[ids, d]-
                                                mu[ids])**2)/(2.*v)))
@@ -1445,7 +1451,7 @@ class MultDPRegression:
         
         if self.gb_ is not None:
             num_subjects = self.gb_.ngroups
-            bic_groups = ll - 0.5*num_params*torch.log(num_subjects)
+            bic_groups = ll - 0.5*num_params*np.log(num_subjects)
     
             return (bic_obs, bic_groups)
         else:
@@ -1855,7 +1861,7 @@ class MultDPRegression:
         num_param_levels = 5
         if num_param_levels**(self.M_*self.D_) < self.K_:
             num_param_levels = \
-                int(torch.ceil(10**(torch.log10(self.K_)/(self.D_*self.M_))))
+                int(np.ceil(10**(np.log10(self.K_)/(self.D_*self.M_))))
 
         # Permute predictor and target indices. This is to further sample the
         # space of possible trajectories (given multipler restarts) on
@@ -2362,8 +2368,16 @@ class MultDPRegression:
         traj_probs : array, shape ( K )
             Each element is the probability of the corresponding trajectory.
         """
-        traj_probs = torch.sum(self.R_[self.group_first_index_, :], 0)/\
-            torch.sum(self.R_[self.group_first_index_, :])
+        if torch.is_tensor(self.R_):
+            traj_probs = \
+                np.sum(self.R_.numpy()\
+                       [self.group_first_index_.astype(bool), :], 0)/\
+                np.sum(self.R_.numpy()\
+                       [self.group_first_index_.astype(bool), :])
+        else:            
+            traj_probs = \
+                np.sum(self.R_[self.group_first_index_.astype(bool), :], 0)/\
+                np.sum(self.R_[self.group_first_index_.astype(bool), :])
 
         return traj_probs
     
@@ -2547,6 +2561,13 @@ class MultDPRegression:
                    df_traj[y_axis].values,
                    edgecolor='k', color='None', alpha=0.1)
 
+        if torch.is_tensor(self.lambda_a_):
+            lambda_a = self.lambda_a_.numpy()
+            lambda_b = self.lambda_b_.numpy()
+        else:
+            lambda_a = self.lambda_a_
+            lambda_b = self.lambda_b_
+            
         for (traj_inc, tt) in enumerate(traj_ids):
             if traj_probs[tt] >= min_traj_prob and \
                traj_probs[tt] <= max_traj_prob:
@@ -2569,8 +2590,8 @@ class MultDPRegression:
 
                 co = self.w_mu_[:, target_index, tt]
                 if self.target_type_[target_index] == 'gaussian':
-                    std = np.sqrt(self.lambda_b_[target_index][tt]/\
-                                  self.lambda_a_[target_index][tt])
+                    std = np.sqrt(lambda_b[target_index][tt]/\
+                                  lambda_a[target_index][tt])
                     y_tmp = np.dot(co, X_tmp.T)
                     ax.fill_between(x_dom, y_tmp-2*std, y_tmp+2*std,
                             color=cmap(traj_id_to_cmap_index[traj_map_[tt]]),
