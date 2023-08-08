@@ -2382,7 +2382,11 @@ class MultDPRegression:
         """
         traj = []
         for i in range(0, self.R_.shape[0]):
-            traj.append(where(max(self.R_[i, :]) == self.R_[i, :])[0][0]) 
+            if torch.is_tensor(self.R_):
+                traj.append(where(max(self.R_.numpy()[i, :]) == \
+                                  self.R_.numpy()[i, :])[0][0])
+            else:
+                traj.append(where(max(self.R_[i, :]) == self.R_[i, :])[0][0])
 
         # Older models might not have self.df_ defined at this point. If not,
         # create it
@@ -2391,15 +2395,23 @@ class MultDPRegression:
         except AttributeError as error:
             self.df_ = pd.DataFrame()
             self.df_['traj'] = traj
-            self.df_['data_names'] = self.data_names_
             for ii, nn in enumerate(self.predictor_names_):
-                self.df_[nn] = self.X_[:, ii]
+                if torch.is_tensor(self.X_):
+                    self.df_[nn] = self.X_.numpy()[:, ii]
+                else:
+                    self.df_[nn] = self.X_[:, ii]
             for ii, nn in enumerate(self.target_names_):
-                self.df_[nn] = self.Y_[:, ii]                
-
+                if torch.is_tensor(self.Y_):
+                    self.df_[nn] = self.Y_.numpy()[:, ii]
+                else:
+                    self.df_[nn] = self.Y_[:, ii]
+                    
         for s in np.where(self.sig_trajs_)[0]:
-            self.df_['traj_{}'.format(s)] = self.R_[:, s]
-        
+            if torch.is_tensor(self.R_):
+                self.df_['traj_{}'.format(s)] = self.R_.numpy()[:, s]
+            else:
+                self.df_['traj_{}'.format(s)] = self.R_[:, s]
+                
         return self.df_  
 
     def plot(self, x_axis, y_axis, x_label=None, y_label=None, which_trajs=None,

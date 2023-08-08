@@ -234,15 +234,43 @@ def test_MultDPRegression():
                           prior_data['alpha'], K=K)
     mm.fit(target_names=targets, predictor_names=preds, df=df, groupby='id',
            iters=20, verbose=True)
-#
-#    df_traj = mm.to_df()
-#
-#    num_trajs_found = np.sum(np.where(pd.crosstab(df_traj.traj.values,
-#                                    df.traj.values).values == 250))
-#
-#    assert num_trajs_found == 2, "Trajectory assignment error"
 
+    
+def test_to_df():
+    targets = ['y1', 'y2']
+    preds = ['intercept', 'x']
 
+    D = len(targets)
+    M = len(preds)
+    K = 2
+
+    prior_data = {}
+    prior_data['w_mu0'] = np.zeros([M, D])
+    prior_data['w_var0'] = np.ones([M, D])
+    prior_data['lambda_a0'] = np.ones([D])
+    prior_data['lambda_b0'] = np.ones([D])
+    
+    mm = MultDPRegression(prior_data['w_mu0'], prior_data['w_var0'],
+                          prior_data['lambda_a0'], prior_data['lambda_b0'], 1,
+                          1, K=K)
+    mm.predictor_names_ = preds
+    mm.target_names_ = targets    
+    mm.X_ = torch.tensor([[1, 2], [1, 3], [1, 5]]).double()
+    mm.Y_ = torch.tensor([[3, 7], [5.5, 3], [2, 8.1]]).double()
+    mm.R_ = torch.tensor([[.8, .2], [0, 1], [.3, .7]]).double()
+
+    df = mm.to_df()
+    assert np.array_equal(df[preds].values, mm.X_), \
+        "Predictor values not equal"
+    assert np.array_equal(df[targets].values, mm.Y_), \
+        "Target values not equal"
+    assert 'traj' in df.columns and 'traj_0' in df.columns and \
+        'traj_1' in df.columns, "Dataframe missing traj columns"
+    assert df.traj.values[0] != df.traj.values[1] and \
+        df.traj.values[1] == df.traj.values[2], \
+        "Traj assignments incorrect"
+
+    
 def test_init_R_mat():
     """
     """
