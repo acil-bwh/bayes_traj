@@ -435,18 +435,22 @@ class MultDPRegression:
             self.lambda_a_ = torch.from_numpy(lambda_a).double()
         else:
             self.lambda_a_ is None
+            
         if lambda_b is not None:
             self.lambda_b_ = torch.from_numpy(lambda_b).double()
         else:
             self.lambda_b_ is None
+            
         if w_mu is not None:
             self.w_mu_ = torch.from_numpy(w_mu).double()
         else:
             self.w_mu_ = None
+            
         if w_var is not None:
             self.w_var_ = torch.from_numpy(w_var).double()
         else:
             self.w_var_ is None
+            
         if v_a is not None:
             if torch.is_tensor(v_a):                
                 self.v_a_ = v_a.clone().detach()
@@ -454,6 +458,7 @@ class MultDPRegression:
                 self.v_a_ = torch.from_numpy(v_a).double()                
         else:
             self.v_a_ = None
+            
         if v_b is not None:
             if torch.is_tensor(v_b):
                 self.v_b_ = v_b.clone().detach()
@@ -461,6 +466,7 @@ class MultDPRegression:
                 self.v_b_ = torch.from_numpy(v_b).double()
         else:
             self.v_b_ = None
+            
         if R is not None:
             self.R_ = torch.from_numpy(R).double()
         else:
@@ -481,8 +487,8 @@ class MultDPRegression:
         # over all dimensions, D, to make implementation clearer (i.e. when
         # we iterate over D)
         self.w_covmat_ = torch.full([self.M_, self.M_, self.D_, self.K_],
-                                    torch.tensor(float('nan')))
-    
+                                    torch.tensor(float('nan'))).double()
+
         self.num_binary_targets_ = 0
         for d in range(self.D_):
             if set(self.Y_[:, d].tolist()) <= {1.0, 0.0}:
@@ -550,17 +556,25 @@ class MultDPRegression:
 
             self.update_v()
             if self.num_binary_targets_ > 0:
-                self.update_w_logistic(em_iters=1)
+                # DEB
+                pass
+                #self.update_w_logistic(em_iters=1)
             if (self.D_ - self.num_binary_targets_ > 0) and \
                (not weights_only):
                 self.update_w_gaussian()
                 self.update_lambda() 
 
+            # DEB
             self.R_ = self.update_z(self.X_, self.Y_)
 
+            # DEB
+            print("{:.3f}, {:.3f}".format(self.w_mu_.numpy()[0, 0, 0],
+                                          self.w_mu_.numpy()[1, 0, 0]))
+            
             self.sig_trajs_ = \
                 torch.max(self.R_, dim=0).values > self.prob_thresh_
 
+            # DEB
             if verbose:
                 torch.set_printoptions(precision=2)
                 print(f"iter {inc}, {torch.sum(self.R_, dim=0).numpy()}")
@@ -623,7 +637,7 @@ class MultDPRegression:
                         Y[non_nan_ids, d]*\
                         torch.matmul(X[non_nan_ids, :], self.w_mu_[:, d, k]) - \
                         mc_term[non_nan_ids, k]
-
+                    
         # The values of 'ln_rho' will in general have large magnitude, causing
         # exponentiation to result in overflow. All we really care about is the
         # normalization of each row. We can use the identity exp(a) =
@@ -640,7 +654,7 @@ class MultDPRegression:
             10**((rho_10.T - torch.max(rho_10, dim=1).values).T + 300).\
             clip(-300, 300)        
         R = (rho_10_shift.T/torch.sum(rho_10_shift, dim=1)).T
-
+        pdb.set_trace()
         # Within a group, all data instances must have the same probability of
         # belonging to each of the K trajectories
         if self.gb_ is not None:
@@ -696,7 +710,7 @@ class MultDPRegression:
                             torch.inverse(torch.inverse(sig_mat_0) + \
                                 torch.mm(self.X_[non_nan_ids, :].t(), \
                                     Z_vec[:, None]*self.X_[non_nan_ids, :]))
-    
+
                         self.w_var_[:, d, k] = \
                             torch.diag(self.w_covmat_[:, :, d, k])
 
@@ -1311,8 +1325,9 @@ class MultDPRegression:
 
                 for k in np.where(self.sig_trajs_)[0]:
                     non_nan_ids = ~torch.isnan(self.Y_[:, d])
-                    self.w_covmat_[:, :, d, k] = torch.diag(self.w_var_[:, d, k])
-    
+                    self.w_covmat_[:, :, d, k] = \
+                        torch.diag(self.w_var_[:, d, k]).double()
+
                     self.xi_[non_nan_ids, d_bin, k] = \
                         torch.sqrt(torch.sum((self.X_[non_nan_ids, :]*\
                             torch.mm(self.w_covmat_[:, :, d, k],
