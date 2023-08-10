@@ -645,8 +645,10 @@ class MultDPRegression:
         # each row the max value and also clipping the resulting row vector to
         # lie within -300, 300 to ensure that when we exponentiate we don't
         # have any overflow issues.
-        rho_10 = ln_rho*torch.log(torch.tensor(np.e))
-
+        
+        #rho_10 = ln_rho*torch.log(torch.tensor(np.e))
+        rho_10 = ln_rho*np.log10(np.e)
+        
         # The following line ensures that once a trajectory has been assigned 0
         # weight (which sig_trajs_ keeps track of), it won't be resurrected.        
         rho_10[:, ~self.sig_trajs_] = -sys.float_info.max
