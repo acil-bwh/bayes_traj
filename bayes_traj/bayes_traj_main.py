@@ -23,9 +23,6 @@ def main():
     parser.add_argument('--in_csv', help='Input csv file containing data on \
         which to run Bayesian trajectory analysis', metavar='<string>',
         required=True)
-#    parser.add_argument('--preds', help='Comma-separated list of predictor \
-#        names. Must appear as column names of the input data file.',
-#        dest='preds', metavar='<string>', required=True)
     parser.add_argument('--targets', help='Comma-separated list of target \
         names. Must appear as column names of the input data file.',
         dest='targets', metavar='<string>', required=True)
@@ -105,7 +102,6 @@ def main():
     op = parser.parse_args()
     iters = int(op.iters)
     repeats = int(op.repeats)
-    #preds =  op.preds.split(',')
     targets = op.targets.split(',')
     in_csv = op.in_csv
     prior = op.prior
@@ -131,22 +127,15 @@ def main():
         
         prior_data = {}
         for i in ['v_a', 'v_b', 'w_mu', 'w_var', 'lambda_a', 'lambda_b',
-                  'traj_probs', 'probs_weight', 'w_mu0', 'w_var0', 'lambda_a0',
-                  'lambda_b0', 'alpha']:
+                  'traj_probs', 'R', 'probs_weight', 'w_mu0', 'w_var0',
+                  'lambda_a0', 'lambda_b0', 'alpha']:
             prior_data[i] = None
     
-        prior_data['probs_weight'] = None
         prior_data['w_mu0'] = np.zeros([M, D])
         prior_data['w_var0'] = np.ones([M, D])
         prior_data['lambda_a0'] = np.ones([D])
         prior_data['lambda_b0'] = np.ones([D])
-        prior_data['v_a'] = None
-        prior_data['v_b'] = None
-        prior_data['w_mu'] = None
-        prior_data['w_var'] = None
-        prior_data['lambda_a'] = None
-        prior_data['lambda_b'] = None
-        prior_data['traj_probs'] = None
+        prior_data['R'] = None
         
         if 'v_a' in prior_file_info.keys():
             prior_data['v_a'] = prior_file_info['v_a']
@@ -170,6 +159,8 @@ def main():
                 prior_data['lambda_b'] = np.ones([D, K])
         if 'traj_probs' in prior_file_info.keys():
             prior_data['traj_probs'] = prior_file_info['traj_probs']
+        if 'R' in prior_file_info.keys():
+            prior_data['R'] = prior_file_info['R']            
         
         prior_data['alpha'] = prior_file_info['alpha']
         for (d, target) in enumerate(op.targets.split(',')):
@@ -233,7 +224,8 @@ def main():
                               prob_thresh=op.prob_thresh)
 
         mm.fit(target_names=targets, predictor_names=preds, df=df,
-               groupby=op.groupby, iters=iters, verbose=op.verbose,           
+               groupby=op.groupby, iters=iters, verbose=op.verbose,
+               R=prior_data['R'],
                traj_probs=prior_data['traj_probs'],
                traj_probs_weight=op.probs_weight,
                v_a=prior_data['v_a'],
