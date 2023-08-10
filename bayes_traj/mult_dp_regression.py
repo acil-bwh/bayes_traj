@@ -594,6 +594,9 @@ class MultDPRegression:
     def update_z(self, X, Y):
         """
         """
+        # DEB
+        self.w_mu_[:, :, 3::] = torch.zeros([2, 2, 17]).double()
+        
         expec_ln_v = psi(self.v_a_) - psi(self.v_a_ + self.v_b_)
         expec_ln_1_minus_v = psi(self.v_b_) - psi(self.v_a_ + self.v_b_)
     
@@ -603,7 +606,7 @@ class MultDPRegression:
     
         ln_rho = torch.ones([self.N_, self.K_], \
                             dtype=torch.float64)*tmp.unsqueeze(0)
-    
+        pdb.set_trace()
         if self.num_binary_targets_ > 0:
             num_samples = 100 # Arbitrary. Should be "big enough"
             mc_term = torch.zeros([self.N_, self.K_]).double()
@@ -626,17 +629,36 @@ class MultDPRegression:
                     Y[non_nan_ids, d, None]**2))
             elif self.target_type_[d] == 'binary':
                 for k in range(self.K_):
+                    # DEB (new)
                     dist = MultivariateNormal(self.w_mu_[:, d, k],
                                               self.w_covmat_[:, :, d, k])
                     samples = dist.sample((num_samples,))
 
                     mc_term[non_nan_ids, k] = \
                         torch.mean(torch.log1p(torch.exp(\
-                        torch.matmul(self.X_[non_nan_ids, :], samples.T))), dim=1)
+                        torch.matmul(-self.X_[non_nan_ids, :], samples.T))), dim=1)
+
+                    #ln_rho[non_nan_ids, k] = ln_rho[non_nan_ids, k] + \
+                    #    Y[non_nan_ids, d]*\
+                    #    torch.matmul(X[non_nan_ids, :], self.w_mu_[:, d, k]) - \
+                    #    mc_term[non_nan_ids, k]
                     ln_rho[non_nan_ids, k] = ln_rho[non_nan_ids, k] + \
-                        Y[non_nan_ids, d]*\
-                        torch.matmul(X[non_nan_ids, :], self.w_mu_[:, d, k]) - \
+                        (1-Y[non_nan_ids, d])*\
+                        torch.matmul(-X[non_nan_ids, :], self.w_mu_[:, d, k]) - \
                         mc_term[non_nan_ids, k]
+
+                    foobar = (1-Y[non_nan_ids, d])*torch.matmul(-X[non_nan_ids, :], self.w_mu_[:, d, k])
+                    # Large is good... I think
+                    #pdb.set_trace()
+                    # DEB (old)
+                    #mc_term[non_nan_ids, k] = torch.from_numpy(np.mean(np.log(1 + \
+                    #    np.exp(np.dot(self.X_[non_nan_ids, :], \
+                    #    np.random.multivariate_normal(self.w_mu_[:, d, k], \
+                    #        self.w_covmat_[:, :, d, k], num_samples).T))), 1)).double()
+
+                    #ln_rho[non_nan_ids, k] += (1-Y[non_nan_ids, d])*\
+                    #    dot(-X[non_nan_ids, :], self.w_mu_[:, d, k]) - \
+                    #    mc_term[non_nan_ids, k]                                    
                     
         # The values of 'ln_rho' will in general have large magnitude, causing
         # exponentiation to result in overflow. All we really care about is the
@@ -645,18 +667,18 @@ class MultDPRegression:
         # each row the max value and also clipping the resulting row vector to
         # lie within -300, 300 to ensure that when we exponentiate we don't
         # have any overflow issues.
-        
+        pdb.set_trace()
         #rho_10 = ln_rho*torch.log(torch.tensor(np.e))
         rho_10 = ln_rho*np.log10(np.e)
         
         # The following line ensures that once a trajectory has been assigned 0
-        # weight (which sig_trajs_ keeps track of), it won't be resurrected.        
+        # weight (which sig_trajs_ keeps track of), it won't be resurrected.
         rho_10[:, ~self.sig_trajs_] = -sys.float_info.max
         rho_10_shift = \
             10**((rho_10.T - torch.max(rho_10, dim=1).values).T + 300).\
             clip(-300, 300)        
         R = (rho_10_shift.T/torch.sum(rho_10_shift, dim=1)).T
-        pdb.set_trace()
+    
         # Within a group, all data instances must have the same probability of
         # belonging to each of the K trajectories
         if self.gb_ is not None:
@@ -671,9 +693,10 @@ class MultDPRegression:
 
         # Any instance that has miniscule probability of belonging to a
         # trajectory, set it's probability of belonging to that trajectory to 0
+
         R[R <= self.prob_thresh_] = 0
         R = R/torch.sum(R, dim=1).unsqueeze(1)
-        
+        pdb.set_trace()
         return R
 
 
