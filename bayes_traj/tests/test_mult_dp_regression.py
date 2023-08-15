@@ -37,7 +37,7 @@ def test_update_w_logistic():
     mm.X_ = torch.from_numpy(df[['intercept', 'pred']].values).double()
     mm.Y_ = torch.from_numpy(np.atleast_2d(df.target.values).T).double()
     mm.gb_ = None
-    
+
     mm.init_traj_params()
 
     mm.R_ = torch.ones([mm.N_, K]).double()
@@ -130,7 +130,7 @@ def test_update_z_logistic():
     data_file_name = os.path.split(os.path.realpath(__file__))[0] + \
         '/../resources/data/binary_data_3.csv'
     df = pd.read_csv(data_file_name)
-
+    df['id'] = np.arange(0, df.shape[0]) 
     # Intercept, slope for group 1: 0, 50
     # Intercept, slope for group 1: 0, -50
     
@@ -165,6 +165,11 @@ def test_update_z_logistic():
     mm.v_a_ = torch.ones(mm.K_).double()
     mm.v_b_ = mm.alpha_*torch.ones(mm.K_).double()
 
+    mm.df_helper_ = pd.DataFrame(df[['id']])
+    for k in range(mm.K_):
+        mm.df_helper_['like_accum_' + str(k)] = np.nan*np.zeros(mm.N_)
+    mm.gb_ = mm.df_helper_.groupby('id')
+        
     # Set w_mu_ to be correct
     mm.w_mu_[0, 0, 0] = 0
     mm.w_mu_[1, 0, 0] = 50
