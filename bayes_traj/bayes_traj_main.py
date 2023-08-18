@@ -43,10 +43,11 @@ def main():
         type=str, default=None)
     parser.add_argument('--prior', help='Input pickle file containing prior \
         settings', metavar='<string>', required=True)
-    parser.add_argument('--prec_prior_weight', help='A floating point value \
-        indicating how much weight to put on the prior over the residual \
-        precisions. Higher values mean that more weight will be given to the \
-        prior', metavar='<float>', type=float, default=0.25)    
+    parser.add_argument('--prec_prior_weight', help='Positive, floating point \
+        value indicating how much weight to put on the prior over the residual \
+        precisions. Values greater than 1 give more weight to the prior. \
+        Values less than one give less weight to the prior.', metavar='<float>',
+        type=float, default=1.0)    
     parser.add_argument('--alpha', help='If specified, over-rides the value in \
         the prior file', dest='alpha', metavar=float, default=None)
     parser.add_argument('--out_model', help='Pickle file name. If specified, \
@@ -107,6 +108,8 @@ def main():
     prior = op.prior
     out_model = op.out_model
     probs_weight = None #op.probs_weight
+
+    assert op.prec_prior_weight > 0, "prec_prior_weight must be greater than 0"
     
     if probs_weight is not None:
         assert probs_weight >=0 and probs_weight <= 1, \

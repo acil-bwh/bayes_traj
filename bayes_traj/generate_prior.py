@@ -514,10 +514,10 @@ def main():
         indicating those data instances that must be in the same trajectory. This \
         is typically a subject identifier (e.g. in the case of a longitudinal data \
         set).', dest='groupby', metavar='<string>', default=None)
-    parser.add_argument('--prec_prior_weight', help='A floating point value \
-        indicating how much weight to put on the prior over the residual \
-        precisions. Higher values mean that more weight will be given to the \
-        prior', metavar='<float>', type=float, default=None)    
+#    parser.add_argument('--prec_prior_weight', help='A floating point value \
+#        indicating how much weight to put on the prior over the residual \
+#        precisions. Higher values mean that more weight will be given to the \
+#        prior', metavar='<float>', type=float, default=None)    
     parser.add_argument('--alpha', help='Dirichlet process scaling parameter. \
         Higher values indicate belief that more trajectoreis are present. \
         Must be a positive real value if specified.', dest='alpha', \
@@ -528,15 +528,15 @@ def main():
     preds = op.preds.split(',')
     targets = op.targets.split(',')
     
-    if op.prec_prior_weight is not None:
-        assert op.prec_prior_weight > 0, \
-            "prec_prior_weight must be a positive real value"
+    #if op.prec_prior_weight is not None:
+    #    assert op.prec_prior_weight > 0, \
+    #        "prec_prior_weight must be a positive real value"
         
     if op.alpha is not None:
         assert op.alpha > 0, \
             "alpha  must be a positive real value"
         
-    pg = PriorGenerator(targets, preds, prec_prior_weight=op.prec_prior_weight,
+    pg = PriorGenerator(targets, preds, prec_prior_weight=None,
                         alpha=op.alpha)
     
     #---------------------------------------------------------------------------
