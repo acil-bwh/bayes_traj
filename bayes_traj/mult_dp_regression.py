@@ -12,7 +12,7 @@ import numpy as np
 from numpy import abs, dot, mean, log, sum, exp, tile, max, sum, isnan, diag, \
      sqrt, pi, newaxis, outer, genfromtxt, where
 from numpy.random import multivariate_normal, randn, gamma, binomial
-from bayes_traj.utils import sample_cos
+from bayes_traj.utils import *
 from scipy.optimize import minimize_scalar
 from scipy.special import psi, gammaln, logsumexp
 from scipy.stats import norm
@@ -280,7 +280,7 @@ class MultDPRegression:
             self.prec_prior_weight_ = 0.25
     
         try:
-            self.group_first_index_ = np.array(mm.group_first_index_)
+            self.group_first_index_ = np.array(mm.group_first_index_).astype(bool)
         except:
             self._set_group_first_index()                
     
@@ -295,7 +295,7 @@ class MultDPRegression:
     def _set_group_first_index(self):
         """
         """
-        self.group_first_index_ = np.zeros(self.N_)
+        self.group_first_index_ = np.zeros(self.N_, dtype=bool)
         if self.gb_ is not None:
             for kk in self.gb_.groups.keys():
                 self.group_first_index_[self.gb_.get_group(kk).index[0]] = True
@@ -303,7 +303,6 @@ class MultDPRegression:
             self.group_first_index_ = np.ones(self.N_, dtype=bool) 
 
             
-
     def fit(self, target_names, predictor_names, df, groupby=None, iters=100,
         R=None, traj_probs=None, traj_probs_weight=None, v_a=None,
         v_b=None, w_mu=None, w_var=None, lambda_a=None, lambda_b=None,
@@ -473,9 +472,19 @@ class MultDPRegression:
             R = None
 
         self.df_ = df
+
+        # df_helper_ is introduced as a data structure that will facilitate
+        # tallying the likelihood terms during the update of Z parameters.
+        # It has a column that mirrors the subject ID of the input df and will
+        # enable grouped tallying of likelihood terms. It is initialized here,
+        # and it is updated with each call to 'update_z'.
+        self.df_helper_ = pd.DataFrame(df[[groupby]])
+        for k in range(self.K_):
+            self.df_helper_['like_accum_' + str(k)] = np.nan*np.zeros(self.N_)
+        
         self.gb_ = None        
         if groupby is not None:
-            self.gb_ = df[[groupby]].groupby(groupby)
+            self.gb_ = self.df_helper_.groupby(groupby)
     
         self._set_group_first_index()
 
@@ -506,12 +515,10 @@ class MultDPRegression:
         # prior) by an amount proportional to the number of subjects in the
         # data set. Note that this step needs to be done AFTER
         # init_traj_params, which uses the original prior to randomly
-        # initialize trajectory precisions.    
-        self.lambda_a0_mod_ = self.lambda_a0_*self.prec_prior_weight_*\
-            (len(self.gb_.groups) if self.gb_ is not None else self.N_)
-        self.lambda_b0_mod_ = self.lambda_b0_*self.prec_prior_weight_*\
-            (len(self.gb_.groups) if self.gb_ is not None else self.N_)        
-    
+        # initialize trajectory precisions.
+        self.lambda_a0_mod_ = self.lambda_a0_*self.prec_prior_weight_
+        self.lambda_b0_mod_ = self.lambda_b0_*self.prec_prior_weight_
+
         if self.v_a_ is None:
             self.v_a_ = torch.ones(self.K_)
     
@@ -556,25 +563,17 @@ class MultDPRegression:
 
             self.update_v()
             if self.num_binary_targets_ > 0:
-                # DEB
-                pass
-                #self.update_w_logistic(em_iters=1)
+                self.update_w_logistic(em_iters=1)
             if (self.D_ - self.num_binary_targets_ > 0) and \
                (not weights_only):
                 self.update_w_gaussian()
                 self.update_lambda() 
 
-            # DEB
             self.R_ = self.update_z(self.X_, self.Y_)
-
-            # DEB
-            print("{:.3f}, {:.3f}".format(self.w_mu_.numpy()[0, 0, 0],
-                                          self.w_mu_.numpy()[1, 0, 0]))
             
             self.sig_trajs_ = \
                 torch.max(self.R_, dim=0).values > self.prob_thresh_
 
-            # DEB
             if verbose:
                 torch.set_printoptions(precision=2)
                 print(f"iter {inc}, {torch.sum(self.R_, dim=0).numpy()}")
@@ -584,29 +583,27 @@ class MultDPRegression:
         """Updates the parameters of the Beta distributions for latent
         variable 'v' in the variational approximation.
         """
-        self.v_a_ = 1.0 + torch.sum(self.R_[self.group_first_index_, :], dim=0)
+        self.v_a_ = 1.0 + \
+            torch.sum(self.R_[self.group_first_index_, :], dim=0)        
 
         for k in torch.arange(0, self.K_):
             self.v_b_[k] = self.alpha_ + \
                 torch.sum(self.R_[self.group_first_index_, k+1:])
 
-
+            
     def update_z(self, X, Y):
         """
-        """
-        # DEB
-        self.w_mu_[:, :, 3::] = torch.zeros([2, 2, 17]).double()
-        
+        """        
         expec_ln_v = psi(self.v_a_) - psi(self.v_a_ + self.v_b_)
         expec_ln_1_minus_v = psi(self.v_b_) - psi(self.v_a_ + self.v_b_)
     
-        tmp = expec_ln_v.clone().detach()
+        expec_ln_v_terms = expec_ln_v.clone().detach()
         for k in range(1, self.K_):
-            tmp[k] = tmp[k] + torch.sum(expec_ln_1_minus_v[0:k])
-    
-        ln_rho = torch.ones([self.N_, self.K_], \
-                            dtype=torch.float64)*tmp.unsqueeze(0)
-        pdb.set_trace()
+            expec_ln_v_terms[k] = expec_ln_v_terms[k] + \
+                torch.sum(expec_ln_1_minus_v[0:k])
+
+        likelihood_accum = torch.zeros([self.N_, self.K_]).double()
+        
         if self.num_binary_targets_ > 0:
             num_samples = 100 # Arbitrary. Should be "big enough"
             mc_term = torch.zeros([self.N_, self.K_]).double()
@@ -617,8 +614,9 @@ class MultDPRegression:
                     X[non_nan_ids, :].T)**2).T + \
                     torch.sum((X[non_nan_ids, None, :]**2)*\
                     (self.w_var_[:, d, :].T)[None, :, :], 2)
-    
-                ln_rho[non_nan_ids, :] = ln_rho[non_nan_ids, :] + \
+
+                likelihood_accum[non_nan_ids, :] = \
+                    likelihood_accum[non_nan_ids, :] + \
                   0.5*(psi(self.lambda_a_[d, :]) - \
                     torch.log(self.lambda_b_[d, :]) - \
                     torch.log(torch.tensor(2*np.pi)) - \
@@ -629,37 +627,31 @@ class MultDPRegression:
                     Y[non_nan_ids, d, None]**2))
             elif self.target_type_[d] == 'binary':
                 for k in range(self.K_):
-                    # DEB (new)
                     dist = MultivariateNormal(self.w_mu_[:, d, k],
                                               self.w_covmat_[:, :, d, k])
                     samples = dist.sample((num_samples,))
 
                     mc_term[non_nan_ids, k] = \
                         torch.mean(torch.log1p(torch.exp(\
-                        torch.matmul(-self.X_[non_nan_ids, :], samples.T))), dim=1)
+                        torch.matmul(self.X_[non_nan_ids, :], samples.T))), dim=1)
 
-                    #ln_rho[non_nan_ids, k] = ln_rho[non_nan_ids, k] + \
-                    #    Y[non_nan_ids, d]*\
-                    #    torch.matmul(X[non_nan_ids, :], self.w_mu_[:, d, k]) - \
-                    #    mc_term[non_nan_ids, k]
-                    ln_rho[non_nan_ids, k] = ln_rho[non_nan_ids, k] + \
-                        (1-Y[non_nan_ids, d])*\
-                        torch.matmul(-X[non_nan_ids, :], self.w_mu_[:, d, k]) - \
+                    likelihood_accum[non_nan_ids, k] = \
+                        likelihood_accum[non_nan_ids, k] + \
+                        Y[non_nan_ids, d]*\
+                        torch.matmul(X[non_nan_ids, :], self.w_mu_[:, d, k]) - \
                         mc_term[non_nan_ids, k]
 
-                    foobar = (1-Y[non_nan_ids, d])*torch.matmul(-X[non_nan_ids, :], self.w_mu_[:, d, k])
-                    # Large is good... I think
-                    #pdb.set_trace()
-                    # DEB (old)
-                    #mc_term[non_nan_ids, k] = torch.from_numpy(np.mean(np.log(1 + \
-                    #    np.exp(np.dot(self.X_[non_nan_ids, :], \
-                    #    np.random.multivariate_normal(self.w_mu_[:, d, k], \
-                    #        self.w_covmat_[:, :, d, k], num_samples).T))), 1)).double()
+        # Add columns to df_ for computational purposes
+        like_accum_cols = []
+        for k in range(self.K_):
+            like_accum_cols.append('like_accum_' + str(k))
+            self.df_helper_[like_accum_cols[k]] = likelihood_accum[:, k]
 
-                    #ln_rho[non_nan_ids, k] += (1-Y[non_nan_ids, d])*\
-                    #    dot(-X[non_nan_ids, :], self.w_mu_[:, d, k]) - \
-                    #    mc_term[non_nan_ids, k]                                    
-                    
+        ln_rho_deb = torch.ones([self.gb_.ngroups, self.K_], \
+                            dtype=torch.float64)*expec_ln_v_terms.unsqueeze(0) + \
+                            torch.from_numpy(\
+                                self.gb_[like_accum_cols].sum().values).double()
+        
         # The values of 'ln_rho' will in general have large magnitude, causing
         # exponentiation to result in overflow. All we really care about is the
         # normalization of each row. We can use the identity exp(a) =
@@ -667,37 +659,32 @@ class MultDPRegression:
         # each row the max value and also clipping the resulting row vector to
         # lie within -300, 300 to ensure that when we exponentiate we don't
         # have any overflow issues.
-        pdb.set_trace()
-        #rho_10 = ln_rho*torch.log(torch.tensor(np.e))
-        rho_10 = ln_rho*np.log10(np.e)
+        rho_10 = ln_rho_deb*np.log10(np.e)
         
         # The following line ensures that once a trajectory has been assigned 0
         # weight (which sig_trajs_ keeps track of), it won't be resurrected.
         rho_10[:, ~self.sig_trajs_] = -sys.float_info.max
         rho_10_shift = \
             10**((rho_10.T - torch.max(rho_10, dim=1).values).T + 300).\
-            clip(-300, 300)        
-        R = (rho_10_shift.T/torch.sum(rho_10_shift, dim=1)).T
-    
-        # Within a group, all data instances must have the same probability of
-        # belonging to each of the K trajectories
-        if self.gb_ is not None:
-            for g in self.gb_.groups.keys():
-                tmp_ids = self.gb_.get_group(g).index.values
-                tmp_vec = torch.sum(torch.log(R[tmp_ids, :] + \
-                                            torch.finfo(float).tiny), 0)
-                vec = torch.exp(tmp_vec + 700 - torch.max(tmp_vec))
-                vec = vec/torch.sum(vec)
-    
-                R[tmp_ids, :] = vec                
+            clip(-300, 300)
 
+        R_grouped = (rho_10_shift.T/torch.sum(rho_10_shift, dim=1)).T
+        
         # Any instance that has miniscule probability of belonging to a
         # trajectory, set it's probability of belonging to that trajectory to 0
+        R_grouped[R_grouped <= self.prob_thresh_] = 0
+        R_grouped = R_grouped/torch.sum(R_grouped, dim=1).unsqueeze(1)
 
-        R[R <= self.prob_thresh_] = 0
-        R = R/torch.sum(R, dim=1).unsqueeze(1)
-        pdb.set_trace()
-        return R
+        R_indices = [index for group_indices in self.gb_.groups.values() \
+                     for index in group_indices]
+
+        gb_indices_rep = [kk for kk, gg in enumerate(self.gb_.groups.keys()) \
+                          for _ in range(self.gb_.get_group(gg).shape[0])]        
+
+        R = np.zeros([self.N_, self.K_])
+        R[R_indices, :] = R_grouped[gb_indices_rep, :]
+
+        return torch.from_numpy(R).double()
 
 
     def update_w_logistic(self, em_iters=1):
@@ -796,11 +783,12 @@ class MultDPRegression:
         for d in range(self.D_):
             if self.target_type_[d] == 'gaussian':
                 non_nan_ids = ~torch.isnan(self.Y_[:, d])
+
                 self.lambda_a_[d, self.sig_trajs_] = \
                     self.lambda_a0_mod_[d, None] + \
                     0.5*torch.sum(self.R_[:, self.sig_trajs_][non_nan_ids, :], 0)\
                     [None, :]
-            
+
                 tmp = (torch.mm(self.w_mu_[:, d, self.sig_trajs_].T, \
                            self.X_[non_nan_ids, :].T)**2).T + \
                            torch.sum((self.X_[non_nan_ids, None, :]**2)*\
@@ -1132,114 +1120,6 @@ class MultDPRegression:
         return waic2
 
 
-    def expand_mat(self, mat, which_m, which_d, expand_vec):
-        """Helper function for trajectory coefficient initialization. It takes 
-        in a tensor and returns a larger tensor (along the k-dimension) with
-        values at the specified predictor and target location set to the values
-        in expand_vec.
-    
-        Parameters
-        ----------
-        mat : tensor, shape ( M, D, kk )
-            Tensor of trajectory coefficients. kk is expected to vary from 
-            function call to function call
-    
-        which_m : int
-            Tensor index corresponding to the predictor coefficient that will
-            be expanded with respect to.
-    
-        which_d : int
-            Tensor index corresponding to the target dimension of the predictor
-            coefficient that will be expanded with respect to.
-    
-        expand_vec : tensor, shape ( L )
-            Tensor of coefficient values that will be used to create the expanded
-            tensor.
-    
-        Returns
-        -------
-        expanded_mat : tensor, shape ( M, D, kk*L)
-            Expanded trajectory coefficient tensor
-        """
-        M = mat.shape[0]
-        D = mat.shape[1]
-        K = mat.shape[2]
-    
-        expand_size = expand_vec.shape[0]
-    
-        new_mat = torch.zeros([M, D, K*expand_size])
-        for kk in range(K):
-            for xx in range(expand_size):
-                new_mat[:, :, kk*expand_size + xx] = mat[:, :, kk]
-            new_mat[which_m, which_d, \
-                    (kk*expand_size):(kk*expand_size)+expand_size] = expand_vec
-    
-        return new_mat
-
-
-    def prune_coef_mat(self, w_mu):
-        """
-        TODO: Test implementation of binary target accomodation
-        """
-        tmp_K = w_mu.shape[2]
-        R_tmp = torch.ones([self.N_, tmp_K], dtype=torch.float64)
-    
-        for k in range(tmp_K):
-            for d in range(self.D_):
-                ids = torch.isnan(self.Y_[:, d]) == 0
-                mu_tmp = torch.matmul(self.X_, w_mu[:, d, k])
-    
-                if self.target_type_[d] == 'gaussian':
-                    var = self.lambda_b0_/self.lambda_a0_
-                    R_tmp[ids, k] = R_tmp[ids, k]*\
-                        ((1/(torch.sqrt(2*torch.tensor(np.pi)*var[d])))*\
-                        torch.exp(-((self.Y_[ids, d] - \
-                                     mu_tmp[ids])**2)/(2*var[d])))
-                else:
-                    # Target assumed binary
-                    R_tmp[ids, k] = \
-                        R_tmp[ids, k]*\
-                        ((torch.exp(mu_tmp[ids])**self.Y_[ids, d])/\
-                         (1 + torch.exp(mu_tmp[ids])))
-
-        zero_ids = torch.sum(R_tmp, 1) == 0
-        R_tmp[zero_ids] = \
-            (torch.ones([torch.sum(zero_ids), tmp_K])/tmp_K).double()
-        R = ((R_tmp.T/torch.sum(R_tmp, 1)).T).double()
-    
-        # Within a group, all data instances must have the same probability of
-        # belonging to each of the K trajectories
-        if self.gb_ is not None:
-            for g in self.gb_.groups.keys():
-                tmp_ids = self.gb_.get_group(g).index.values
-                tmp_vec = torch.sum(torch.log(R[tmp_ids, :] + \
-                    torch.finfo(torch.float64).eps), 0).double()
-                vec = torch.exp(tmp_vec + 700 - torch.max(tmp_vec))
-                vec = vec/torch.sum(vec)
-                # Now update the rows of 'normalized_mat'.
-                R[tmp_ids, :] = vec                
-
-        # By using R_sel here, we are preferring sets of trajectories that
-        # tend not to be redundant.
-        R_sel = torch.zeros([self.N_, tmp_K], dtype=torch.float64)
-        for i in range(self.N_):
-            col = torch.where(R[i, :] == torch.max(R[i, :]))[0][0]
-            R_sel[i, col] = R[i, col]
-
-        # Selects trajectories based on how many data points are assigned to
-        # them.
-        top_indices = torch.argsort(-torch.sum(R_sel, 0))[0:self.K_]
-    
-        # Adding this normalization step so that we can apply the heuristic
-        # below, which selects the top_indices based on how well the
-        # individuals are spread across trajectories
-        #R_sel = R_sel/torch.sum(R_sel,1)[:, None]                          
-        #top_indices = torch.argsort(torch.abs(torch.sum(R_sel, 0) - \
-        #                            self.N_/tmp_K))[0:self.K_]
-    
-        return w_mu[:, :, top_indices]
-    
-
     def init_traj_params(self, traj_probs=None):
         """Initializes trajectory parameters.
 
@@ -1302,33 +1182,10 @@ class MultDPRegression:
                         self.lambda_a_[dd, kk] = \
                             torch.distributions.Gamma(shape, scale).sample()
 
-        w_mu_tmp = torch.zeros([self.M_, self.D_, 1])
-        w_mu_tmp[:, :, 0] = self.w_mu0_.clone().detach()
-
-        num_param_levels = 5
-        if num_param_levels**(self.M_*self.D_) < self.K_:
-            num_param_levels = \
-                int(np.ceil(10**(np.log10(self.K_)/(self.D_*self.M_))))
-
-        # Permute predictor and target indices. This is to further sample the
-        # space of possible trajectories (given multipler restarts) on
-        # initializeation. Also randomly sample (low and high) the range over
-        # which cos are chosen to further jitter the initialization            
-        for m in torch.randperm(self.M_):
-            for d in torch.randperm(self.D_):
-                low = torch.rand(1) * 0.6 + 1.7
-                high = torch.rand(1) * 0.6 + 1.7
-                cos = torch.linspace((self.w_mu0_[m, d] - \
-                    low*torch.sqrt(self.w_var0_[m, d])).item(),
-                        (self.w_mu0_[m, d] + \
-                         high*torch.sqrt(self.w_var0_[m, d])).item(),
-                         num_param_levels)
-                w_mu_tmp = self.expand_mat(w_mu_tmp, m, d, cos).double()
-                if w_mu_tmp.shape[2] > self.K_:
-                    w_mu_tmp = self.prune_coef_mat(w_mu_tmp)
-
+        w_mu_tmp = torch.from_numpy(sample_cos(self.w_mu0_, self.w_var0_,
+                                               num_samples=self.K_)).double()
         if self.w_mu_ is None:
-            self.w_mu_ = w_mu_tmp.double()
+            self.w_mu_ = w_mu_tmp
         else:
             self.w_mu_[:, :, traj_probs==0] = \
                 w_mu_tmp[:, :, traj_probs==0].double()
@@ -1363,8 +1220,7 @@ class MultDPRegression:
 
     def init_R_mat(self, traj_probs=None, traj_probs_weight=None):
         """
-        Initializes 'R_', using the stick-breaking construction. Also
-        enforces any longitudinal constraints.
+        Initializes 'R_', using the stick-breaking construction.
     
         Parameters
         ----------
@@ -1378,14 +1234,11 @@ class MultDPRegression:
             stick-breaking: 
             traj_probs_weight*traj_probs + (1-traj_probs_weight)*random_probs.
         """
-    
         # Draw a weight vector from the stick-breaking process
-        #tmp = torch.distributions.Beta(1, self.alpha_).sample((self.K_,))
-        #one_tmp = 1. - tmp
-        #vec = torch.Tensor([torch.prod(one_tmp[0:k])*tmp[k] for k in range(self.K_)])
-    
-        # Each trajectory gets equal weight
-        vec = (torch.ones(self.K_)/self.K_).double()
+        tmp = torch.distributions.Beta(1, self.alpha_).sample((self.K_,))
+        one_tmp = 1. - tmp
+        vec = torch.Tensor([torch.prod(one_tmp[0:k])*\
+                            tmp[k] for k in range(self.K_)]).double()
     
         if (traj_probs is None and traj_probs_weight is not None) or \
            (traj_probs_weight is None and traj_probs is not None):
@@ -1408,60 +1261,9 @@ class MultDPRegression:
             warnings.warn("Initial trajectory probabilities sum to {}. \
             Alpha may be too high.".format(torch.sum(init_traj_probs)))
 
-        self.R_ = self.predict_proba_(self.X_, self.Y_, init_traj_probs)
+        self.R_ = torch.ones([self.N_, self.K_]).double()
+        self.R_[:] = init_traj_probs
         self.sig_trajs_ = torch.max(self.R_, 0)[0] > self.prob_thresh_
-            
-
-    def predict_proba_(self, X, Y, traj_probs=None):
-        """PyTorch version of the function."""
-
-        N = X.shape[0]
-        D = Y.shape[1]
-
-        if traj_probs is None:
-            traj_probs = self.get_traj_probs()
-        
-        R_tmp = torch.ones([N, self.K_]).double()
-        for k in range(self.K_):
-            for d in range(D):
-                ids = ~torch.isnan(Y[:, d])
-
-                mu_tmp = torch.matmul(X, self.w_mu_[:, d, k])
-
-                if self.target_type_[d] == 'gaussian':
-                    var_tmp = self.lambda_b_[d, k] / self.lambda_a_[d, k]
-                    R_tmp[ids, k] = \
-                        R_tmp[ids, k]*((1 / \
-                                (torch.sqrt(2 * np.pi * var_tmp))) * \
-                        torch.exp(-((Y[ids, d] - mu_tmp[ids]) ** 2) / \
-                                  (2 * var_tmp)))
-                else:
-                    # Target assumed binary
-                    R_tmp[ids, k] = R_tmp[ids, k]*\
-                        ((torch.exp(mu_tmp[ids]) ** Y[ids, d]) / \
-                        (1 + torch.exp(mu_tmp[ids])))
-
-            R_tmp[:, k] = R_tmp[:, k]*(traj_probs[k])
-
-        zero_ids = torch.sum(R_tmp, 1) == 0
-        R_tmp[zero_ids] = \
-            (torch.ones([torch.sum(zero_ids), self.K_])/self.K_).double()
-        R = (R_tmp.t()/torch.sum(R_tmp, 1)).t()
-
-        # Within a group, all data instances must have the same probability of
-        # belonging to each of the K trajectories
-        if self.gb_ is not None:
-            for g in self.gb_.groups.keys():
-                tmp_ids = self.gb_.get_group(g).index.values
-                tmp_vec = torch.sum(torch.log(R[tmp_ids, :] + \
-                                        torch.finfo(float).tiny), 0)
-                vec = torch.exp(tmp_vec + 700 - torch.max(tmp_vec))
-                vec = vec / torch.sum(vec)
-
-                # Now update the rows of 'normalized_mat'.
-                R[tmp_ids, :] = vec
-
-        return R
 
 
     def augment_df_with_traj_info(self, target_names, predictor_names, df,
