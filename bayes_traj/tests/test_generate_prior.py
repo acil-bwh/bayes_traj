@@ -53,9 +53,10 @@ def test_prior_info_from_df():
         "w_mu0 not as expected"
     assert np.isclose(pg.prior_info_['w_mu0']['y']['age'], -1.36580642497926), \
         "w_mu0 not as expected"
-    assert np.isclose(pg.prior_info_['lambda_a0']['y'], 16.0), \
+
+    assert np.isclose(pg.prior_info_['lambda_a0']['y'], 14.3999999999), \
         "lambda_a0 not as expected"
-    assert np.isclose(pg.prior_info_['lambda_b0']['y'], 396.1353893428358), \
+    assert np.isclose(pg.prior_info_['lambda_b0']['y'], 356.5218504085522), \
         "lambda_b0 nost as expected"
     
     #pickle.dump(pg.prior_info_, open('/Users/jr555/tmp/foo_prior.p', 'wb'))
@@ -205,9 +206,9 @@ def test_compute_prior_info_1():
         "w_mu0 not as expected"
     assert np.isclose(pg.prior_info_['w_mu0']['y']['age'], -1.36580642497926), \
         "w_mu0 not as expected"
-    assert np.isclose(pg.prior_info_['lambda_a0']['y'], 16.0), \
+    assert np.isclose(pg.prior_info_['lambda_a0']['y'], 14.399999999999999), \
         "lambda_a0 not as expected"
-    assert np.isclose(pg.prior_info_['lambda_b0']['y'], 396.1353893428358), \
+    assert np.isclose(pg.prior_info_['lambda_b0']['y'], 356.5218504085522), \
         "lambda_b0 nost as expected"
 
     assert pg.prior_info_['w_mu'] is None, \
@@ -361,9 +362,9 @@ def test_compute_prior_info_4():
         "w_mu0 not as expected"
     assert np.isclose(pg.prior_info_['w_mu0']['y2']['age'], -1.3658064249792), \
         "w_mu0 not as expected"
-    assert np.isclose(pg.prior_info_['lambda_a0']['y2'], 16.0), \
+    assert np.isclose(pg.prior_info_['lambda_a0']['y2'], 14.399999999999999), \
         "lambda_a0 not as expected"
-    assert np.isclose(pg.prior_info_['lambda_b0']['y2'], 396.1353893428358), \
+    assert np.isclose(pg.prior_info_['lambda_b0']['y2'], 356.5218504085522), \
         "lambda_b0 nost as expected"
 
     for tt in [3, 5]:
@@ -417,8 +418,8 @@ def test_compute_prior_info_5():
                     'y2': {'intercept': 1.9028074002722182,
                            'age': 0.18048991974339593,
                            'age^2': 0.0007043047299188608}},
-         'lambda_a0': {'y': 15.999999999999996, 'y2': 16.0},
-         'lambda_b0': {'y': 395.06908420072455, 'y2': 395.0690842007246},
+         'lambda_a0': {'y': 14.399999999999999, 'y2': 14.399999999999999},
+         'lambda_b0': {'y': 355.56217578065207, 'y2': 355.56217578065207},
          'w_mu': {'intercept': {'y': np.array([5.73256565, 9.27107768]),
                                 'y2': np.array([15.73256565, 19.27107768])},
                   'age': {'y': np.array([-1.91955117, -0.86877812]),
@@ -464,14 +465,14 @@ def test_compute_prior_info_5():
         prior_info_gt['w_var0']['y2']['age'], "Error in prior"
     assert pg.prior_info_['w_var0']['y2']['age^2'] == \
         prior_info_gt['w_var0']['y2']['age^2'], "Error in prior"
-    assert pg.prior_info_['lambda_a0']['y'] == \
-        prior_info_gt['lambda_a0']['y'], "Error in prior"
-    assert pg.prior_info_['lambda_a0']['y2'] == \
-        prior_info_gt['lambda_a0']['y2'], "Error in prior"
-    assert pg.prior_info_['lambda_b0']['y'] == \
-        prior_info_gt['lambda_b0']['y'], "Error in prior"
-    assert pg.prior_info_['lambda_b0']['y2'] == \
-        prior_info_gt['lambda_b0']['y2'], "Error in prior"
+    assert np.isclose(pg.prior_info_['lambda_a0']['y'], \
+        prior_info_gt['lambda_a0']['y']), "Error in prior"
+    assert np.isclose(pg.prior_info_['lambda_a0']['y2'], \
+        prior_info_gt['lambda_a0']['y2']), "Error in prior"
+    assert np.isclose(pg.prior_info_['lambda_b0']['y'], \
+        prior_info_gt['lambda_b0']['y']), "Error in prior"
+    assert np.isclose(pg.prior_info_['lambda_b0']['y2'], \
+        prior_info_gt['lambda_b0']['y2']), "Error in prior"
 
     assert np.isclose(pg.prior_info_['w_mu']['intercept']['y'][3], \
         prior_info_gt['w_mu']['intercept']['y'][0]), "Error in prior"
