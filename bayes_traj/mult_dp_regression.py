@@ -969,6 +969,29 @@ class MultDPRegression:
         return log_dens.item()
     
 
+    def cast_to_torch(self):
+        """Casts numpy arrays to torch tensors
+        """
+        if not torch.is_tensor(self.Y_):
+            self.Y_ = torch.from_numpy(self.Y_).double()
+
+        if not torch.is_tensor(self.X_):
+            self.X_ = torch.from_numpy(self.X_).double()
+
+        if not torch.is_tensor(self.R_):
+            self.R_ = torch.from_numpy(self.R_).double()
+
+        if not torch.is_tensor(self.w_mu_):
+            self.w_mu_ = torch.from_numpy(self.w_mu_).double()
+
+        if not torch.is_tensor(self.w_var_):
+            self.w_var_ = torch.from_numpy(self.w_var_).double()
+            
+        if not torch.is_tensor(self.lambda_a_):
+            self.lambda_a_ = torch.from_numpy(self.lambda_a_).double()
+            self.lambda_b_ = torch.from_numpy(self.lambda_b_).double()            
+        
+    
     def log_likelihood(self):
         """Compute the log-likelihood given expected values of the latent 
         variables.
@@ -980,27 +1003,54 @@ class MultDPRegression:
         log_likelihood : float
             The log-likelihood
         """
+        if not torch.is_tensor(self.Y_):
+            Y = torch.from_numpy(self.Y_).double()
+        else:
+            Y = self.Y_
+
+        if not torch.is_tensor(self.X_):
+            X = torch.from_numpy(self.X_).double()
+        else:
+            X = self.X_
+
+        if not torch.is_tensor(self.R_):
+            R = torch.from_numpy(self.R_).double()
+        else:
+            R = self.R_
+
+        if not torch.is_tensor(self.w_mu_):
+            w_mu = torch.from_numpy(self.w_mu_).double()
+        else:
+            w_mu = self.w_mu_
+            
+        if not torch.is_tensor(self.lambda_a_):
+            lambda_a = torch.from_numpy(self.lambda_a_).double()
+            lambda_b = torch.from_numpy(self.lambda_b_).double()            
+        else:
+            lambda_a = self.lambda_a_
+            lambda_b = self.lambda_b_                        
+            
         tmp_k = torch.zeros(self.N_, dtype=torch.float64)
         for k in range(self.K_):
             tmp_d = torch.ones(self.N_, dtype=torch.float64)
             for d in range(self.D_):
                 # Some of the target variables can be missing (NaNs). Exclude
                 # these from the computation.
-                ids = torch.isnan(self.Y_[:, d]) == 0
-                mu = torch.mv(self.X_, self.w_mu_[:, d, k])
+                ids = torch.isnan(Y[:, d]) == 0
+                mu = torch.mv(X, w_mu[:, d, k])
                 
                 if self.target_type_[d] == 'gaussian':
-                    v = self.lambda_b_[d, k]/self.lambda_a_[d, k]
+                    v = lambda_b[d, k]/lambda_a[d, k]
                     co = 1/torch.sqrt(2.*torch.pi*v)
     
-                    tmp_d[ids] = tmp_d[ids]*(co*torch.exp(-((self.Y_[ids, d]-
+                    tmp_d[ids] = tmp_d[ids]*(co*torch.exp(-((Y[ids, d]-
                                                mu[ids])**2)/(2.*v)))
                 else:
                     # Target assumed to be binary
                     tmp_d[ids] = tmp_d[ids]*\
-                        ((torch.exp(mu)**self.Y_[ids, d])/(1 + torch.exp(mu)))
+                        ((torch.exp(mu)**Y[ids, d])/(1 + torch.exp(mu)))
                     
-            tmp_k = tmp_k + self.R_[:, k]*tmp_d
+            tmp_k = tmp_k + R[:, k]*tmp_d
         log_likelihood = torch.sum(torch.log(tmp_k))
                 
         return log_likelihood
@@ -1028,6 +1078,8 @@ class MultDPRegression:
         Nagin DS, Group-based modeling of development. Harvard University Press; 
         2005.
         """
+        self.cast_to_torch()
+        
         ll = self.log_likelihood()
         num_trajs = torch.sum(torch.sum(self.R_, 0) > 0.0)
     
@@ -1063,7 +1115,65 @@ class MultDPRegression:
             return bic_obs
 
 
-    def compute_waic2(self, S=1000):
+#    def compute_waic2(self, S=1000):
+#        """Computes the Watanabe-Akaike (aka widely available) information
+#        criterion, using the variance of individual terms in the log predictive
+#        density summed over the n data points.
+#
+#        TODO: Test implementation of binary target accomodation
+#
+#        Parameters
+#        ----------
+#        S : integer, optional
+#            The number of draws from the posterior to use when computing the
+#            required expectations.
+#
+#        Returns
+#        -------
+#        waic2 : float
+#            The Watanable-Akaike information criterion.
+#
+#        References
+#        ----------
+#        Gelman et al, 'Bayesian Data Analysis, 3rd Edition'
+#        """
+#        accum = np.zeros([self.N_, self.D_, S])
+#        for k in np.where(self.sig_trajs_)[0]:
+#            for d in range(0, self.D_):
+#                if self.target_type_[d] == 'gaussian':
+#                    co = multivariate_normal(self.w_mu_.numpy()[:, d, k],
+#                        diag(self.w_var_.numpy()[:, d, k]), S)
+#                    mu = dot(co, self.X_.numpy().T)
+#
+#                    # Draw a precision value from the gamma distribution. Note
+#                    # that numpy uses a slightly different parameterization
+#                    scale = 1./self.lambda_b_.numpy()[d, k]
+#                    shape = self.lambda_a_.numpy()[d, k]
+#                    var = 1./gamma(shape, scale, size=1)
+#
+#                    prob = ((1/sqrt(2*np.pi*var))[:, newaxis]*\
+#                        exp(-(1/(2*var))[:, newaxis]*\
+#                            (mu - self.Y_[:, d].numpy())**2)).T
+#                    pdb.set_trace()
+#                else:
+#                    # Target assumed to be binary
+#                    co = multivariate_normal(self.w_mu_[:, d, k].numpy(),
+#                        self.w_covmat_[:, :, d, k].numpy(), S)
+#                    mu = dot(co, self.X_.numpy().T)
+#                    prob = ((np.exp(mu)**self.Y_[:, d].numpy())/(1 + np.exp(mu))).T
+#
+#                accum[:, d, :] += self.R_.numpy()[:, k][:, newaxis]*prob
+#
+#        lppd = np.nansum(log(np.nanmean(accum, axis=2)))
+#        mean_ln_accum = np.nanmean(log(accum), axis=2)
+#        p_waic2 = np.nansum((1./(S-1.))*(log(accum) - \
+#            mean_ln_accum[:, :, newaxis])**2)
+#        waic2 = -2.*(lppd - p_waic2)
+#
+#        return waic2
+
+
+    def compute_waic2(self, S=100):
         """Computes the Watanabe-Akaike (aka widely available) information
         criterion, using the variance of individual terms in the log predictive
         density summed over the n data points.
@@ -1084,41 +1194,45 @@ class MultDPRegression:
         References
         ----------
         Gelman et al, 'Bayesian Data Analysis, 3rd Edition'
-        """
-        accum = np.zeros([self.N_, self.D_, S])
-        for k in np.where(self.sig_trajs_)[0]:
-            for d in range(0, self.D_):
-                if self.target_type_[d] == 'gaussian':
+        """        
+        self.cast_to_torch()
+        accum = np.zeros([self.N_, self.K_, S])
+        selector = np.zeros([self.N_, self.K_, S], dtype=bool)
+        
+        inc = 0
+        for gg in self.gb_.groups:
+            indices = self.gb_.get_group(gg).index
+
+            traj_probs = self.R_[self.gb_.get_group(gg).index[0], :]
+            selector[indices, :] = \
+                np.random.multinomial(1, traj_probs, size=S).astype(bool).T
+
+            inc = inc + 1
+            for ii, k in enumerate(np.where(self.sig_trajs_)[0]):
+                probs = np.ones([S, indices.shape[0]])
+                for d in range(0, self.D_):
                     co = multivariate_normal(self.w_mu_.numpy()[:, d, k],
                         diag(self.w_var_.numpy()[:, d, k]), S)
-                    mu = dot(co, self.X_.numpy().T)
 
-                    # Draw a precision value from the gamma distribution. Note
-                    # that numpy uses a slightly different parameterization
+                    mu = dot(co, self.X_[indices, :].T)
+
                     scale = 1./self.lambda_b_.numpy()[d, k]
                     shape = self.lambda_a_.numpy()[d, k]
-                    var = 1./gamma(shape, scale, size=1)
+                    var = 1./gamma(shape, scale, size=S)
+                    
+                    probs = probs*((1/sqrt(2*np.pi*var))[:, newaxis]*\
+                            exp(-(1/(2*var))[:, newaxis]*\
+                                (mu - self.Y_[indices, d].numpy())**2))
+                accum[indices, k, :] = probs.T
+                
+        masked = np.sum(accum*selector, 1)
 
-                    prob = ((1/sqrt(2*np.pi*var))[:, newaxis]*\
-                        exp(-(1/(2*var))[:, newaxis]*\
-                            (mu - self.Y_[:, d].numpy())**2)).T
-                else:
-                    # Target assumed to be binary
-                    co = multivariate_normal(self.w_mu_[:, d, k].numpy(),
-                        self.w_covmat_[:, :, d, k].numpy(), S)
-                    mu = dot(co, self.X_.numpy().T)
-                    prob = ((np.exp(mu)**self.Y_[:, d].numpy())/(1 + np.exp(mu))).T
-
-                accum[:, d, :] += self.R_.numpy()[:, k][:, newaxis]*prob
-
-        lppd = np.nansum(log(np.nanmean(accum, axis=2)))
-        mean_ln_accum = np.nanmean(log(accum), axis=2)
-        p_waic2 = np.nansum((1./(S-1.))*(log(accum) - \
-            mean_ln_accum[:, :, newaxis])**2)
-        waic2 = -2.*(lppd - p_waic2)
-
-        return waic2
-
+        lppd = np.sum(np.log(np.nanmean(masked, 1).clip(1e-320, 1e320)))
+        p_waic = np.sum(np.nanvar(np.log(masked.clip(1e-320, 1e320)), 1))
+        waic2 = -2*(lppd - p_waic)
+        
+        return waic2 
+        
 
     def init_traj_params(self, traj_probs=None):
         """Initializes trajectory parameters.
