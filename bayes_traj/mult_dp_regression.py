@@ -282,7 +282,7 @@ class MultDPRegression:
         try:
             self.group_first_index_ = np.array(mm.group_first_index_).astype(bool)
         except:
-            self._set_group_first_index()                
+            self._set_group_first_index(self.df_, self.gb_)
     
         try:
             self.xi_ = mm.xi_.clone()
@@ -292,16 +292,43 @@ class MultDPRegression:
             self.xi_ = None
 
 
-    def _set_group_first_index(self):
+    def _set_group_first_index(self, df, gb):
         """
         """
-        self.group_first_index_ = np.zeros(self.N_, dtype=bool)
-        if self.gb_ is not None:
-            for kk in self.gb_.groups.keys():
-                self.group_first_index_[self.gb_.get_group(kk).index[0]] = True
-        else:
-            self.group_first_index_ = np.ones(self.N_, dtype=bool) 
+        self.group_first_index_ = self._get_group_first_index(df, gb)
 
+        
+    def _get_group_first_index(self, df, gb=None):
+        """This function returns a boolean vector corresponding to the rows in 
+        df. Vector elements are false except at those locations corresponding to
+        the first entry for a group. This vector is intended to faciliate update
+        of the R matrix.
+
+        Parameters
+        ----------
+        df : pandas DataFrame
+            Data structure from which group-based information will be extracted
+
+        gb : pandas DataFrameGroupBy, optional
+            Grouped object corresponding to df. These groups will be used to 
+            set the index values. If not gb object is specified, a boolean
+            vector of all true will be returned.
+
+        Returns
+        -------
+        group_first_index : array, shape ( N )
+            Boolean vector. For a given group of indices, the first is set to
+            true; the other indices in the group are set to false.
+        """
+        group_first_index = np.zeros(df.shape[0], dtype=bool)
+        if gb is not None: 
+            for kk in gb.groups.keys():
+                group_first_index[gb.get_group(kk).index[0]] = True
+        else:
+            group_first_index = np.ones(N, dtype=bool) 
+
+        return group_first_index
+            
             
     def fit(self, target_names, predictor_names, df, groupby=None, iters=100,
         R=None, traj_probs=None, traj_probs_weight=None, v_a=None,
@@ -486,7 +513,7 @@ class MultDPRegression:
         if groupby is not None:
             self.gb_ = self.df_helper_.groupby(groupby)
     
-        self._set_group_first_index()
+        self._set_group_first_index(self.df_, self.gb_)
 
         # w_covmat_ is used for binary target variables. The EM algorithm
         # that is used to estimate w_mu_ and w_var_ for binary targets
@@ -590,9 +617,10 @@ class MultDPRegression:
             self.v_b_[k] = self.alpha_ + \
                 torch.sum(self.R_[self.group_first_index_, k+1:])
 
-            
-    def update_z(self, X, Y):
-        """
+
+    def get_R_matrix(self, df=None, gb_col=None, df_helper=None):
+        """For each individual, computes the probability that he/she belongs to
+        each of the trajectories.
         """        
         expec_ln_v = psi(self.v_a_) - psi(self.v_a_ + self.v_b_)
         expec_ln_1_minus_v = psi(self.v_b_) - psi(self.v_a_ + self.v_b_)
@@ -602,11 +630,40 @@ class MultDPRegression:
             expec_ln_v_terms[k] = expec_ln_v_terms[k] + \
                 torch.sum(expec_ln_1_minus_v[0:k])
 
-        likelihood_accum = torch.zeros([self.N_, self.K_]).double()
+        if df is not None:
+            N = df.shape[0]
+            Y = torch.from_numpy(df[self.target_names_].values).double()
+            X = torch.from_numpy(df[self.predictor_names_].values).double()
+        else:
+            N = self.N_
+            Y = self.Y_
+            X = self.X_
+
+        if df_helper is not None:
+            # If we're here, it means this function has been called
+            # from update_z
+            df_helper = df_helper
+            gb = self.gb_
+        else:
+            # If we're here, it means this function has been called
+            # from augment_df_with_traj_info
+            if gb_col is None:
+                df_helper = pd.DataFrame(index=range(df.shape[0]))
+            else:
+                df_helper = pd.DataFrame(df[[gb_col]])                
+            for k in range(self.K_):
+                df_helper['like_accum_' + str(k)] = np.nan*np.zeros(N)            
+
+            if gb_col is None:
+                gb = df_helper.groupby(df.index)
+            else:
+                gb = df_helper.groupby(gb_col)
+                
+        likelihood_accum = torch.zeros([N, self.K_]).double()
         
         if self.num_binary_targets_ > 0:
             num_samples = 100 # Arbitrary. Should be "big enough"
-            mc_term = torch.zeros([self.N_, self.K_]).double()
+            mc_term = torch.zeros([N, self.K_]).double()
         for d in range(0, self.D_):
             non_nan_ids = ~torch.isnan(Y[:, d])
             if self.target_type_[d] == 'gaussian':
@@ -633,7 +690,7 @@ class MultDPRegression:
 
                     mc_term[non_nan_ids, k] = \
                         torch.mean(torch.log1p(torch.exp(\
-                        torch.matmul(self.X_[non_nan_ids, :], samples.T))), dim=1)
+                        torch.matmul(X[non_nan_ids, :], samples.T))), dim=1)
 
                     likelihood_accum[non_nan_ids, k] = \
                         likelihood_accum[non_nan_ids, k] + \
@@ -645,12 +702,12 @@ class MultDPRegression:
         like_accum_cols = []
         for k in range(self.K_):
             like_accum_cols.append('like_accum_' + str(k))
-            self.df_helper_[like_accum_cols[k]] = likelihood_accum[:, k]
+            df_helper[like_accum_cols[k]] = likelihood_accum[:, k]
 
-        ln_rho_deb = torch.ones([self.gb_.ngroups, self.K_], \
+        ln_rho_deb = torch.ones([gb.ngroups, self.K_], \
                             dtype=torch.float64)*expec_ln_v_terms.unsqueeze(0) + \
                             torch.from_numpy(\
-                                self.gb_[like_accum_cols].sum().values).double()
+                                gb[like_accum_cols].sum().values).double()
         
         # The values of 'ln_rho' will in general have large magnitude, causing
         # exponentiation to result in overflow. All we really care about is the
@@ -675,18 +732,23 @@ class MultDPRegression:
         R_grouped[R_grouped <= self.prob_thresh_] = 0
         R_grouped = R_grouped/torch.sum(R_grouped, dim=1).unsqueeze(1)
 
-        R_indices = [index for group_indices in self.gb_.groups.values() \
+        R_indices = [index for group_indices in gb.groups.values() \
                      for index in group_indices]
 
-        gb_indices_rep = [kk for kk, gg in enumerate(self.gb_.groups.keys()) \
-                          for _ in range(self.gb_.get_group(gg).shape[0])]        
+        gb_indices_rep = [kk for kk, gg in enumerate(gb.groups.keys()) \
+                          for _ in range(gb.get_group(gg).shape[0])]        
 
-        R = np.zeros([self.N_, self.K_])
+        R = np.zeros([N, self.K_])
         R[R_indices, :] = R_grouped[gb_indices_rep, :]
 
-        return torch.from_numpy(R).double()
+        return torch.from_numpy(R).double()            
+            
+    def update_z(self, X, Y):
+        """
+        """
+        return self.get_R_matrix(df_helper=self.df_helper_)
 
-
+    
     def update_w_logistic(self, em_iters=1):
         """Uses an EM algorithm based on the approach in the reference to update
         the coefficient distributions corresponding to binary targets.
@@ -990,7 +1052,11 @@ class MultDPRegression:
         if not torch.is_tensor(self.lambda_a_):
             self.lambda_a_ = torch.from_numpy(self.lambda_a_).double()
             self.lambda_b_ = torch.from_numpy(self.lambda_b_).double()            
-        
+
+        if not torch.is_tensor(self.v_a_):
+            self.v_a_ = torch.from_numpy(self.v_a_)
+            self.v_b_ = torch.from_numpy(self.v_b_)            
+            
     
     def log_likelihood(self):
         """Compute the log-likelihood given expected values of the latent 
@@ -1113,64 +1179,6 @@ class MultDPRegression:
             return (bic_obs, bic_groups)
         else:
             return bic_obs
-
-
-#    def compute_waic2(self, S=1000):
-#        """Computes the Watanabe-Akaike (aka widely available) information
-#        criterion, using the variance of individual terms in the log predictive
-#        density summed over the n data points.
-#
-#        TODO: Test implementation of binary target accomodation
-#
-#        Parameters
-#        ----------
-#        S : integer, optional
-#            The number of draws from the posterior to use when computing the
-#            required expectations.
-#
-#        Returns
-#        -------
-#        waic2 : float
-#            The Watanable-Akaike information criterion.
-#
-#        References
-#        ----------
-#        Gelman et al, 'Bayesian Data Analysis, 3rd Edition'
-#        """
-#        accum = np.zeros([self.N_, self.D_, S])
-#        for k in np.where(self.sig_trajs_)[0]:
-#            for d in range(0, self.D_):
-#                if self.target_type_[d] == 'gaussian':
-#                    co = multivariate_normal(self.w_mu_.numpy()[:, d, k],
-#                        diag(self.w_var_.numpy()[:, d, k]), S)
-#                    mu = dot(co, self.X_.numpy().T)
-#
-#                    # Draw a precision value from the gamma distribution. Note
-#                    # that numpy uses a slightly different parameterization
-#                    scale = 1./self.lambda_b_.numpy()[d, k]
-#                    shape = self.lambda_a_.numpy()[d, k]
-#                    var = 1./gamma(shape, scale, size=1)
-#
-#                    prob = ((1/sqrt(2*np.pi*var))[:, newaxis]*\
-#                        exp(-(1/(2*var))[:, newaxis]*\
-#                            (mu - self.Y_[:, d].numpy())**2)).T
-#                    pdb.set_trace()
-#                else:
-#                    # Target assumed to be binary
-#                    co = multivariate_normal(self.w_mu_[:, d, k].numpy(),
-#                        self.w_covmat_[:, :, d, k].numpy(), S)
-#                    mu = dot(co, self.X_.numpy().T)
-#                    prob = ((np.exp(mu)**self.Y_[:, d].numpy())/(1 + np.exp(mu))).T
-#
-#                accum[:, d, :] += self.R_.numpy()[:, k][:, newaxis]*prob
-#
-#        lppd = np.nansum(log(np.nanmean(accum, axis=2)))
-#        mean_ln_accum = np.nanmean(log(accum), axis=2)
-#        p_waic2 = np.nansum((1./(S-1.))*(log(accum) - \
-#            mean_ln_accum[:, :, newaxis])**2)
-#        waic2 = -2.*(lppd - p_waic2)
-#
-#        return waic2
 
 
     def compute_waic2(self, S=100):
@@ -1380,8 +1388,7 @@ class MultDPRegression:
         self.sig_trajs_ = torch.max(self.R_, 0)[0] > self.prob_thresh_
 
 
-    def augment_df_with_traj_info(self, target_names, predictor_names, df,
-                                  groupby=None):
+    def augment_df_with_traj_info(self, df, gb_col=None):
         """Compute the probability that each data instance belongs to each of
         the 'k' clusters. Note that 'X' and 'Y' can be "new" data; that is,
         data that was not necessarily used to train the model.
@@ -1390,76 +1397,33 @@ class MultDPRegression:
 
         Parameters
         ----------
+        df : pandas DataFrame
+            Input data frame to augment with trajectory info
+
+        gb_col : str, optional
+            df column to groupby. Should correspond to subject identifier.
 
         Returns
         -------
-        R : array, shape ( N, K )
-            Each element of this matrix represents the probability that
-            instance 'n' belongs to cluster 'k'.
-        """
-        df_ = pd.DataFrame(df)
-        
-        N = df_.shape[0]
-        D = len(target_names)
-
-        assert set(target_names) == set(self.target_names_), \
-            "Target name discrepancy"
-        assert set(predictor_names) == set(self.predictor_names_), \
-            "Predictor name discrepancy"
-
-        Y = df_[self.target_names_].values
-        X = df_[self.predictor_names_].values
-
-        traj_probs = self.get_traj_probs()
-
-        R_tmp = np.ones([N, self.K_])
-        for k in range(self.K_):
-            for d in range(D):
-                ids = ~np.isnan(Y[:, d])
-                mu_tmp = np.dot(X, self.w_mu_[:, d, k])
-
-                if self.target_type_[d] == 'gaussian':
-                    var_tmp = self.lambda_b_[d, k]/self.lambda_a_[d, k]                    
-                    R_tmp[ids, k] = R_tmp[ids, k]*\
-                        ((1/(np.sqrt(2*np.pi*var_tmp)))*\
-                        np.exp(-((Y[ids, d] - mu_tmp[ids])**2)/(2*var_tmp)))
-                else:
-                    # Target assumed binary
-                    R_tmp[ids, k] = R_tmp[ids, k]*\
-                        ((np.exp(mu_tmp[ids])**Y[ids, d])/\
-                        (1 + np.exp(mu_tmp[ids])))
-                    
-            R_tmp[:, k] = R_tmp[:, k]*(traj_probs[k])
-
-        zero_ids = np.sum(R_tmp, 1) == 0
-        R_tmp[zero_ids] = np.ones([np.sum(zero_ids), self.K_])/self.K_
-        R = np.array((R_tmp.T/np.sum(R_tmp, 1)).T)
-        
-        # Within a group, all data instances must have the same probability of
-        # belonging to each of the K trajectories
-        if groupby is not None:
-            gb = df_.groupby(groupby)
-            
-            for g in gb.groups.keys():
-                tmp_ids = gb.get_group(g).index.values
-                tmp_vec = np.sum(np.log(R[tmp_ids, :] + \
-                                        np.finfo(float).tiny), 0)
-                vec = np.exp(tmp_vec + 700 - np.max(tmp_vec))
-                vec = vec/np.sum(vec)
-
-                # Now update the rows of 'normalized_mat'.
-                R[tmp_ids, :] = vec                
-
+        df_aug : pandas DataFrame
+            Corresponds to input data frame, but with extra columns: 'traj'
+            indicates the most probable trajectory assignment, and 
+            'traj_<num>', <num> indicates each of the trajectories and the 
+            column values are the probabilities of assignment. 
+        """        
+        R = self.get_R_matrix(df, gb_col).numpy()
+        N = df.shape[0]
         # Now augment the dataframe with trajectory info
         traj = []
         for i in range(N):
             traj.append(np.where(np.max(R[i, :]) == R[i, :])[0][0])
-        df_['traj'] = traj
+        df['traj'] = traj
 
         for s in np.where(self.sig_trajs_)[0]:
-            df_['traj_{}'.format(s)] = R[:, s]
+            df['traj_{}'.format(s)] = R[:, s]
 
-        return df_
+        return df
+        
             
     def compute_lower_bound(self):
         """Compute the variational lower bound

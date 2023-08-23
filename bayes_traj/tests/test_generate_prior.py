@@ -83,6 +83,7 @@ def test_traj_prior_info_from_df():
     
     df = pd.read_csv(data_file_name)
     mm = pickle.load(open(model_file_name, 'rb'))['MultDPRegression']
+    mm.cast_to_torch()
     
     targets = ['y']
     preds = ['intercept', 'age']
@@ -237,6 +238,7 @@ def test_compute_prior_info_2():
     
     df = pd.read_csv(data_file_name)    
     mm = pickle.load(open(model_file_name, 'rb'))['MultDPRegression']
+    mm.cast_to_torch()
     
     targets = ['y']
     preds = ['intercept', 'age']
@@ -277,7 +279,8 @@ def test_compute_prior_info_3():
     data_file_name = os.path.split(os.path.realpath(__file__))[0] + \
         '/../resources/data/trajectory_data_1.csv'
 
-    mm = pickle.load(open(model_file_name, 'rb'))['MultDPRegression']    
+    mm = pickle.load(open(model_file_name, 'rb'))['MultDPRegression']
+    mm.cast_to_torch()
     df = pd.read_csv(data_file_name)
         
     targets = ['y']
@@ -319,7 +322,8 @@ def test_compute_prior_info_4():
     data_file_name = os.path.split(os.path.realpath(__file__))[0] + \
         '/../resources/data/trajectory_data_1.csv'
 
-    mm = pickle.load(open(model_file_name, 'rb'))['MultDPRegression']    
+    mm = pickle.load(open(model_file_name, 'rb'))['MultDPRegression']
+    mm.cast_to_torch()
     df = pd.read_csv(data_file_name)
     df['y2'] = df.y.values + 10
         
@@ -390,7 +394,8 @@ def test_compute_prior_info_5():
     data_file_name = os.path.split(os.path.realpath(__file__))[0] + \
         '/../resources/data/trajectory_data_1.csv'
 
-    mm = pickle.load(open(model_file_name, 'rb'))['MultDPRegression']    
+    mm = pickle.load(open(model_file_name, 'rb'))['MultDPRegression']
+    mm.cast_to_torch()
     df = pd.read_csv(data_file_name)
     df['y2'] = df.y.values + 10
         

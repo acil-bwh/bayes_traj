@@ -13,8 +13,7 @@ class PriorGenerator:
     """
     """
     def __init__(self, targets, preds, num_trajs=2,
-                 min_num_trajs=None, max_num_trajs=None,
-                 prec_prior_weight=None, alpha=None):
+                 min_num_trajs=None, max_num_trajs=None, alpha=None):
         """
         """
         assert np.issubdtype(type(num_trajs), np.integer) and \
@@ -74,10 +73,7 @@ class PriorGenerator:
         # prior) by an amount proportional to the number of subjects in the
         # data set. The following value is a heuristic and has worked in
         # practice.
-        if prec_prior_weight is not None:
-            self.prec_prior_weight_ = prec_prior_weight
-        else:
-            self.prec_prior_weight_ = 0.009
+        self.prec_prior_weight_ = 0.009
 
         if alpha is not None:
             self.prior_info_['alpha'] = alpha
@@ -155,7 +151,12 @@ class PriorGenerator:
         self.df_data_ = df
         self.N_ = df.shape[0]
         self.groupby_col_ = groupby
-        self.gb_ = self.df_data_[[groupby]].groupby(groupby)
+        if self.groupby_col_ is None:
+            df_tmp = pd.DataFrame(index=range(self.N_))
+            self.gb_ = df_tmp.groupby(df_tmp.index)
+        else:
+            self.gb_ = self.df_data_[[groupby]].groupby(groupby)
+            
         df_traj_data_computed = self.update_df_traj_data()
         if df_traj_data_computed:
             self.init_per_traj_params()
@@ -201,9 +202,8 @@ class PriorGenerator:
     
             if compute_df_traj_data:
                 self.df_traj_data_ = \
-                    self.mm_.augment_df_with_traj_info(self.mm_.target_names_,
-                        self.mm_.predictor_names_, self.df_data_,
-                                                       self.groupby_col_)
+                    self.mm_.augment_df_with_traj_info(self.df_data_,
+                        self.groupby_col_)
 
         return compute_df_traj_data
 
@@ -514,10 +514,6 @@ def main():
         indicating those data instances that must be in the same trajectory. This \
         is typically a subject identifier (e.g. in the case of a longitudinal data \
         set).', dest='groupby', metavar='<string>', default=None)
-#    parser.add_argument('--prec_prior_weight', help='A floating point value \
-#        indicating how much weight to put on the prior over the residual \
-#        precisions. Higher values mean that more weight will be given to the \
-#        prior', metavar='<float>', type=float, default=None)    
     parser.add_argument('--alpha', help='Dirichlet process scaling parameter. \
         Higher values indicate belief that more trajectoreis are present. \
         Must be a positive real value if specified.', dest='alpha', \
@@ -527,17 +523,12 @@ def main():
     
     preds = op.preds.split(',')
     targets = op.targets.split(',')
-    
-    #if op.prec_prior_weight is not None:
-    #    assert op.prec_prior_weight > 0, \
-    #        "prec_prior_weight must be a positive real value"
-        
+            
     if op.alpha is not None:
         assert op.alpha > 0, \
             "alpha  must be a positive real value"
         
-    pg = PriorGenerator(targets, preds, prec_prior_weight=None,
-                        alpha=op.alpha)
+    pg = PriorGenerator(targets, preds, alpha=op.alpha)
     
     #---------------------------------------------------------------------------
     # Set the number of trajs

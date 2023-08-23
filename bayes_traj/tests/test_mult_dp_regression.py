@@ -8,6 +8,106 @@ import pdb, os, pickle
 np.set_printoptions(precision = 10, suppress = True, threshold=1e6,
                     linewidth=300)
 
+def get_gt_df():
+    df = pd.DataFrame(\
+        {'sid': ['a', 'a', 'a', 'a', 'a', 'b', 'b', 'b', 'b'],
+         'intercept': np.ones(9),
+         'x': np.array([0, 2, 4, 6, 10, 0, 3, 7, 10])})
+        
+    # 'a' is from trajectory 0. 'b' is from trajectory 1. The following
+    # target values were generating assuming a residual standard deviation
+    # of 0.05.
+    y1 = np.array([0.06280633,  2.06280633,  4.06280633,  6.06280633,
+                   10.06280633, 9.94877976,  6.94877976,  2.94877976,
+                   -0.05122024])    
+    y2 = np.array([0.06889208, -1.93110792, -3.93110792, -5.93110792,
+                   -9.93110792, 0.10712325,  3.10712325,  7.10712325,
+                   10.10712325])
+    df['y1'] = y1
+    df['y2'] = y2
+
+    return df
+    
+def get_gt_model():
+    """
+    """
+    df = get_gt_df()
+    
+    K = 5
+    M = 2
+    D = 2
+    N = df.shape[0]
+    
+    w_mu_gt = torch.zeros([M, D, K]).double()
+    # Trajectory 0
+    w_mu_gt[:, 0, 0] = torch.tensor([0, 1]).double()
+    w_mu_gt[:, 1, 0] = torch.tensor([0, -1]).double()
+    
+    # Trajectory 1
+    w_mu_gt[:, 1, 1] = torch.tensor([0, 1]).double()
+    w_mu_gt[:, 0, 1] = torch.tensor([10, -1]).double()
+        
+    sig = 0.05
+        
+    w_var0 = np.ones([M, D])
+    w_mu0 = np.zeros([M, D])
+    lambda_a0 = np.ones(D)
+    lambda_b0 = np.ones(D)
+    alpha = 1.
+    
+    prec_mu = 1./sig**2
+    prec_var = 1e-10
+    prec_prior_weight = 1
+    
+    #-----------------------------------------------------------------------
+    # Set up model 1
+    #-----------------------------------------------------------------------
+    mm = MultDPRegression(w_mu0, w_var0, lambda_a0, lambda_b0,
+                          prec_prior_weight, alpha, K=K)
+    mm.R_ = torch.zeros([N, K]).double()
+    mm.R_[0:5, 0] = 1.
+    mm.R_[5::, 1] = 1.
+        
+    mm.target_type_ = {}
+    mm.target_type_[0] = 'gaussian'
+    mm.target_type_[1] = 'gaussian'
+
+    mm.num_binary_targets_ = 0
+    
+    mm.target_names_ = ['y1', 'y2']
+    mm.predictor_names_ = ['intercept', 'x']
+    
+    mm.w_mu_ = torch.zeros([M, D, K]).double()
+    mm.w_var_ = 1e-10*torch.ones([M, D, K]).double()
+    mm.w_mu_[:, 0, 0] = w_mu_gt[:, 0, 0]
+    mm.w_mu_[:, 1, 0] = w_mu_gt[:, 1, 0]
+    mm.w_mu_[:, 0, 1] = w_mu_gt[:, 0, 1]
+    mm.w_mu_[:, 1, 1] = w_mu_gt[:, 1, 1]
+        
+    mm.lambda_a_ = torch.ones([D, K]).double()
+    mm.lambda_b_ = torch.ones([D, K]).double()
+    mm.lambda_a_[0, 0] = (prec_mu**2)/prec_var
+    mm.lambda_b_[0, 0] = prec_mu/prec_var
+    mm.lambda_a_[1, 0] = (prec_mu**2)/prec_var
+    mm.lambda_b_[1, 0] = prec_mu/prec_var
+    mm.lambda_a_[0, 1] = (prec_mu**2)/prec_var
+    mm.lambda_b_[0, 1] = prec_mu/prec_var
+    mm.lambda_a_[1, 1] = (prec_mu**2)/prec_var
+    mm.lambda_b_[1, 1] = prec_mu/prec_var            
+
+    mm.v_a_ = torch.ones(K)
+    mm.v_b_ = alpha*torch.ones(K)
+    
+    mm.gb_ = df.groupby('sid')
+    mm.X_ = torch.from_numpy(df[['intercept', 'x']].values).double()
+    mm.Y_ = torch.from_numpy(df[['y1', 'y2']].values).double()
+    mm.N_ = N 
+
+    mm._set_group_first_index(df, mm.gb_)
+    
+    return mm
+
+
 def test_update_w_logistic():
     data_file_name = os.path.split(os.path.realpath(__file__))[0] + \
         '/../resources/data/binary_data_1.csv'
@@ -355,49 +455,6 @@ def test_init_R_mat():
                           torch.sum(mm.R_, 0)/N), \
                           "Unexpected R_ sum"
 
-#def test_predict_proba():
-#    """
-#    """
-#    D = 1
-#    M = 2
-#    K = 2    
-#    w_mu0 = torch.zeros([M, D]).double()
-#    w_var0 = torch.ones([M, D]).double()
-#    lambda_a0 = torch.ones(D).double()
-#    lambda_b0 = torch.ones(D).double()
-#    prec_prior_weight = 1
-#    alpha = 5
-#    mm = MultDPRegression(w_mu0, w_var0, lambda_a0, lambda_b0,
-#                          prec_prior_weight, alpha, K)
-#
-#    mm.target_type_ = {}
-#    mm.target_type_[0] = 'gaussian'
-#
-#    mm.w_mu_ = torch.zeros([M, D, K]).double()
-#    mm.w_mu_[:, 0, 0] = torch.tensor([2, 1]).double()
-#    mm.w_mu_[:, 0, 1] = torch.tensor([-2, -1]).double()
-#    mm.R_ = 0.5*torch.ones([3, 2]).double()
-#    mm.lambda_b_ = torch.ones([D, K]).double()
-#    mm.lambda_a_ = torch.ones([D, K]).double()
-#    mm.gb_ = None
-#    
-#    X = torch.tensor([[1, 2], [1, 2], [1, 2]]).double()
-#    Y = torch.tensor([[3], [0], [-3]]).double()
-#
-#    mm.group_first_index_ = np.ones(X.shape[0], dtype=bool)
-#    
-#    R = mm.predict_proba_(X, Y)
-#    R_ref = np.array([[1.00000000e+00, 3.77513454e-11],
-#                      [5.00000000e-01, 5.00000000e-01],
-#                      [3.77513454e-11, 1.00000000e+00]])
-#    assert np.sum(np.isclose(R, R_ref)) == 6, "Unexpected R value"
-#
-#    #constraints = get_longitudinal_constraints_graph(np.array([0, 2, 0]))
-#    #R = mm.predict_proba_(X, Y, constraints)
-#    #R_ref = np.array([[0.5, 0.5],
-#    #                  [0.5, 0.5],
-#    #                  [0.5, 0.5]])
-#    #assert np.sum(np.isclose(R, R_ref)) == 6, "Unexpected R value"
 
 def test_init_traj_params():
     data_file_name = os.path.split(os.path.realpath(__file__))[0] + \
@@ -559,3 +616,24 @@ def test_init_R_mat_2():
         "R_mat may not be initialized properly"
 
     
+def test_get_traj_probs():
+    mm = get_gt_model()
+
+    assert np.sum(mm.get_traj_probs() == np.array([0.5, 0.5, 0, 0, 0])) == 5, \
+        "Traj probs not correct"
+
+    
+def test_augment_df_with_traj_info():
+    mm = get_gt_model()
+    df = get_gt_df()
+    df_aug = mm.augment_df_with_traj_info(df, 'sid')
+
+    assert np.sum(df_aug['traj'].values == \
+        np.array([0, 0, 0, 0, 0, 1, 1, 1, 1])) == 9, \
+        "Incorrect traj assignment"
+
+    for cc in df.columns:
+        assert cc in df_aug.columns, "Dataframe incorrectly augmented"
+    
+    df_aug2 = mm.augment_df_with_traj_info(df)
+
