@@ -19,7 +19,7 @@ def main():
     args.add_argument('--in_csv', help='Input csv data file. Individuals in \
         this file will be assigned to the best trajectory', required=True,
         type=str)
-    args.add_argument('--gb_col', help='Subject identifier column name in the \
+    args.add_argument('--groupby', help='Subject identifier column name in the \
         input data file to use for grouping. ', required=False, type=str,
         default=None)    
     args.add_argument('--model', help='Pickled trajectory model to use for \
@@ -58,7 +58,7 @@ def main():
             traj_map[ii] = ii
     
     print("Assigning...")    
-    df_out = mm.augment_df_with_traj_info(df, op.gb_col)
+    df_out = mm.augment_df_with_traj_info(df, op.groupby)
     df_out.replace({'traj': traj_map}, inplace=True)
     
     if op.out_csv is not None:
