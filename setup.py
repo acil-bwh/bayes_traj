@@ -26,7 +26,7 @@ packages.append('bayes_traj')
 
 setup(
     name='bayes_traj',
-    version='0.2.1',
+    version='0.2.2',
     description='bayes_traj',
     long_description=long_description,
     long_description_content_type='text/markdown',
@@ -52,7 +52,8 @@ setup(
         'scipy >= 1.5.2',
         'argparse >= 1.1',
         'statsmodels >= 0.11.1',
-        'torch >= 2.0.1'
+        'torch >= 2.0.1',
+        'pyro-ppl >= 1.8.5'        
     ],
     
     
