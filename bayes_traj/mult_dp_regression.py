@@ -1510,7 +1510,9 @@ class MultDPRegression:
         return self.df_  
 
     def plot(self, x_axis, y_axis, x_label=None, y_label=None, which_trajs=None,
-             show=True, min_traj_prob=0, max_traj_prob=1, traj_map=None):
+             show=True, min_traj_prob=0, max_traj_prob=1, traj_map=None,
+             hide_traj_details=False, hide_scatter=False, traj_markers=None,
+             traj_colors=None, fill_alpha=0.3):
         """Generates a 2D plot of trajectory results. The original data will be
         shown as a scatter plot, color-coded according to trajectory membership.
         Trajectories will be plotted with line plots indicating the expected 
@@ -1564,6 +1566,25 @@ class MultDPRegression:
             (default) trajectory numbers, and the values are the new trajectory
             numbers. This for display purposes only. Supercedes which_trajs.
 
+        hide_traj_details : bool, optional
+            If true, trajectory details (N and percentage of sample) will not 
+            appear in the legend.
+
+        hide_scatter : bool, optional
+            If true, data scatter plot will not render
+
+        traj_markers : list of strings, optional
+            List of markers to use for each trajectory's line plot. Length of
+            list should match number of trajectories to plot.
+
+        traj_colors : list of strings, optional
+            List of colors to use for each trajectory's line plot. Length of
+            list should match number of trajectories to plot.
+
+        fill_alpha : float, optional
+            Value between 0 and 1 that controls opacity of each trajectorys 
+            fill region (which indicates +\- 2 residual standard deviations 
+            about the mean)
         """
         # Compute the probability vector for each trajectory
         traj_probs = self.get_traj_probs()
@@ -1638,9 +1659,10 @@ class MultDPRegression:
                 traj_id_to_cmap_index[tt] = ii
             
         fig, ax = plt.subplots(figsize=(6, 6))
-        ax.scatter(df_traj[x_axis].values,
-                   df_traj[y_axis].values,
-                   edgecolor='k', color='None', alpha=0.1)
+        if not hide_scatter:
+            ax.scatter(df_traj[x_axis].values,
+                       df_traj[y_axis].values,
+                       edgecolor='k', color='None', alpha=0.1)
 
         if torch.is_tensor(self.lambda_a_):
             lambda_a = self.lambda_a_.numpy()
@@ -1654,11 +1676,16 @@ class MultDPRegression:
                traj_probs[tt] <= max_traj_prob:
                 
                 ids_tmp = df_traj.traj.values == tt
-                ax.scatter(df_traj[ids_tmp][x_axis].values,
-                           df_traj[ids_tmp][y_axis].values,
-                           edgecolor='k',
-                           color=cmap(traj_id_to_cmap_index[traj_map_[tt]]),
-                           alpha=0.5)
+                if not hide_scatter:
+                    if traj_colors is not None:
+                        color = traj_colors[traj_inc]
+                    else:
+                        color = cmap(traj_id_to_cmap_index[traj_map_[tt]])
+                    ax.scatter(df_traj[ids_tmp][x_axis].values,
+                               df_traj[ids_tmp][y_axis].values,
+                               edgecolor='k',
+                               color=color,
+                               alpha=0.5)
 
                 if self.gb_ is None:
                     n_traj = np.sum(df_traj.traj.values == tt)
@@ -1674,19 +1701,37 @@ class MultDPRegression:
                     std = np.sqrt(lambda_b[target_index][tt]/\
                                   lambda_a[target_index][tt])
                     y_tmp = np.dot(co, X_tmp.T)
+
+                    if traj_colors is not None:
+                        color = traj_colors[traj_inc]
+                    else:
+                        color = cmap(traj_id_to_cmap_index[traj_map_[tt]])
+                    
                     ax.fill_between(x_dom, y_tmp-2*std, y_tmp+2*std,
-                            color=cmap(traj_id_to_cmap_index[traj_map_[tt]]),
-                            alpha=0.3)
+                            color=color, alpha=fill_alpha)
                 else:
                     # Target assumed binary
                     y_tmp = np.exp(np.dot(co, X_tmp.T))/\
                         (1 + np.exp(np.dot(co, X_tmp.T)))
-                    
+
+                if hide_traj_details:
+                    label = 'Traj {}'.format(traj_map_[tt])
+                else:
+                    label = 'Traj {} (N={}, {:.1f}%)'.\
+                        format(traj_map_[tt], n_traj, perc_traj)
+
+                marker = None
+                if traj_markers is not None:
+                    marker = traj_markers[traj_inc]
+
+                if traj_colors is not None:
+                    color = traj_colors[traj_inc]
+                else:
+                    color = cmap(traj_id_to_cmap_index[traj_map_[tt]])
                 ax.plot(x_dom, y_tmp,
-                        color=cmap(traj_id_to_cmap_index[traj_map_[tt]]),
+                        color=color,
                         linewidth=3,
-                        label='Traj {} (N={}, {:.1f}%)'.\
-                        format(traj_map_[tt], n_traj, perc_traj))
+                        label=label, marker=marker, ms=8, markevery=5)
 
         
         ax.set_xlabel(x_axis if x_label is None else x_label, fontsize=16)

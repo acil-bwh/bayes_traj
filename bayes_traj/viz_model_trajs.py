@@ -43,7 +43,23 @@ def main():
         plotted. If this flag is specified, it will override --trajs', type=str,
         default=None)
     parser.add_argument('--ylim', help='Comma-separated tuple to set the \
-        limits of display for the y-axis', type=str, default=None)        
+        limits of display for the y-axis', type=str, default=None)
+    parser.add_argument('--hs', help='This flag will hide the data scatter \
+        plot', action="store_true")
+    parser.add_argument('--htd', help='This flag will hide trajectory legend \
+        details (can reduce clutter)', action="store_true")
+    parser.add_argument('--traj_markers', help='Comma-separated list of \
+        markers to use for each trajectory. The number of markers should match \
+        the number of trajectories to renders. See matplotlib documentation \
+        for marker options', default=None)
+    parser.add_argument('--traj_colors', help='Comma-separated list of \
+        colors to use for each trajectory. The number of colors should match \
+        the number of trajectories to renders. See matplotlib documentation \
+        for color options', default=None)
+    parser.add_argument('--fill_alpha', help='Value between 0 and 1 that \
+        controls opacity of each trajectorys fill region (which indicates \
+        +\- 2 residual standard deviations about the mean)', default=0.3,
+        type=float)        
     
     op = parser.parse_args()
 
@@ -61,16 +77,30 @@ def main():
             'y-axis variable not among model target variables'
         
         show = op.fig_file is None
+
+        traj_markers = None
+        if op.traj_markers is not None:            
+            traj_markers = op.traj_markers.split(',')
+
+        traj_colors = None
+        if op.traj_colors is not None:            
+            traj_colors = op.traj_colors.split(',')            
         
         if op.trajs is not None:
             ax = mm.plot(op.x_axis, op.y_axis, op.x_label, op.y_label,
                          np.array(op.trajs.split(','), dtype=int),
                          show=show, min_traj_prob=op.min_traj_prob,
-                         max_traj_prob=op.max_traj_prob, traj_map=traj_map)
+                         max_traj_prob=op.max_traj_prob, traj_map=traj_map,
+                         hide_scatter=op.hs, hide_traj_details=op.htd,
+                         traj_markers=traj_markers, traj_colors=traj_colors,
+                         fill_alpha=op.fill_alpha)
         else:            
             ax = mm.plot(op.x_axis, op.y_axis, op.x_label, op.y_label,
                          show=show, min_traj_prob=op.min_traj_prob,
-                         max_traj_prob=op.max_traj_prob, traj_map=traj_map)
+                         max_traj_prob=op.max_traj_prob, traj_map=traj_map,
+                         hide_scatter=op.hs, hide_traj_details=op.htd,
+                         traj_markers=traj_markers, traj_colors=traj_colors,
+                         fill_alpha=op.fill_alpha)
             
         if op.ylim is not None:
             plt.ylim(float(op.ylim.strip('--').split(',')[0]),
