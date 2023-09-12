@@ -42,8 +42,10 @@ def main():
         and from 7 to 3. Only the default trajectories in the mapping will be \
         plotted. If this flag is specified, it will override --trajs', type=str,
         default=None)
+    parser.add_argument('--xlim', help='Comma-separated tuple to set the \
+        limits of display for the x-axis', type=str, default=None)
     parser.add_argument('--ylim', help='Comma-separated tuple to set the \
-        limits of display for the y-axis', type=str, default=None)
+        limits of display for the y-axis', type=str, default=None)    
     parser.add_argument('--hs', help='This flag will hide the data scatter \
         plot', action="store_true")
     parser.add_argument('--htd', help='This flag will hide trajectory legend \
@@ -105,6 +107,9 @@ def main():
         if op.ylim is not None:
             plt.ylim(float(op.ylim.strip('--').split(',')[0]),
                      float(op.ylim.strip('--').split(',')[1]))
+        if op.xlim is not None:
+            plt.xlim(float(op.xlim.strip('--').split(',')[0]),
+                     float(op.xlim.strip('--').split(',')[1]))            
             
         if op.fig_file is not None:
             print("Saving figure...")
