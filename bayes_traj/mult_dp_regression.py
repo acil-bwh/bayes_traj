@@ -1737,7 +1737,7 @@ class MultDPRegression:
         ax.set_xlabel(x_axis if x_label is None else x_label, fontsize=16)
         ax.set_ylabel(y_axis if y_label is None else y_label, fontsize=16)    
         plt.tight_layout()
-        ax.legend()
+        ax.legend(loc='upper right')
 
         if show:
             plt.show()
