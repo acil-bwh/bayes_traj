@@ -53,7 +53,8 @@ setup(
         'argparse >= 1.1',
         'statsmodels >= 0.11.1',
         'torch >= 2.0.1',
-        'pyro-ppl >= 1.8.5'        
+        'pyro-ppl >= 1.8.5',
+        'pytest >= 7.0.0',
     ],
     
     

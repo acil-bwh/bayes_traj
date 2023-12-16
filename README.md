@@ -24,3 +24,12 @@ pip install bayes_traj
 
 Other files are legacy.
 
+## Running tests
+
+```sh
+pytest
+```
+or when debugging
+```sh
+pytest -vsx --pdb
+```
