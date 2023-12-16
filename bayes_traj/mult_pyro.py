@@ -107,7 +107,11 @@ class MultPyro:
         # See https://pyro.ai/examples/enumeration.html
         with individuals_plate:
             class_probs = torch.ones(K) / K
-            class_g = pyro.sample("class_g", dist.Categorical(class_probs))
+            class_g = pyro.sample(
+                "class_g",
+                dist.Categorical(class_probs),
+                infer={"enumerate": "parallel"},
+            )
             assert class_g.shape in {
                 (G,),  # During prediction.
                 (K, 1, 1, G,),  # During training due to enumeration.
