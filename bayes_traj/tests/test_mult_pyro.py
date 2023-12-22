@@ -14,8 +14,8 @@ def test_fit_smoke(K, D, M, G, N):
     # Create fake data.
     w_mu0 = torch.randn(D, M)
     w_var0 = torch.randn(D, M).exp()  # Ensure positive.
-    lambda_a0 = torch.randn(D)
-    lambda_b0 = torch.randn(D)
+    lambda_a0 = torch.randn(D).exp()  # Ensure positive.
+    lambda_b0 = torch.randn(D).exp()  # Ensure positive.
     Y_sparse = torch.randn(N, D)
     X_sparse = torch.randn(N, M)
     # Ensure G can be inferred from sparse_individials.

@@ -81,24 +81,29 @@ class MultPyro:
         # We use three different dimensions for plates, which determines
         # max_plate_nesting.
         # See https://pyro.ai/examples/tensor_shapes.html
-        components_plate = pyro.plate("components", K, dim=-3)
-        targets_plate = pyro.plate("targets", D, dim=-2)
-        individuals_plate = pyro.plate("individuals", G, dim=-1)
-        predictors_plate = pyro.plate("predictors", M, dim=-1)
-        observations_plate = pyro.plate("observations", N, dim=-1)
+        components_plate = pyro.plate("components", K, dim=-3)  # (K, 1, 1)
+        targets_plate = pyro.plate("targets", D, dim=-2)  # (D, 1)
+        individuals_plate = pyro.plate("individuals", G, dim=-1)  # (G,)
+        predictors_plate = pyro.plate("predictors", M, dim=-1)  # (M,)
+        observations_plate = pyro.plate("observations", N, dim=-1)  # (N,)
 
+        assert self.lambda_a0.shape == (D,)
+        assert self.lambda_b0.shape == (D,)
+        lambda_a0 = self.lambda_a0.unsqueeze(-1)
+        lambda_b0 = self.lambda_b0[..., None]  # equivalent to .unsqueeze(-1)
+        assert lambda_a0.shape == (D, 1)
+        assert lambda_b0.shape == (D, 1)
         with components_plate, targets_plate:
             # Variance parameters.
-            lambda_ = pyro.sample(
-                "lambda_", dist.Gamma(self.lambda_a0, self.lambda_b0)
-            )
+            lambda_ = pyro.sample("lambda_", dist.Gamma(lambda_a0, lambda_b0))
+            assert isinstance(lambda_, torch.Tensor)
             assert lambda_.shape == (K, D, 1)
 
             # Sample the regression coefficients.
             with predictors_plate:
                 # Each W_[k,d] is a vector over M, hence we unsqueeze.
                 loc = self.w_mu0[..., None]
-                scale = self.w_var0.sqrt[..., None]
+                scale = self.w_var0.sqrt()[..., None]
                 W_ = pyro.sample("W_", dist.Normal(loc, scale))
                 assert W_.shape == (K, D, M)
 
