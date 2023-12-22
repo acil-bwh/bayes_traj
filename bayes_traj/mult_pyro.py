@@ -1,8 +1,11 @@
 import torch
 import pyro
 import pyro.distributions as dist
+from pyro import poutine
 from pyro.infer import SVI, TraceEnum_ELBO
-from pyro.infer.autoguide import AutoNormal
+from pyro.infer.autoguide import (
+  AutoNormal, AutoDiscreteParallel, AutoGuideList
+)
 from pyro.optim import ClippedAdam
 
 
@@ -102,14 +105,19 @@ class MultPyro:
             # Sample the regression coefficients.
             with predictors_plate:
                 # Each W_[k,d] is a vector over M, hence we unsqueeze.
-                loc = self.w_mu0[..., None]
-                scale = self.w_var0.sqrt()[..., None]
+                loc = self.w_mu0
+                scale = self.w_var0.sqrt()
+                assert loc.shape == (D, M)
+                assert scale.shape == (D, M)
                 W_ = pyro.sample("W_", dist.Normal(loc, scale))
                 assert W_.shape == (K, D, M)
 
         # Sample the mixture component of each individual.
         # This will be enumerated out during SVI.
         # See https://pyro.ai/examples/enumeration.html
+        # We can use either sequential or parallel enumeration;
+        # Parallel enumeration is faster (vectorized), but
+        # sequential enumeration is simpler to debug.
         with individuals_plate:
             class_probs = torch.ones(K) / K
             class_g = pyro.sample(
@@ -117,8 +125,9 @@ class MultPyro:
                 dist.Categorical(class_probs),
                 infer={"enumerate": "parallel"},
             )
+
             assert class_g.shape in {
-                (G,),  # During prediction.
+                (G,),  # During prior sampling.
                 (K, 1, 1, G,),  # During training due to enumeration.
             }
 
@@ -126,19 +135,37 @@ class MultPyro:
         # observations_plate refines individuals_plate.
         class_n = class_g[..., self.sparse_individuals]
         assert class_n.shape in {
-            (N,),  # During prediction.
+            (N,),  # During prior sampling.
             (K, 1, 1, N,),  # During training due to enumeration.
         }
 
         # Declare the likelihood.
         with observations_plate:
             # Compute predicted mean.
-            W_n = W_[class_n]
+            assert W_.shape == (K, D, M)
+            assert class_n.shape == (N,)
+            assert class_n.max().item() < K
+            W_n = W_[class_n]  # Determine each individual's W.
+            assert W_n.shape == (N, D, M)
+
             y_loc = (W_n * self.X_sparse[..., None]).sum(-1)
+            assert lambda_.shape == (K, D, 1)
+            assert y_loc.shape == (N, D)
+            y_loc = y_loc.transpose(0, 1)
+            assert y_loc.shape == (D, N)
+
             y_scale = lambda_.sqrt()[class_n]
-            # Observers Y_sparse.
+            assert y_scale.shape == (N, D, 1)
+            y_scale = y_scale.transpose(0, 1).squeeze(-1)
+            assert y_scale.shape == (D, N)
+
+            assert self.Y_sparse.shape == (N, D)
+            Y_sparse = self.Y_sparse.transpose(0, 1)
+            assert Y_sparse.shape == (D, N)
+
+            # Observers Y_sparse, i.e. the likelihood.
             pyro.sample(
-                "Y_sparse", dist.Normal(y_loc, y_scale), obs=self.Y_sparse
+                "Y_sparse", dist.Normal(y_loc, y_scale), obs=Y_sparse
             )
 
     def fit(
@@ -155,10 +182,18 @@ class MultPyro:
         pyro.set_rng_seed(seed)
 
         # Run SVI.
-        self.guide = guide = AutoNormal(self.model)
+        # We need a guide only over the continuous latent variables since we're
+        # marginalizing out the discrete latent variable class_g.
+        continuous_model = poutine.block(self.model, hide=["class_g"])
+        discrete_model = poutine.block(self.model, expose=["class_g"])
+        self.guide = guide = AutoGuideList(self.model)
+        guide.append(AutoNormal(continuous_model))
+        guide.append(AutoDiscreteParallel(discrete_model))
         optim = ClippedAdam(
             {"lr": learning_rate, "lrd": learning_rate_decay**(1 / num_steps)}
         )
+        # We'll use TraceEnum_ELBO to marginalize out the discrete latent
+        # variables.
         elbo = TraceEnum_ELBO(max_plate_nesting=3)
         svi = SVI(self.model, guide, optim, elbo)
 
