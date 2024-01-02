@@ -222,24 +222,16 @@ class MultPyro:
             "lambda_var": vars["lambda_"],
         }
 
-    def predict(
-        self,
-        X_sparse: torch.Tensor,
-        individuals: torch.Tensor,
-    ) -> torch.Tensor:
-        """Predicts `Y_sparse` from `X_sparse`."""
-        raise NotImplementedError
+    def predict(self, X: torch.Tensor) -> torch.Tensor:
+        """Predicts `Y` from `X`."""
+        raise NotImplementedError("TODO do we need this?")
 
-    def classify(
-        self,
-        X_sparse: torch.Tensor,
-        individuals: torch.Tensor,
-    ) -> torch.Tensor:
+    def classify(self, X: torch.Tensor) -> torch.Tensor:
         """
-        Classifies `X_sparse`.
+        Classifies `X`.
 
         Returns:
             probs: A `[G, K]`-shaped tensor of probabilities, normalized over
                 the leftmost dimension.
         """
-        raise NotImplementedError
+        raise NotImplementedError("TODO do we need this?")
