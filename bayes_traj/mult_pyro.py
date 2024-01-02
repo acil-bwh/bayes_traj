@@ -2,10 +2,9 @@ import torch
 import pyro
 import pyro.distributions as dist
 from pyro import poutine
-from pyro.infer import SVI, TraceEnum_ELBO
-from pyro.infer.autoguide import (
-  AutoNormal, AutoDiscreteParallel, AutoGuideList
-)
+from pyro.infer import SVI, TraceEnum_ELBO, config_enumerate
+from pyro.infer.autoguide import AutoNormal
+
 from pyro.optim import ClippedAdam
 
 
@@ -17,9 +16,9 @@ class MultPyro:
         w_var0: torch.Tensor,
         lambda_a0: torch.Tensor,
         lambda_b0: torch.Tensor,
-        Y_sparse: torch.Tensor,  # [N, D], real value
-        X_sparse: torch.Tensor,  # [N, M], real value
-        sparse_individuals: torch.Tensor,  # [N] of value {0,...,G-1}
+        Y: torch.Tensor,  # [T, G, D], real value
+        X: torch.Tensor,  # [T, G, M], real value
+        obs_mask: torch.Tensor,  # [T, G], boolean
         K: int,  # TODO configured from say --num-components
     ) -> None:
         """
@@ -30,27 +29,40 @@ class MultPyro:
             D: number of targets
             G: number of individuals
             M: number of predictors (aka features)
-            N: number of observations
+            T: number of time points
+
+        Args:
+            Y (torch.Tensor): [T, G, D], real valued response tensor
+            X (torch.Tensor): [T, G, M], real valued predictor tensor
+            obs_mask (torch.Tensor): [T, G], boolean tensor indicating which
+                entries of Y are observed. True means observed, False means
+                missing.
         """
-        # Sizes.
+        # Collect sizes.
+        assert Y.dim() == 3
+        assert X.dim() == 3
         self.K = K
-        self.D = D = Y_sparse.shape[1]
-        self.M = M = X_sparse.shape[1]
-        self.G = G = 1 + sparse_individuals.max().item()
-        self.N = N = sparse_individuals.shape[0]
+        self.T = T = Y.shape[0]
+        self.G = G = Y.shape[1]
+        self.D = D = Y.shape[2]
+        self.M = M = X.shape[2]
         assert K > 0
+        assert T > 0
+        assert G > 0
         assert D > 0
         assert M > 0
-        assert G > 0
 
-        # Validate shapes.
+        # Validate tensor shapes and dtypes.
         assert w_mu0.shape == (D, M)
         assert w_var0.shape == (D, M)
         assert lambda_a0.shape == (D,)
         assert lambda_b0.shape == (D,)
-        assert Y_sparse.shape == (N, D)
-        assert X_sparse.shape == (N, M)
-        assert sparse_individuals.shape == (N,)
+        assert Y.shape == (T, G, D)
+        assert Y.dtype.is_floating_point
+        assert X.shape == (T, G, M)
+        assert X.dtype.is_floating_point
+        assert obs_mask.shape == (T, G)
+        assert obs_mask.dtype == torch.bool
 
         # Fixed parameters.
         self.w_mu0 = w_mu0
@@ -59,9 +71,9 @@ class MultPyro:
         self.lambda_b0 = lambda_b0
 
         # Data.
-        self.Y_sparse = Y_sparse
-        self.X_sparse = X_sparse
-        self.sparse_individuals = sparse_individuals
+        self.Y = Y
+        self.X = X
+        self.obs_mask = obs_mask
 
         # Learned parameters.
         # self.R_ = R_
@@ -74,99 +86,77 @@ class MultPyro:
         """
         The Bayesian model definition.
 
-        This is called during training each SVI step, and during prediction.
+        This is called during each training step and during prediction.
         """
         D = self.D
         M = self.M
         K = self.K
+        T = self.T
         G = self.G
-        N = self.N
-        # We use three different dimensions for plates, which determines
+        # We use two different dimensions for plates, which determines
         # max_plate_nesting.
         # See https://pyro.ai/examples/tensor_shapes.html
-        components_plate = pyro.plate("components", K, dim=-3)  # (K, 1, 1)
-        targets_plate = pyro.plate("targets", D, dim=-2)  # (D, 1)
+        components_plate = pyro.plate("components", K, dim=-1)  # (K,)
         individuals_plate = pyro.plate("individuals", G, dim=-1)  # (G,)
-        predictors_plate = pyro.plate("predictors", M, dim=-1)  # (M,)
-        observations_plate = pyro.plate("observations", N, dim=-1)  # (N,)
+        time_plate = pyro.plate("time", T, dim=-2)  # (T, 1)
 
         assert self.lambda_a0.shape == (D,)
         assert self.lambda_b0.shape == (D,)
-        lambda_a0 = self.lambda_a0.unsqueeze(-1)
-        lambda_b0 = self.lambda_b0[..., None]  # equivalent to .unsqueeze(-1)
-        assert lambda_a0.shape == (D, 1)
-        assert lambda_b0.shape == (D, 1)
-        with components_plate, targets_plate:
-            # Variance parameters.
-            lambda_ = pyro.sample("lambda_", dist.Gamma(lambda_a0, lambda_b0))
+        with components_plate:
+            # Sample the variance parameters.
+            # We use .to_event(1) to sample a vectors of length D.
+            lambda_ = pyro.sample(
+                "lambda_",
+                dist.Gamma(self.lambda_a0, self.lambda_b0).to_event(1)
+            )
             assert isinstance(lambda_, torch.Tensor)
-            assert lambda_.shape == (K, D, 1)
+            assert lambda_.shape == (K, D)
 
             # Sample the regression coefficients.
-            with predictors_plate:
-                # Each W_[k,d] is a vector over M, hence we unsqueeze.
-                loc = self.w_mu0
-                scale = self.w_var0.sqrt()
-                assert loc.shape == (D, M)
-                assert scale.shape == (D, M)
-                W_ = pyro.sample("W_", dist.Normal(loc, scale))
-                assert W_.shape == (K, D, M)
+            # We use .to_event(2) to sample matrices of shape [D, M].
+            loc = self.w_mu0
+            scale = self.w_var0.sqrt()
+            assert loc.shape == (D, M)
+            assert scale.shape == (D, M)
+            W_ = pyro.sample("W_", dist.Normal(loc, scale).to_event(2))
+            assert W_.shape == (K, D, M)
 
         # Sample the mixture component of each individual.
         # This will be enumerated out during SVI.
         # See https://pyro.ai/examples/enumeration.html
-        # We can use either sequential or parallel enumeration;
-        # Parallel enumeration is faster (vectorized), but
-        # sequential enumeration is simpler to debug.
         with individuals_plate:
             class_probs = torch.ones(K) / K
-            class_g = pyro.sample(
-                "class_g",
-                dist.Categorical(class_probs),
-                infer={"enumerate": "parallel"},
-            )
+            k = pyro.sample("k", dist.Categorical(class_probs))
 
-            assert class_g.shape in {
+            assert k.shape in {
                 (G,),  # During prior sampling.
-                (K, 1, 1, G,),  # During training due to enumeration.
+                (K, 1, 1),  # During training due to enumeration.
             }
 
-        # Reshape from G to N.  This operation is valid because
-        # observations_plate refines individuals_plate.
-        class_n = class_g[..., self.sparse_individuals]
-        assert class_n.shape in {
-            (N,),  # During prior sampling.
-            (K, 1, 1, N,),  # During training due to enumeration.
-        }
+            # Declare the likelihood, which is partially observed.
+            with time_plate, poutine.mask(mask=self.obs_mask):
+                # Compute the predicted mean.
+                assert W_.shape == (K, D, M)
+                assert k.shape in {(G,), (K, 1, 1)}
+                assert k.max().item() < K
+                W_n = W_[k]  # Determine each individual's W.
+                assert W_n.shape in {(G, D, M), (K, 1, 1, D, M)}
+                # We accomplish batched matrix-vector multiplication by
+                # unsqueezing then squeezing.
+                assert self.X.shape == (T, G, M)
+                y_loc = (W_n @ self.X.unsqueeze(-1)).squeeze(-1)
+                assert y_loc.shape in {(T, G, D), (K, T, G, D)}
 
-        # Declare the likelihood.
-        with observations_plate:
-            # Compute predicted mean.
-            assert W_.shape == (K, D, M)
-            assert class_n.shape == (N,)
-            assert class_n.max().item() < K
-            W_n = W_[class_n]  # Determine each individual's W.
-            assert W_n.shape == (N, D, M)
+                # Compute the predicted variance.
+                assert lambda_.shape == (K, D)
+                y_scale = lambda_.sqrt()[k]
+                assert y_scale.shape in {(G, D), (K, 1, 1, D)}
 
-            y_loc = (W_n * self.X_sparse[..., None]).sum(-1)
-            assert lambda_.shape == (K, D, 1)
-            assert y_loc.shape == (N, D)
-            y_loc = y_loc.transpose(0, 1)
-            assert y_loc.shape == (D, N)
-
-            y_scale = lambda_.sqrt()[class_n]
-            assert y_scale.shape == (N, D, 1)
-            y_scale = y_scale.transpose(0, 1).squeeze(-1)
-            assert y_scale.shape == (D, N)
-
-            assert self.Y_sparse.shape == (N, D)
-            Y_sparse = self.Y_sparse.transpose(0, 1)
-            assert Y_sparse.shape == (D, N)
-
-            # Observers Y_sparse, i.e. the likelihood.
-            pyro.sample(
-                "Y_sparse", dist.Normal(y_loc, y_scale), obs=Y_sparse
-            )
+                # Observers Y_sparse, i.e. the likelihood.
+                assert self.Y.shape == (T, G, D)
+                pyro.sample(
+                    "Y", dist.Normal(y_loc, y_scale).to_event(1), obs=self.Y
+                )
 
     def fit(
         self,
@@ -183,23 +173,25 @@ class MultPyro:
 
         # Run SVI.
         # We need a guide only over the continuous latent variables since we're
-        # marginalizing out the discrete latent variable class_g.
-        continuous_model = poutine.block(self.model, hide=["class_g"])
-        discrete_model = poutine.block(self.model, expose=["class_g"])
-        self.guide = guide = AutoGuideList(self.model)
-        guide.append(AutoNormal(continuous_model))
-        guide.append(AutoDiscreteParallel(discrete_model))
+        # marginalizing out the discrete latent variable k.
+        self.guide = AutoNormal(poutine.block(self.model, hide=["k"]))
         optim = ClippedAdam(
             {"lr": learning_rate, "lrd": learning_rate_decay**(1 / num_steps)}
         )
         # We'll use TraceEnum_ELBO to marginalize out the discrete latent
         # variables.
-        elbo = TraceEnum_ELBO(max_plate_nesting=3)
-        svi = SVI(self.model, guide, optim, elbo)
+        elbo = TraceEnum_ELBO(max_plate_nesting=2)
+        marginal_model = config_enumerate(self.model, "parallel")
+        svi = SVI(marginal_model, self.guide, optim, elbo)
 
+        # We'll log a loss normalized per-observation, which is more
+        # interpretable than total loss:
+        # - normalized loss on the order of ~1 means the model is doing well
+        # - normalized loss larger than ~100 means the model is doing poorly
+        obs_count = int(self.obs_mask.long().sum())
         for step in range(num_steps):
             loss = svi.step()
-            loss /= self.N  # Per-observation loss is more interpretable.
+            loss /= obs_count  # Per-observation loss is more interpretable.
             if step % 100 == 0:
                 print(f"step {step: >4d} loss = {loss:.3f}")
 
