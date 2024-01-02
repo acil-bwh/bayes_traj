@@ -1,3 +1,5 @@
+from typing import Dict
+
 import torch
 import pyro
 import pyro.distributions as dist
@@ -194,6 +196,31 @@ class MultPyro:
             loss /= obs_count  # Per-observation loss is more interpretable.
             if step % 100 == 0:
                 print(f"step {step: >4d} loss = {loss:.3f}")
+
+    def estimate_params(
+        self, num_samples: int = 1000
+    ) -> Dict[str, torch.Tensor]:
+        """Estimates posterior parameters."""
+        # First draw samples from the guide.
+        # Disable gradients and loss computations.
+        with torch.no_grad(), pyro.poutine.mask(mask=False):
+            # Draw many samples in parallel.
+            with pyro.plate("particles", num_samples, dim=-3):
+                samples = self.guide()
+
+        # Compute moments from the samples.
+        # Note this uses (mean,variance) of the lambda_ variable; we could
+        # instead fit posterior parameters to a Gamma distribution.
+        means = {k: v.mean(0).squeeze(0) for k, v in samples.items()}
+        vars = {k: v.var(0).squeeze(0) for k, v in samples.items()}
+
+        # Extract the parameters we care about.
+        return {
+            "W_mu": means["W_"],
+            "W_var": vars["W_"],
+            "lambda_mu": means["lambda_"],
+            "lambda_var": vars["lambda_"],
+        }
 
     def predict(
         self,
