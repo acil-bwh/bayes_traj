@@ -103,6 +103,8 @@ def main():
         subgroups differs. By using this flag, the proportions of previously \
         determined trajectory subgroups will be determined for the current \
         data set.', action='store_true')
+    parser.add_argument('--use_pyro', help='Use Pyro for inference",
+        action="store_true')
     
     op = parser.parse_args()
     iters = int(op.iters)
@@ -219,28 +221,31 @@ def main():
     for r in np.arange(repeats):        
         if r > 0:
             print(f"---------- Repeat {r}, Best WAIC2: {best_waic2} ----------")
-        
-        mm = MultDPRegression(prior_data['w_mu0'],
-                              prior_data['w_var0'],
-                              prior_data['lambda_a0'],
-                              prior_data['lambda_b0'],
-                              op.prec_prior_weight,
-                              prior_data['alpha'], K=K,
-                              prob_thresh=op.prob_thresh)
 
-        mm.fit(target_names=targets, predictor_names=preds, df=df,
-               groupby=op.groupby, iters=iters, verbose=op.verbose,
-               R=prior_data['R'],
-               traj_probs=prior_data['traj_probs'],
-               traj_probs_weight=op.probs_weight,
-               v_a=prior_data['v_a'],
-               v_b=prior_data['v_b'],
-               w_mu=prior_data['w_mu'],
-               w_var=prior_data['w_var'],
-               lambda_a=prior_data['lambda_a'],
-               lambda_b=prior_data['lambda_b'],
-               weights_only=op.weights_only,
-               num_init_trajs=op.num_init_trajs)
+        if not op.use_pyro:
+            mm = MultDPRegression(prior_data['w_mu0'],
+                                prior_data['w_var0'],
+                                prior_data['lambda_a0'],
+                                prior_data['lambda_b0'],
+                                op.prec_prior_weight,
+                                prior_data['alpha'], K=K,
+                                prob_thresh=op.prob_thresh)
+
+            mm.fit(target_names=targets, predictor_names=preds, df=df,
+                   groupby=op.groupby, iters=iters, verbose=op.verbose,
+                   R=prior_data['R'],
+                   traj_probs=prior_data['traj_probs'],
+                   traj_probs_weight=op.probs_weight,
+                   v_a=prior_data['v_a'],
+                   v_b=prior_data['v_b'],
+                   w_mu=prior_data['w_mu'],
+                   w_var=prior_data['w_var'],
+                   lambda_a=prior_data['lambda_a'],
+                   lambda_b=prior_data['lambda_b'],
+                   weights_only=op.weights_only,
+                   num_init_trajs=op.num_init_trajs)
+        else:
+            raise NotImplementedError("Pyro not yet implemented")
 
         if r == 0:
             if op.out_model is not None:
