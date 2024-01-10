@@ -103,8 +103,8 @@ def main():
         subgroups differs. By using this flag, the proportions of previously \
         determined trajectory subgroups will be determined for the current \
         data set.', action='store_true')
-    parser.add_argument('--use_pyro', help='Use Pyro for inference",
-        action="store_true')
+    parser.add_argument('--use_pyro', help='Use Pyro for inference',
+        action='store_true')
     
     op = parser.parse_args()
     iters = int(op.iters)
