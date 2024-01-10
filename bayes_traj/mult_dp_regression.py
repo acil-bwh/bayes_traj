@@ -331,9 +331,9 @@ class MultDPRegression:
             
             
     def fit(self, target_names, predictor_names, df, groupby=None, iters=100,
-        R=None, traj_probs=None, traj_probs_weight=None, v_a=None,
-        v_b=None, w_mu=None, w_var=None, lambda_a=None, lambda_b=None,
-        verbose=False, weights_only=False):
+            R=None, traj_probs=None, traj_probs_weight=None, v_a=None,
+            v_b=None, w_mu=None, w_var=None, lambda_a=None, lambda_b=None,
+            verbose=False, weights_only=False, num_init_trajs=None):
         """Performs variational inference (coordinate ascent or SVI) given data
         and provided parameters.
 
@@ -433,6 +433,10 @@ class MultDPRegression:
             proportions of previously determined trajectory subgroups will be 
             determined for the current data set.
 
+        num_init_trajs : int, optional
+            If specified, the initialization procedure will attempt to ensure 
+            that the number of initial trajectories in the fitting routine
+            equals the specified number.       
         """
         if traj_probs_weight is not None:
             assert traj_probs_weight >= 0 and traj_probs_weight <=1, \
@@ -553,8 +557,14 @@ class MultDPRegression:
             self.v_b_ = self.alpha_*torch.ones(self.K_)
     
         if self.R_ is None:
-            self.init_R_mat(traj_probs, traj_probs_weight)
-
+            if num_init_trajs is None:
+                self.init_R_mat(traj_probs, traj_probs_weight)
+            else:
+                for ii in range(100):
+                    self.init_R_mat(traj_probs, traj_probs_weight)
+                    if torch.sum(self.sig_trajs_).item() == num_init_trajs:
+                        break
+                
         self.fit_coordinate_ascent(iters, verbose, weights_only)
 
                 
@@ -1386,7 +1396,6 @@ class MultDPRegression:
         self.R_ = torch.ones([self.N_, self.K_]).double()
         self.R_[:] = init_traj_probs
         self.sig_trajs_ = torch.max(self.R_, 0)[0] > self.prob_thresh_
-
 
     def augment_df_with_traj_info(self, df, gb_col=None):
         """Compute the probability that each data instance belongs to each of
