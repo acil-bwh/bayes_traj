@@ -66,7 +66,11 @@ def main():
         probability of a data instance belonging to a given trajectory drops \
         below this threshold, then the probabality of that data instance \
         belonging to the trajectory will be set to 0', metavar='<float>',
-        type=float, default=0.001)    
+        type=float, default=0.001)
+    parser.add_argument('--num_init_trajs', help='If specified, the \
+        initialization procedure will attempt to ensure that the number of \
+        initial trajectories in the fitting routine equals the specified \
+        number.', metavar='<int>', type=int, default=None)        
 #    parser.add_argument('--waic2_thresh', help='Model will only be written to \
 #        file provided that the WAIC2 value is below this threshold',
 #        dest='waic2_thresh', metavar='<float>', type=float,
@@ -214,9 +218,7 @@ def main():
     print("Fitting...")
     for r in np.arange(repeats):        
         if r > 0:
-            print("---------- Repeat {}, Best WAIC2: {} ----------".\
-                  format(r, best_waic2))
-
+            print(f"---------- Repeat {r}, Best WAIC2: {best_waic2} ----------")
         
         mm = MultDPRegression(prior_data['w_mu0'],
                               prior_data['w_var0'],
@@ -237,7 +239,8 @@ def main():
                w_var=prior_data['w_var'],
                lambda_a=prior_data['lambda_a'],
                lambda_b=prior_data['lambda_b'],
-               weights_only=op.weights_only)
+               weights_only=op.weights_only,
+               num_init_trajs=op.num_init_trajs)
 
         if r == 0:
             if op.out_model is not None:
@@ -264,6 +267,7 @@ def main():
                 best_waic2 = compute_waic2(mm)
         else:
             waic2 = compute_waic2(mm)
+            print(f"Current WAIC2: {waic2}")
             if waic2 < best_waic2:
                 best_waic2 = waic2
         
