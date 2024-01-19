@@ -24,21 +24,30 @@ class MultPyro:
         K: int,  # TODO configured from say --num-components
     ) -> None:
         """
-        See MultDPRegression for parameter descriptions.
+        See `MultDPRegression` for parameter descriptions.
 
         Attributes:
-            K: number of components
-            D: number of targets
-            G: number of individuals
-            M: number of predictors (aka features)
-            T: number of time points
+            K (int): number of components
+            D (int): number of targets
+            G (int): number of individuals
+            M (int): number of predictors (aka features)
+            T (int): number of time points
 
         Args:
-            Y (torch.Tensor): [T, G, D], real valued response tensor
-            X (torch.Tensor): [T, G, M], real valued predictor tensor
+            w_mu0 (torch.Tensor): [D, M], real valued prior mean for regression
+                coefficients.
+            w_var0 (torch.Tensor): [D, M], real valued prior variance for
+                regression coefficients.
+            lambda_a0 (torch.Tensor): [D], real valued prior shape for
+                likelihood variance parameters.
+            lambda_b0 (torch.Tensor): [D], real valued prior rate for
+                likelihood variance parameters.
+            Y (torch.Tensor): [T, G, D], real valued response tensor.
+            X (torch.Tensor): [T, G, M], real valued predictor tensor.
             obs_mask (torch.Tensor): [T, G], boolean tensor indicating which
                 entries of Y are observed. True means observed, False means
                 missing.
+            K (int): number of components.
         """
         # Collect sizes.
         assert Y.dim() == 3
@@ -76,13 +85,6 @@ class MultPyro:
         self.Y = Y
         self.X = X
         self.obs_mask = obs_mask
-
-        # Learned parameters.
-        # self.R_ = R_
-        # self.w_mu_ = w_mu_
-        # self.w_var_ = w_var_
-        # self.lambda_a = lambda_a
-        # self.lambda_b = lambda_b
 
     def model(self) -> None:
         """
@@ -168,7 +170,7 @@ class MultPyro:
         num_steps: int = 1001,
         seed: int = 20231215,
     ) -> None:
-        """Fits the model via SVI."""
+        """Fits the model via Stochastic Variational Inference (SVI)."""
         # Reset state to ensure reproducibility.
         pyro.clear_param_store()
         pyro.set_rng_seed(seed)
@@ -186,10 +188,11 @@ class MultPyro:
         marginal_model = config_enumerate(self.model, "parallel")
         svi = SVI(marginal_model, self.guide, optim, elbo)
 
-        # We'll log a loss normalized per-observation, which is more
-        # interpretable than total loss:
-        # - normalized loss on the order of ~1 means the model is doing well
-        # - normalized loss larger than ~100 means the model is doing poorly
+        # We'll log a loss that is normalized per-observation, which is more
+        # interpretable than the total loss. We can use this loss to diagnose
+        # model mismatch:
+        # - Normalized loss on the order of ~1 means the model is doing well.
+        # - Normalized loss larger than ~100 means the model is doing poorly.
         obs_count = int(self.obs_mask.long().sum())
         for step in range(num_steps):
             loss = svi.step()
@@ -200,7 +203,7 @@ class MultPyro:
     def estimate_params(
         self, num_samples: int = 1000
     ) -> Dict[str, torch.Tensor]:
-        """Estimates posterior parameters."""
+        """Estimates learned posterior parameters."""
         # First draw samples from the guide.
         # Disable gradients and loss computations.
         with torch.no_grad(), pyro.poutine.mask(mask=False):
@@ -223,15 +226,17 @@ class MultPyro:
         }
 
     def predict(self, X: torch.Tensor) -> torch.Tensor:
-        """Predicts `Y` from `X`."""
+        """Predicts response `Y` from predictor `X`."""
         raise NotImplementedError("TODO do we need this?")
 
     def classify(self, X: torch.Tensor) -> torch.Tensor:
         """
-        Classifies `X`.
+        Classifies a batch of individuals based on their predictors `X`.
 
+        Args:
+            X (Tensor): A `[T, G, M]`-shaped tensor of predictors.
         Returns:
-            probs: A `[G, K]`-shaped tensor of probabilities, normalized over
-                the leftmost dimension.
+            (Tensor): A `[G, K]`-shaped tensor of probabilities, normalized
+                over the leftmost dimension.
         """
         raise NotImplementedError("TODO do we need this?")
