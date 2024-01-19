@@ -1,10 +1,11 @@
+import functools
 from typing import Dict
 
 import torch
 import pyro
 import pyro.distributions as dist
 from pyro import poutine
-from pyro.infer import SVI, TraceEnum_ELBO, config_enumerate
+from pyro.infer import SVI, TraceEnum_ELBO, config_enumerate, infer_discrete
 from pyro.infer.autoguide import AutoNormal
 
 from pyro.optim import ClippedAdam
@@ -86,17 +87,27 @@ class MultPyro:
         self.X = X
         self.obs_mask = obs_mask
 
-    def model(self) -> None:
+    def model(
+        self,
+        X: torch.Tensor,
+        Y: torch.Tensor,
+        obs_mask: torch.Tensor,
+    ) -> None:
         """
         The Bayesian model definition.
 
-        This is called during each training step and during prediction.
+        This is called during each training step and during classification.
         """
+        # Validate shapes.
         D = self.D
         M = self.M
         K = self.K
         T = self.T
-        G = self.G
+        G = X.shape[1]
+        assert X.shape == (T, G, M)
+        assert Y.shape == (T, G, D)
+        assert obs_mask.shape == (T, G)
+
         # We use two different dimensions for plates, which determines
         # max_plate_nesting.
         # See https://pyro.ai/examples/tensor_shapes.html
@@ -138,7 +149,7 @@ class MultPyro:
             }
 
             # Declare the likelihood, which is partially observed.
-            with time_plate, poutine.mask(mask=self.obs_mask):
+            with time_plate, poutine.mask(mask=obs_mask):
                 # Compute the predicted mean.
                 assert W_.shape == (K, D, M)
                 assert k.shape in {(G,), (K, 1, 1)}
@@ -147,8 +158,8 @@ class MultPyro:
                 assert W_n.shape in {(G, D, M), (K, 1, 1, D, M)}
                 # We accomplish batched matrix-vector multiplication by
                 # unsqueezing then squeezing.
-                assert self.X.shape == (T, G, M)
-                y_loc = (W_n @ self.X.unsqueeze(-1)).squeeze(-1)
+                assert X.shape == (T, G, M)
+                y_loc = (W_n @ X.unsqueeze(-1)).squeeze(-1)
                 assert y_loc.shape in {(T, G, D), (K, T, G, D)}
 
                 # Compute the predicted variance.
@@ -157,10 +168,8 @@ class MultPyro:
                 assert y_scale.shape in {(G, D), (K, 1, 1, D)}
 
                 # Observers Y_sparse, i.e. the likelihood.
-                assert self.Y.shape == (T, G, D)
-                pyro.sample(
-                    "Y", dist.Normal(y_loc, y_scale).to_event(1), obs=self.Y
-                )
+                assert Y.shape == (T, G, D)
+                pyro.sample("Y", dist.Normal(y_loc, y_scale).to_event(1), obs=Y)
 
     def fit(
         self,
@@ -195,7 +204,7 @@ class MultPyro:
         # - Normalized loss larger than ~100 means the model is doing poorly.
         obs_count = int(self.obs_mask.long().sum())
         for step in range(num_steps):
-            loss = svi.step()
+            loss = svi.step(self.X, self.Y, self.obs_mask)
             loss /= obs_count  # Per-observation loss is more interpretable.
             if step % 100 == 0:
                 print(f"step {step: >4d} loss = {loss:.3f}")
@@ -225,18 +234,57 @@ class MultPyro:
             "lambda_var": vars["lambda_"],
         }
 
-    def predict(self, X: torch.Tensor) -> torch.Tensor:
-        """Predicts response `Y` from predictor `X`."""
-        raise NotImplementedError("TODO do we need this?")
-
-    def classify(self, X: torch.Tensor) -> torch.Tensor:
+    @torch.no_grad()
+    def classify(
+        self,
+        X: torch.Tensor,
+        Y: torch.Tensor,
+        obs_mask: torch.Tensor,
+        *,
+        num_samples: int = 100,
+    ) -> torch.Tensor:
         """
-        Classifies a batch of individuals based on their predictors `X`.
+        Classifies a batch of individuals based on their predictors `X`and
+        observed responses `Y`.
+
+        Note the batch size `B` may differ from the training set size `G`.        
 
         Args:
-            X (Tensor): A `[T, G, M]`-shaped tensor of predictors.
+            X (Tensor): A `[T, B, M]`-shaped tensor of predictors.
+            Y (Tensor): A `[T, B, D]`-shaped tensor of responses.
+            obs_mask (Tensor): A `[T, B]`-shaped boolean tensor indicating
+                which entries of `Y` are observed. True means observed, False
+                means missing.
         Returns:
-            (Tensor): A `[G, K]`-shaped tensor of probabilities, normalized
-                over the leftmost dimension.
+            (Tensor): A `[B, K]`-shaped tensor of empirical sample
+                probabilities, normalized over the leftmost dimension.
         """
+        # Validate shapes.
+        assert X.dim() == 3
+        B = X.shape[1]
+        assert X.shape == (self.T, B, self.M)
+        assert Y.shape == (self.T, B, self.D)
+
+        # Draw samples sequentially to keep tensor shapes simple.
+        probs = torch.zeros(B, self.K)
+        b = torch.arange(B)
+        for _ in range(num_samples):
+            # Sample from the guide and condition the model on the guide.
+            latent_sample = self.guide()  # Draw a sample from the guide.
+            model = poutine.condition(self.model, data=latent_sample)
+
+            # Use Pyro's infer_discrete to sample the discrete latent variable k.
+            model = config_enumerate(model, "parallel")
+            model = infer_discrete(model, first_available_dim=-3, temperature=1)
+            trace = poutine.trace(model).get_trace(X, Y, obs_mask)
+
+            # Accumulate the empirical sample probabilities.
+            k = trace.nodes["k"]["value"]
+            k = k.reshape((B,))
+            probs[b, k] += 1
+        probs /= num_samples
+        return probs
+
+    def predict(self, X: torch.Tensor) -> torch.Tensor:
+        """Predicts response `Y` from predictor `X`."""
         raise NotImplementedError("TODO do we need this?")
