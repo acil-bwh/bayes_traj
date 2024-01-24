@@ -4,21 +4,29 @@ from bayes_traj.mult_pyro import MultPyro
 
 
 @pytest.mark.parametrize(
-    "K, D, M, G, T, G_",
+    "K, D, B, M, T, G, G_",
     [
-        (1, 1, 1, 1, 1, 1),
-        (2, 3, 4, 5, 6, 7),   # All distinct to detect shape errors.
+        (1, 1, 0, 1, 1, 1, 1),  # Real data only.
+        (1, 0, 1, 1, 1, 1, 1),  # Boolean data only.
+        (2, 3, 4, 5, 6, 7, 8),  # All distinct to detect shape errors.
     ],
 )
-def test_smoke(K, D, M, G, T, G_):
-    # Create fake data.
-    w_mu0 = torch.randn(D, M)
-    w_var0 = torch.randn(D, M).exp()  # Ensure positive.
+def test_smoke(K, D, B, M, T, G, G_):
+    # Set hyperparameters.
+    w_mu0 = torch.randn(D + B, M)
+    w_var0 = torch.randn(D + B, M).exp()  # Ensure positive.
     lambda_a0 = torch.randn(D).exp()  # Ensure positive.
     lambda_b0 = torch.randn(D).exp()  # Ensure positive.
-    X_train = torch.randn(T, G, M)
-    Y_real_train = torch.randn(T, G, D)
-    Y_real_mask_train = torch.ones(T, G).bernoulli().bool()
+
+    # Create fake training data.
+    data_train = {}
+    data_train["X"] = torch.randn(T, G, M)
+    if D:
+        data_train["Y_real"] = torch.randn(T, G, D)
+        data_train["Y_real_mask"] = torch.ones(T, G).bernoulli().bool()
+    if B:
+        data_train["Y_bool"] = torch.ones(T, G, B).bernoulli().bool()
+        data_train["Y_bool_mask"] = torch.ones(T, G).bernoulli().bool()
 
     # Create a model instance.
     model = MultPyro(
@@ -27,9 +35,7 @@ def test_smoke(K, D, M, G, T, G_):
         w_var0=w_var0,
         lambda_a0=lambda_a0,
         lambda_b0=lambda_b0,
-        X=X_train,
-        Y_real=Y_real_train,
-        Y_real_mask=Y_real_mask_train,
+        **data_train,
     )
 
     # Fit the model.
@@ -38,18 +44,26 @@ def test_smoke(K, D, M, G, T, G_):
     # Estimate parameters.
     params = model.estimate_params()
     assert isinstance(params, dict)
-    assert set(params) == {"W_mu", "W_var", "lambda_mu", "lambda_var"}
-    assert params["W_mu"].shape == (K, D, M)
-    assert params["W_var"].shape == (K, D, M)
-    assert params["lambda_mu"].shape == (K, D)
-    assert params["lambda_var"].shape == (K, D)
+    if D:
+        assert set(params) == {"W_mu", "W_var", "lambda_mu", "lambda_var"}
+        assert params["lambda_mu"].shape == (K, D)
+        assert params["lambda_var"].shape == (K, D)
+    else:
+        assert set(params) == {"W_mu", "W_var"}
+    assert params["W_mu"].shape == (K, D + B, M)
+    assert params["W_var"].shape == (K, D + B, M)
+
+    # Create fake test data.
+    data_test = {}
+    data_test["X"] = torch.randn(T, G_, M)
+    if D:
+        data_test["Y_real"] = torch.randn(T, G_, D)
+        data_test["Y_real_mask"] = torch.ones(T, G_).bernoulli().bool()
+    if B:
+        data_test["Y_bool"] = torch.ones(T, G_, B).bernoulli().bool()
+        data_test["Y_bool_mask"] = torch.ones(T, G_).bernoulli().bool()
 
     # Classify a novel batch of data of batch size B.
-    X_test = torch.randn(T, G_, M)
-    Y_real_test = torch.randn(T, G_, D)
-    Y_real_mask_test = torch.ones(T, G_).bernoulli().bool()
-    probs = model.classify(
-        X=X_test, Y_real=Y_real_test, Y_real_mask=Y_real_mask_test
-    )
+    probs = model.classify(**data_test)
     assert probs.shape == (G_, K)
     assert probs.sum(-1).allclose(torch.ones(G_))

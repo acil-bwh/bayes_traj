@@ -45,9 +45,9 @@ class MultPyro:
             B (int): number of boolean targets `Y_bool`
 
         Args:
-            w_mu0 (torch.Tensor): [D, M], real valued prior mean for regression
-                coefficients.
-            w_var0 (torch.Tensor): [D, M], real valued prior variance for
+            w_mu0 (torch.Tensor): [D + B, M], real valued prior mean for
+                regression coefficients.
+            w_var0 (torch.Tensor): [D + B, M], real valued prior variance for
                 regression coefficients.
             lambda_a0 (torch.Tensor): [D], real valued prior shape for
                 likelihood variance parameters.
@@ -79,7 +79,7 @@ class MultPyro:
 
         # Check for real observations.
         if Y_real is None:
-            assert Y_bool_mask is None
+            assert Y_real_mask is None
             self.D = D = 0
         else:
             assert Y_real_mask is not None
@@ -111,7 +111,8 @@ class MultPyro:
             assert Y_bool.dtype == torch.bool
             assert Y_bool_mask.shape == (T, G)
             assert Y_bool_mask.dtype == torch.bool
-            self.Y_bool = Y_bool
+            # Convert to float for Bernoulli.log_prob().
+            self.Y_bool = Y_bool.to(dtype=torch.tensor(0.).dtype)
             self.Y_bool_mask = Y_bool_mask
         assert B >= 0
         assert B or D, "Must provide at least one of Y_real or Y_bool."
@@ -152,21 +153,21 @@ class MultPyro:
         individuals_plate = pyro.plate("individuals", G, dim=-1)  # (G,)
         time_plate = pyro.plate("time", T, dim=-2)  # (T, 1)
 
-        assert self.lambda_a0.shape == (D,)
-        assert self.lambda_b0.shape == (D,)
         with components_plate:
             # Sample the regression coefficients.
             # We use .to_event(2) to sample matrices of shape [D, M].
             loc = self.w_mu0
             scale = self.w_var0.sqrt()
-            assert loc.shape == (D, M)
-            assert scale.shape == (D, M)
+            assert loc.shape == (D + B, M)
+            assert scale.shape == (D + B, M)
             W_ = pyro.sample("W_", dist.Normal(loc, scale).to_event(2))
-            assert W_.shape == (K, D, M)
-            
+            assert W_.shape == (K, D + B, M)
+
             if self.D:
                 # Sample the real variance parameters.
                 # We use .to_event(1) to sample a vectors of length D.
+                assert self.lambda_a0.shape == (D,)
+                assert self.lambda_b0.shape == (D,)
                 lambda_ = pyro.sample(
                     "lambda_",
                     dist.Gamma(self.lambda_a0, self.lambda_b0).to_event(1)
@@ -203,6 +204,8 @@ class MultPyro:
             assert Y_real_mask is not None
             assert Y_real.shape == (T, G, D)
             assert Y_real_mask.shape == (T, G)
+            assert Y_real.dtype.is_floating_point
+            assert Y_real_mask.dtype == torch.bool
 
             # Declare the real likelihood, which is partially observed.
             with individuals_plate, time_plate, poutine.mask(mask=Y_real_mask):
@@ -226,6 +229,8 @@ class MultPyro:
             assert Y_bool_mask is not None
             assert Y_bool.shape == (T, G, B)
             assert Y_bool_mask.shape == (T, G)
+            assert Y_bool.dtype.is_floating_point
+            assert Y_bool_mask.dtype == torch.bool
 
             # Declare the boolean likelihood, which is partially observed.
             with individuals_plate, time_plate, poutine.mask(mask=Y_bool_mask):
@@ -354,12 +359,19 @@ class MultPyro:
         if Y_real is not None:
             assert Y_real_mask is not None
             assert Y_real.shape == (self.T, G_, self.D)
+            assert Y_real_mask.shape == (self.T, G_)
+            assert Y_real.dtype.is_floating_point
+            assert Y_real_mask.dtype == torch.bool
             data["Y_real"] = Y_real
             data["Y_real_mask"] = Y_real_mask
         if Y_bool is not None:
             assert Y_bool_mask is not None
             assert Y_bool.shape == (self.T, G_, self.B)
-            data["Y_bool"] = Y_bool
+            assert Y_bool_mask.shape == (self.T, G_)
+            assert Y_bool.dtype == torch.bool
+            assert Y_bool_mask.dtype == torch.bool
+            # Convert to float for Bernoulli.log_prob().
+            data["Y_bool"] = Y_bool.to(dtype=torch.tensor(0.).dtype)
             data["Y_bool_mask"] = Y_bool_mask
 
         # Draw samples sequentially to keep tensor shapes simple.
