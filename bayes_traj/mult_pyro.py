@@ -1,4 +1,3 @@
-import functools
 from typing import Dict
 
 import torch
@@ -19,9 +18,9 @@ class MultPyro:
         w_var0: torch.Tensor,
         lambda_a0: torch.Tensor,
         lambda_b0: torch.Tensor,
-        Y: torch.Tensor,  # [T, G, D], real value
         X: torch.Tensor,  # [T, G, M], real value
-        obs_mask: torch.Tensor,  # [T, G], boolean
+        Y_real: torch.Tensor,  # [T, G, D], real value
+        Y_real_mask: torch.Tensor,  # [T, G], boolean
         K: int,  # TODO configured from say --num-components
     ) -> None:
         """
@@ -43,20 +42,20 @@ class MultPyro:
                 likelihood variance parameters.
             lambda_b0 (torch.Tensor): [D], real valued prior rate for
                 likelihood variance parameters.
-            Y (torch.Tensor): [T, G, D], real valued response tensor.
             X (torch.Tensor): [T, G, M], real valued predictor tensor.
+            Y_real (torch.Tensor): [T, G, D], real valued response tensor.
             obs_mask (torch.Tensor): [T, G], boolean tensor indicating which
-                entries of Y are observed. True means observed, False means
-                missing.
+                entries of `Y_real` are observed. True means observed, False
+                means missing.
             K (int): number of components.
         """
         # Collect sizes.
-        assert Y.dim() == 3
+        assert Y_real.dim() == 3
         assert X.dim() == 3
         self.K = K
-        self.T = T = Y.shape[0]
-        self.G = G = Y.shape[1]
-        self.D = D = Y.shape[2]
+        self.T = T = Y_real.shape[0]
+        self.G = G = Y_real.shape[1]
+        self.D = D = Y_real.shape[2]
         self.M = M = X.shape[2]
         assert K > 0
         assert T > 0
@@ -69,12 +68,12 @@ class MultPyro:
         assert w_var0.shape == (D, M)
         assert lambda_a0.shape == (D,)
         assert lambda_b0.shape == (D,)
-        assert Y.shape == (T, G, D)
-        assert Y.dtype.is_floating_point
+        assert Y_real.shape == (T, G, D)
+        assert Y_real.dtype.is_floating_point
         assert X.shape == (T, G, M)
         assert X.dtype.is_floating_point
-        assert obs_mask.shape == (T, G)
-        assert obs_mask.dtype == torch.bool
+        assert Y_real_mask.shape == (T, G)
+        assert Y_real_mask.dtype == torch.bool
 
         # Fixed parameters.
         self.w_mu0 = w_mu0
@@ -83,15 +82,15 @@ class MultPyro:
         self.lambda_b0 = lambda_b0
 
         # Data.
-        self.Y = Y
         self.X = X
-        self.obs_mask = obs_mask
+        self.Y_real = Y_real
+        self.Y_real_mask = Y_real_mask
 
     def model(
         self,
         X: torch.Tensor,
-        Y: torch.Tensor,
-        obs_mask: torch.Tensor,
+        Y_real: torch.Tensor,
+        Y_real_mask: torch.Tensor,
     ) -> None:
         """
         The Bayesian model definition.
@@ -105,8 +104,8 @@ class MultPyro:
         T = self.T
         G = X.shape[1]
         assert X.shape == (T, G, M)
-        assert Y.shape == (T, G, D)
-        assert obs_mask.shape == (T, G)
+        assert Y_real.shape == (T, G, D)
+        assert Y_real_mask.shape == (T, G)
 
         # We use two different dimensions for plates, which determines
         # max_plate_nesting.
@@ -149,7 +148,7 @@ class MultPyro:
             }
 
             # Declare the likelihood, which is partially observed.
-            with time_plate, poutine.mask(mask=obs_mask):
+            with time_plate, poutine.mask(mask=Y_real_mask):
                 # Compute the predicted mean.
                 assert W_.shape == (K, D, M)
                 assert k.shape in {(G,), (K, 1, 1)}
@@ -168,8 +167,10 @@ class MultPyro:
                 assert y_scale.shape in {(G, D), (K, 1, 1, D)}
 
                 # Observers Y_sparse, i.e. the likelihood.
-                assert Y.shape == (T, G, D)
-                pyro.sample("Y", dist.Normal(y_loc, y_scale).to_event(1), obs=Y)
+                assert Y_real.shape == (T, G, D)
+                pyro.sample(
+                    "Y_real", dist.Normal(y_loc, y_scale).to_event(1), obs=Y_real
+                )
 
     def fit(
         self,
@@ -202,9 +203,9 @@ class MultPyro:
         # model mismatch:
         # - Normalized loss on the order of ~1 means the model is doing well.
         # - Normalized loss larger than ~100 means the model is doing poorly.
-        obs_count = int(self.obs_mask.long().sum())
+        obs_count = int(self.Y_real_mask.long().sum())
         for step in range(num_steps):
-            loss = svi.step(self.X, self.Y, self.obs_mask)
+            loss = svi.step(self.X, self.Y_real, self.Y_real_mask)
             loss /= obs_count  # Per-observation loss is more interpretable.
             if step % 100 == 0:
                 print(f"step {step: >4d} loss = {loss:.3f}")
@@ -237,24 +238,26 @@ class MultPyro:
     @torch.no_grad()
     def classify(
         self,
-        X: torch.Tensor,
-        Y: torch.Tensor,
-        obs_mask: torch.Tensor,
         *,
+        X: torch.Tensor,
+        Y_real: torch.Tensor,
+        Y_real_mask: torch.Tensor,
         num_samples: int = 100,
     ) -> torch.Tensor:
         """
         Classifies a batch of individuals based on their predictors `X`and
-        observed responses `Y`.
+        observed responses `Y_*`.
 
         Note the batch size `B` may differ from the training set size `G`.        
 
         Args:
             X (Tensor): A `[T, B, M]`-shaped tensor of predictors.
-            Y (Tensor): A `[T, B, D]`-shaped tensor of responses.
-            obs_mask (Tensor): A `[T, B]`-shaped boolean tensor indicating
-                which entries of `Y` are observed. True means observed, False
-                means missing.
+            Y_real (Tensor): A `[T, B, D]`-shaped tensor of responses.
+            Y_real_mask (Tensor): A `[T, B]`-shaped boolean tensor indicating
+                which entries of `Y_real` are observed. True means observed,
+                False means missing.
+            num_samples (int): Number of samples to draw in computing empirical
+                class probabilities.
         Returns:
             (Tensor): A `[B, K]`-shaped tensor of empirical sample
                 probabilities, normalized over the leftmost dimension.
@@ -263,7 +266,7 @@ class MultPyro:
         assert X.dim() == 3
         B = X.shape[1]
         assert X.shape == (self.T, B, self.M)
-        assert Y.shape == (self.T, B, self.D)
+        assert Y_real.shape == (self.T, B, self.D)
 
         # Draw samples sequentially to keep tensor shapes simple.
         probs = torch.zeros(B, self.K)
@@ -276,7 +279,7 @@ class MultPyro:
             # Use Pyro's infer_discrete to sample the discrete latent variable k.
             model = config_enumerate(model, "parallel")
             model = infer_discrete(model, first_available_dim=-3, temperature=1)
-            trace = poutine.trace(model).get_trace(X, Y, obs_mask)
+            trace = poutine.trace(model).get_trace(X, Y_real, Y_real_mask)
 
             # Accumulate the empirical sample probabilities.
             k = trace.nodes["k"]["value"]
@@ -284,7 +287,3 @@ class MultPyro:
             probs[b, k] += 1
         probs /= num_samples
         return probs
-
-    def predict(self, X: torch.Tensor) -> torch.Tensor:
-        """Predicts response `Y` from predictor `X`."""
-        raise NotImplementedError("TODO do we need this?")
