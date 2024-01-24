@@ -354,7 +354,7 @@ class MultPyro:
             num_samples (int): Number of samples to draw in computing empirical
                 class probabilities.
         Returns:
-            (Tensor): A `[G_test, K]`-shaped tensor of empirical sample
+            (Tensor): A `[G_, K]`-shaped tensor of empirical sample
                 probabilities, normalized over the leftmost dimension.
         """
         # Validate shapes.
