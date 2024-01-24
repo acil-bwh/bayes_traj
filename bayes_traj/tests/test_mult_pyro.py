@@ -4,13 +4,13 @@ from bayes_traj.mult_pyro import MultPyro
 
 
 @pytest.mark.parametrize(
-    "K, D, M, G, T, B",
+    "K, D, M, G, T, G_",
     [
         (1, 1, 1, 1, 1, 1),
         (2, 3, 4, 5, 6, 7),   # All distinct to detect shape errors.
     ],
 )
-def test_smoke(K, D, M, G, T, B):
+def test_smoke(K, D, M, G, T, G_):
     # Create fake data.
     w_mu0 = torch.randn(D, M)
     w_var0 = torch.randn(D, M).exp()  # Ensure positive.
@@ -45,11 +45,11 @@ def test_smoke(K, D, M, G, T, B):
     assert params["lambda_var"].shape == (K, D)
 
     # Classify a novel batch of data of batch size B.
-    X_test = torch.randn(T, B, M)
-    Y_real_test = torch.randn(T, B, D)
-    Y_real_mask_test = torch.ones(T, B).bernoulli().bool()
+    X_test = torch.randn(T, G_, M)
+    Y_real_test = torch.randn(T, G_, D)
+    Y_real_mask_test = torch.ones(T, G_).bernoulli().bool()
     probs = model.classify(
         X=X_test, Y_real=Y_real_test, Y_real_mask=Y_real_mask_test
     )
-    assert probs.shape == (B, K)
-    assert probs.sum(-1).allclose(torch.ones(B))
+    assert probs.shape == (G_, K)
+    assert probs.sum(-1).allclose(torch.ones(G_))
