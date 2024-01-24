@@ -58,7 +58,9 @@ class MultPyro:
             Y_real_mask (optional torch.Tensor): [T, G], boolean tensor indicating which
                 entries of `Y_real` are observed. True means observed, False
                 means missing.
-            Y_bool (optional torch.Tensor): [T, G, B], boolean valued response tensor.
+            Y_bool (optional torch.Tensor): [T, G, B], boolean valued response
+                tensor. This should have `.dtype == torch.bool`, although a
+                floating point tensor is used internally.
             Y_bool_mask (optional torch.Tensor): [T, G], boolean tensor indicating which
                 entries of `Y_bool` are observed. True means observed, False
                 means missing.
@@ -111,8 +113,7 @@ class MultPyro:
             assert Y_bool.dtype == torch.bool
             assert Y_bool_mask.shape == (T, G)
             assert Y_bool_mask.dtype == torch.bool
-            # Convert to float for Bernoulli.log_prob().
-            self.Y_bool = Y_bool.to(dtype=torch.tensor(0.).dtype)
+            self.Y_bool = Y_bool
             self.Y_bool_mask = Y_bool_mask
         assert B >= 0
         assert B or D, "Must provide at least one of Y_real or Y_bool."
@@ -129,7 +130,7 @@ class MultPyro:
         *,
         Y_real: torch.Tensor | None = None,
         Y_real_mask: torch.Tensor | None = None,
-        Y_bool: torch.Tensor | None = None,
+        Y_bool: torch.Tensor | None = None,  # Expected to be floating point.
         Y_bool_mask: torch.Tensor | None = None,
     ) -> None:
         """
@@ -289,7 +290,8 @@ class MultPyro:
             data["Y_real_mask"] = self.Y_real_mask
         if self.B:
             obs_count += int(self.Y_bool_mask.long().sum())
-            data["Y_bool"] = self.Y_bool
+            # Convert to float for Bernoulli.log_prob().
+            data["Y_bool"] = self.Y_bool.to(dtype=self.X.dtype)
             data["Y_bool_mask"] = self.Y_bool_mask
 
         for step in range(num_steps):
@@ -334,16 +336,20 @@ class MultPyro:
         num_samples: int = 100,
     ) -> torch.Tensor:
         """
-        Classifies a batch of individuals based on their predictors `X`and
+        Classifies a batch of individuals based on their predictors `X` and
         observed responses `Y_*`.
 
-        Note the batch size `G_` may differ from the training set size `G`.        
+        Note the batch size `G_` may differ from the training set size `G`.
 
         Args:
             X (Tensor): A `[T, G_, M]`-shaped tensor of predictors.
-            Y_real (Tensor): A `[T, G_, D]`-shaped tensor of responses.
-            Y_real_mask (Tensor): A `[T, G_]`-shaped boolean tensor
+            Y_real (optional Tensor): A `[T, G_, D]`-shaped tensor of responses.
+            Y_real_mask (optional Tensor): A `[T, G_]`-shaped boolean tensor
                 indicating which entries of `Y_real` are observed. True means
+                observed, False means missing.
+            Y_bool (optional Tensor): A `[T, G_, B]`-shaped tensor of responses.
+            Y_bool_mask (optional Tensor): A `[T, G_]`-shaped boolean tensor
+                indicating which entries of `Y_bool` are observed. True means
                 observed, False means missing.
             num_samples (int): Number of samples to draw in computing empirical
                 class probabilities.
@@ -371,7 +377,7 @@ class MultPyro:
             assert Y_bool.dtype == torch.bool
             assert Y_bool_mask.dtype == torch.bool
             # Convert to float for Bernoulli.log_prob().
-            data["Y_bool"] = Y_bool.to(dtype=torch.tensor(0.).dtype)
+            data["Y_bool"] = Y_bool.to(dtype=self.X.dtype)
             data["Y_bool_mask"] = Y_bool_mask
 
         # Draw samples sequentially to keep tensor shapes simple.
