@@ -254,7 +254,7 @@ class MultPyro:
     def fit(
         self,
         *,
-        learning_rate: float = 0.01,
+        learning_rate: float = 0.02,
         learning_rate_decay: float = 0.1,
         num_steps: int = 1001,
         seed: int = 20231215,
@@ -266,7 +266,8 @@ class MultPyro:
             # Run SVI.
             # We need a guide only over the continuous latent variables since we're
             # marginalizing out the discrete latent variable k.
-            self.guide = AutoNormal(poutine.block(self.model, hide=["k"]))
+            self.guide = AutoNormal(poutine.block(self.model, hide=["k"]),
+                                    init_scale=0.01)
             optim = ClippedAdam(
                 {"lr": learning_rate, "lrd": learning_rate_decay**(1 / num_steps)}
             )
@@ -300,7 +301,7 @@ class MultPyro:
                 loss = svi.step(**data)
                 loss /= obs_count  # Per-observation loss is interpretable.
                 self.losses.append(loss)
-                if step % 10 == 0:
+                if step % 100 == 0:
                     print(f"step {step: >4d} loss = {loss:.3f}")
 
     def estimate_params(
