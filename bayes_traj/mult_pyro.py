@@ -261,70 +261,70 @@ class MultPyro:
     ) -> None:
         """Fits the model via Stochastic Variational Inference (SVI)."""
         # Reset state to ensure reproducibility.
-        pyro.clear_param_store()
         pyro.set_rng_seed(seed)
+        with pyro.get_param_store().scope() as self.params:
+            # Run SVI.
+            # We need a guide only over the continuous latent variables since we're
+            # marginalizing out the discrete latent variable k.
+            self.guide = AutoNormal(poutine.block(self.model, hide=["k"]))
+            optim = ClippedAdam(
+                {"lr": learning_rate, "lrd": learning_rate_decay**(1 / num_steps)}
+            )
+            # We'll use TraceEnum_ELBO to marginalize out the discrete latent
+            # variables.
+            elbo = TraceEnum_ELBO(max_plate_nesting=2)
+            marginal_model = config_enumerate(self.model, "parallel")
+            svi = SVI(marginal_model, self.guide, optim, elbo)
 
-        # Run SVI.
-        # We need a guide only over the continuous latent variables since we're
-        # marginalizing out the discrete latent variable k.
-        self.guide = AutoNormal(poutine.block(self.model, hide=["k"]))
-        optim = ClippedAdam(
-            {"lr": learning_rate, "lrd": learning_rate_decay**(1 / num_steps)}
-        )
-        # We'll use TraceEnum_ELBO to marginalize out the discrete latent
-        # variables.
-        elbo = TraceEnum_ELBO(max_plate_nesting=2)
-        marginal_model = config_enumerate(self.model, "parallel")
-        svi = SVI(marginal_model, self.guide, optim, elbo)
+            # We'll log a loss that is normalized per-observation, which is more
+            # interpretable than the total loss. We can use this loss to diagnose
+            # model mismatch:
+            # - Normalized loss on the order of ~1 means the model is doing well.
+            # - Normalized loss larger than ~100 means the model is doing poorly.
+            obs_count = 0  # computed below.
 
-        # We'll log a loss that is normalized per-observation, which is more
-        # interpretable than the total loss. We can use this loss to diagnose
-        # model mismatch:
-        # - Normalized loss on the order of ~1 means the model is doing well.
-        # - Normalized loss larger than ~100 means the model is doing poorly.
-        obs_count = 0  # computed below.
+            # Handle real and boolean observations.
+            data = {"X": self.X}
+            if self.D:
+                obs_count += int(self.Y_real_mask.long().sum())
+                data["Y_real"] = self.Y_real
+                data["Y_real_mask"] = self.Y_real_mask
+            if self.B:
+                obs_count += int(self.Y_bool_mask.long().sum())
+                # Convert to float for Bernoulli.log_prob().
+                data["Y_bool"] = self.Y_bool.to(dtype=self.X.dtype)
+                data["Y_bool_mask"] = self.Y_bool_mask
 
-        # Handle real and boolean observations.
-        data = {"X": self.X}
-        if self.D:
-            obs_count += int(self.Y_real_mask.long().sum())
-            data["Y_real"] = self.Y_real
-            data["Y_real_mask"] = self.Y_real_mask
-        if self.B:
-            obs_count += int(self.Y_bool_mask.long().sum())
-            # Convert to float for Bernoulli.log_prob().
-            data["Y_bool"] = self.Y_bool.to(dtype=self.X.dtype)
-            data["Y_bool_mask"] = self.Y_bool_mask
-
-        for step in range(num_steps):
-            loss = svi.step(**data)
-            loss /= obs_count  # Per-observation loss is interpretable.
-            if step % 10 == 0:
-                print(f"step {step: >4d} loss = {loss:.3f}")
+            for step in range(num_steps):
+                loss = svi.step(**data)
+                loss /= obs_count  # Per-observation loss is interpretable.
+                if step % 10 == 0:
+                    print(f"step {step: >4d} loss = {loss:.3f}")
 
     def estimate_params(
         self, num_samples: int = 1000
     ) -> Dict[str, torch.Tensor]:
         """Estimates learned posterior parameters."""
-        # First draw samples from the guide.
-        # Disable gradients and loss computations.
-        with torch.no_grad(), pyro.poutine.mask(mask=False):
-            # Draw many samples in parallel.
-            with pyro.plate("particles", num_samples, dim=-3):
-                samples = self.guide()
+        with pyro.get_param_store().scope(self.params):
+            # First draw samples from the guide.
+            # Disable gradients and loss computations.
+            with torch.no_grad(), pyro.poutine.mask(mask=False):
+                # Draw many samples in parallel.
+                with pyro.plate("particles", num_samples, dim=-3):
+                    samples = self.guide()
 
-        # Compute moments from the samples.
-        # Note this uses (mean,variance) of the lambda_ variable; we could
-        # instead fit posterior parameters to a Gamma distribution.
-        means = {k: v.mean(0).squeeze(0) for k, v in samples.items()}
-        vars = {k: v.var(0).squeeze(0) for k, v in samples.items()}
+            # Compute moments from the samples.
+            # Note this uses (mean,variance) of the lambda_ variable; we could
+            # instead fit posterior parameters to a Gamma distribution.
+            means = {k: v.mean(0).squeeze(0) for k, v in samples.items()}
+            vars = {k: v.var(0).squeeze(0) for k, v in samples.items()}
 
-        # Extract relevant parameters.
-        params = {"W_mu": means["W_"], "W_var": vars["W_"]}
-        if self.D:
-            params["lambda_mu"] = means["lambda_"]
-            params["lambda_var"] = vars["lambda_"]
-        return params
+            # Extract relevant parameters.
+            params = {"W_mu": means["W_"], "W_var": vars["W_"]}
+            if self.D:
+                params["lambda_mu"] = means["lambda_"]
+                params["lambda_var"] = vars["lambda_"]
+            return params
 
     @torch.no_grad()
     def classify(
@@ -382,22 +382,23 @@ class MultPyro:
             data["Y_bool"] = Y_bool.to(dtype=self.X.dtype)
             data["Y_bool_mask"] = Y_bool_mask
 
-        # Draw samples sequentially to keep tensor shapes simple.
-        probs = torch.zeros(G_, self.K)
-        g = torch.arange(G_)
-        for _ in range(num_samples):
-            # Sample from the guide and condition the model on the guide.
-            latent_sample = self.guide()  # Draw a sample from the guide.
-            model = poutine.condition(self.model, data=latent_sample)
+        with pyro.get_param_store().scope(self.params):
+            # Draw samples sequentially to keep tensor shapes simple.
+            probs = torch.zeros(G_, self.K)
+            g = torch.arange(G_)
+            for _ in range(num_samples):
+                # Sample from the guide and condition the model on the guide.
+                latent_sample = self.guide()  # Draw a sample from the guide.
+                model = poutine.condition(self.model, data=latent_sample)
 
-            # Use Pyro's infer_discrete to sample the discrete latent variable k.
-            model = config_enumerate(model, "parallel")
-            model = infer_discrete(model, first_available_dim=-3, temperature=1)
-            trace = poutine.trace(model).get_trace(**data)
+                # Use Pyro's infer_discrete to sample the discrete latent variable k.
+                model = config_enumerate(model, "parallel")
+                model = infer_discrete(model, first_available_dim=-3, temperature=1)
+                trace = poutine.trace(model).get_trace(**data)
 
-            # Accumulate the empirical sample probabilities.
-            k = trace.nodes["k"]["value"]
-            k = k.reshape((G_,))
-            probs[g, k] += 1
-        probs /= num_samples
-        return probs
+                # Accumulate the empirical sample probabilities.
+                k = trace.nodes["k"]["value"]
+                k = k.reshape((G_,))
+                probs[g, k] += 1
+            probs /= num_samples
+            return probs
