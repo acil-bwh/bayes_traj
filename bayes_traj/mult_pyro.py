@@ -6,6 +6,7 @@ import pyro.distributions as dist
 from pyro import poutine
 from pyro.infer import SVI, TraceEnum_ELBO, config_enumerate, infer_discrete
 from pyro.infer.autoguide import AutoNormal
+import pdb
 
 from pyro.optim import ClippedAdam
 
@@ -89,7 +90,7 @@ class MultPyro:
             self.D = D = Y_real.shape[2]
             assert Y_real.shape == (T, G, D)
             assert Y_real.dtype.is_floating_point
-            assert Y_real_mask.shape == (T, G)
+            assert Y_real_mask.shape == (T, G) # TODO: is this correct?
             assert Y_real_mask.dtype == torch.bool
             self.Y_real = Y_real
             self.Y_real_mask = Y_real_mask
@@ -197,6 +198,7 @@ class MultPyro:
             # We accomplish batched matrix-vector multiplication by
             # unsqueezing then squeezing.
             assert X.shape == (T, G, M)
+
             y = (W_n @ X.unsqueeze(-1)).squeeze(-1)
             assert y.shape in {(T, G, D + B), (K, T, G, D + B)}
 
@@ -204,7 +206,7 @@ class MultPyro:
             assert Y_real is not None
             assert Y_real_mask is not None
             assert Y_real.shape == (T, G, D)
-            assert Y_real_mask.shape == (T, G)
+            assert Y_real_mask.shape == (T, G) #TODO: is this right?
             assert Y_real.dtype.is_floating_point
             assert Y_real_mask.dtype == torch.bool
 
@@ -297,7 +299,7 @@ class MultPyro:
         for step in range(num_steps):
             loss = svi.step(**data)
             loss /= obs_count  # Per-observation loss is interpretable.
-            if step % 100 == 0:
+            if step % 10 == 0:
                 print(f"step {step: >4d} loss = {loss:.3f}")
 
     def estimate_params(

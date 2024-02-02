@@ -4,11 +4,15 @@ from argparse import ArgumentParser
 import pandas as pd
 import numpy as np
 from bayes_traj.mult_dp_regression import MultDPRegression
+from mult_pyro import MultPyro
 from bayes_traj.prior_from_model import prior_from_model
 from bayes_traj.utils import *
 from bayes_traj.fit_stats import compute_waic2
+from pyro_helper import *
 from provenance_tools.write_provenance_data import write_provenance_data
 import pdb, pickle, sys, warnings
+
+torch.set_default_dtype(torch.double) # TODO -- may not be desirable to set this globally
 
 def main():
     """
@@ -245,7 +249,21 @@ def main():
                    weights_only=op.weights_only,
                    num_init_trajs=op.num_init_trajs)
         else:
-            raise NotImplementedError("Pyro not yet implemented")
+            #raise NotImplementedError("Pyro not yet implemented")
+
+            X_re, X_mask, Y_re, Y_mask = \
+                get_restructured_data(df, preds, targets, op.groupby)
+
+            model = MultPyro(
+                K=K,
+                w_mu0=torch.from_numpy(prior_data['w_mu0'].T).double(),
+                w_var0=torch.from_numpy(prior_data['w_var0'].T).double(),
+                lambda_a0=torch.from_numpy(prior_data['lambda_a0']).double(),
+                lambda_b0=torch.from_numpy(prior_data['lambda_b0']).double(),
+                X=X_re, Y_real=Y_re, Y_real_mask=Y_mask)
+
+            model.fit(num_steps=iters)
+            pdb.set_trace()
 
         if r == 0:
             if op.out_model is not None:
