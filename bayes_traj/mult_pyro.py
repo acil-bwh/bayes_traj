@@ -295,9 +295,11 @@ class MultPyro:
                 data["Y_bool"] = self.Y_bool.to(dtype=self.X.dtype)
                 data["Y_bool_mask"] = self.Y_bool_mask
 
+            self.losses = []
             for step in range(num_steps):
                 loss = svi.step(**data)
                 loss /= obs_count  # Per-observation loss is interpretable.
+                self.losses.append(loss)
                 if step % 10 == 0:
                     print(f"step {step: >4d} loss = {loss:.3f}")
 
