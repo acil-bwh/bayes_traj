@@ -268,7 +268,9 @@ def main():
             if op.out_model is not None:
                 torch.save(model, op.out_model)
 
-        if r == 0:
+        if op.use_pyro:
+            pass
+        elif r == 0:
             if op.out_model is not None:
                 print("Saving model...")
                 pickle.dump({'MultDPRegression': mm}, open(op.out_model, 'wb'))

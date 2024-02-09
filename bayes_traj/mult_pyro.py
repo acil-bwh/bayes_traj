@@ -5,7 +5,7 @@ import pyro
 import pyro.distributions as dist
 from pyro import poutine
 from pyro.infer import SVI, TraceEnum_ELBO, config_enumerate, infer_discrete
-from pyro.infer.autoguide import AutoNormal
+from pyro.infer.autoguide import AutoNormal, init_to_sample
 import pdb
 
 from pyro.optim import ClippedAdam
@@ -51,9 +51,9 @@ class MultPyro:
             w_var0 (torch.Tensor): [D + B, M], real valued prior variance for
                 regression coefficients.
             lambda_a0 (torch.Tensor): [D], real valued prior shape for
-                likelihood variance parameters.
+                likelihood precision (1/variance) parameters.
             lambda_b0 (torch.Tensor): [D], real valued prior rate for
-                likelihood variance parameters.
+                likelihood precision (1/variance) parameters.
             X (torch.Tensor): [T, G, M], real valued predictor tensor.
             Y_real (optional torch.Tensor): [T, G, D], real valued response tensor.
             Y_real_mask (optional torch.Tensor): [T, G], boolean tensor indicating which
@@ -166,7 +166,7 @@ class MultPyro:
             assert W_.shape == (K, D + B, M)
 
             if self.D:
-                # Sample the real variance parameters.
+                # Sample the real precision (1/variance) parameters.
                 # We use .to_event(1) to sample a vectors of length D.
                 assert self.lambda_a0.shape == (D,)
                 assert self.lambda_b0.shape == (D,)
@@ -216,9 +216,9 @@ class MultPyro:
                 y_loc = y[..., :D]
                 assert y_loc.shape in {(T, G, D), (K, T, G, D)}
 
-                # Compute the predicted variance.
+                # Compute the predicted scales.
                 assert lambda_.shape == (K, D)
-                y_scale = lambda_.sqrt()[k]
+                y_scale = lambda_.rsqrt()[k]
                 assert y_scale.shape in {(G, D), (K, 1, 1, D)}
 
                 # Observe Y_sparse, i.e. the real likelihood.
@@ -254,7 +254,7 @@ class MultPyro:
     def fit(
         self,
         *,
-        learning_rate: float = 0.02,
+        learning_rate: float = 0.05,
         learning_rate_decay: float = 0.1,
         num_steps: int = 1001,
         seed: int = 20231215,
@@ -267,7 +267,8 @@ class MultPyro:
             # We need a guide only over the continuous latent variables since we're
             # marginalizing out the discrete latent variable k.
             self.guide = AutoNormal(poutine.block(self.model, hide=["k"]),
-                                    init_scale=0.01)
+                                    init_scale=0.01,
+                                    init_loc_fn=init_to_sample)
             optim = ClippedAdam(
                 {"lr": learning_rate, "lrd": learning_rate_decay**(1 / num_steps)}
             )
