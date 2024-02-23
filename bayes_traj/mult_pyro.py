@@ -238,6 +238,7 @@ class MultPyro:
             # Declare the boolean likelihood, which is partially observed.
             with individuals_plate, time_plate, poutine.mask(mask=Y_bool_mask):
                 # Extract the predicted mean.
+                pdb.set_trace()
                 y_loc = y[..., D:]
                 assert y_loc.shape in {(T, G, B), (K, T, G, B)}
 
