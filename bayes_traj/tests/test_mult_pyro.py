@@ -14,6 +14,7 @@ from bayes_traj.mult_pyro import MultPyro
 )
 def test_smoke(K, D, B, M, T, G, G_, mask_dim):
     # Set hyperparameters.
+    alpha0 = torch.randn(K).exp()  # Ensure positive.
     w_mu0 = torch.randn(D + B, M)
     w_var0 = torch.randn(D + B, M).exp()  # Ensure positive.
     lambda_a0 = torch.randn(D).exp()  # Ensure positive.
@@ -33,7 +34,7 @@ def test_smoke(K, D, B, M, T, G, G_, mask_dim):
 
     # Create a model instance.
     model = MultPyro(
-        K=K,
+        alpha0=alpha0,
         w_mu0=w_mu0,
         w_var0=w_var0,
         lambda_a0=lambda_a0,

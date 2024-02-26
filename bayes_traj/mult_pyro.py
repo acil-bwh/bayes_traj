@@ -14,16 +14,16 @@ class MultPyro:
     def __init__(
         self,
         *,  # force passing by keyword to avoid confusion
+        alpha0: torch.Tensor,
         w_mu0: torch.Tensor,
         w_var0: torch.Tensor,
         lambda_a0: torch.Tensor,
         lambda_b0: torch.Tensor,
-        X: torch.Tensor,  # [T, G, M], real value
-        Y_real: torch.Tensor | None = None,  # [T, G, D], real value
-        Y_real_mask: torch.Tensor | None = None,  # [T, G], boolean
-        Y_bool: torch.Tensor | None = None,  # [T, G, B], boolean
-        Y_bool_mask: torch.Tensor | None = None,  # [T, G], boolean
-        K: int,  # TODO configured from say --num-components
+        X: torch.Tensor,
+        Y_real: torch.Tensor | None = None,
+        Y_real_mask: torch.Tensor | None = None,
+        Y_bool: torch.Tensor | None = None,
+        Y_bool_mask: torch.Tensor | None = None,
     ) -> None:
         """
         See `MultDPRegression` for parameter descriptions.
@@ -45,6 +45,9 @@ class MultPyro:
             B (int): number of boolean targets `Y_bool`
 
         Args:
+            alpha0 (torch.Tensor): [K], real valued Dirichlet prior
+                concentration for mixture components. The shape of `alpha0`
+                determines the number of mixture components.
             w_mu0 (torch.Tensor): [D + B, M], real valued prior mean for
                 regression coefficients.
             w_var0 (torch.Tensor): [D + B, M], real valued prior variance for
@@ -54,7 +57,8 @@ class MultPyro:
             lambda_b0 (torch.Tensor): [D], real valued prior rate for
                 likelihood precision (1/variance) parameters.
             X (torch.Tensor): [T, G, M], real valued predictor tensor.
-            Y_real (optional torch.Tensor): [T, G, D], real valued response tensor.
+            Y_real (optional torch.Tensor): [T, G, D], real valued response
+                tensor.
             Y_real_mask (optional torch.Tensor): [T, G] or [T, G, D], boolean
                 tensor indicating which entries of `Y_real` are observed. True
                 means observed, False means missing.
@@ -64,7 +68,6 @@ class MultPyro:
             Y_bool_mask (optional torch.Tensor): [T, G] or [T, G, B], boolean
                 tensor indicating which entries of `Y_bool` are observed. True
                 means observed, False means missing.
-            K (int): number of components.
         """
         # Validate predictor data.
         assert X.dtype.is_floating_point
@@ -73,8 +76,6 @@ class MultPyro:
         self.T = T = X.shape[0]
         self.G = G = X.shape[1]
         self.M = M = X.shape[2]
-        self.K = K
-        assert K > 0
         assert T > 0
         assert G > 0
         assert M > 0
@@ -125,8 +126,14 @@ class MultPyro:
         assert B or D, "Must provide at least one of Y_real or Y_bool."
 
         # Validate fixed parameters.
+        assert alpha0.dim() == 1
+        assert alpha0.dtype.is_floating_point
+        assert (alpha0 > 0).all()
+        self.K = K = alpha0.shape[0]
+        assert K > 0
         assert w_mu0.shape == (D + B, M)
         assert w_var0.shape == (D + B, M)
+        self.alpha0 = alpha0
         self.w_mu0 = w_mu0
         self.w_var0 = w_var0
 
@@ -160,6 +167,7 @@ class MultPyro:
         individuals_plate = pyro.plate("individuals", G, dim=-1)  # (G,)
         time_plate = pyro.plate("time", T, dim=-2)  # (T, 1)
 
+        class_probs = pyro.sample("class_probs", dist.Dirichlet(self.alpha0))
         with components_plate:
             # Sample the regression coefficients.
             # We use .to_event(2) to sample matrices of shape [D, M].
@@ -186,7 +194,6 @@ class MultPyro:
         # This will be enumerated out during SVI.
         # See https://pyro.ai/examples/enumeration.html
         with individuals_plate:
-            class_probs = torch.ones(K) / K
             k = pyro.sample("k", dist.Categorical(class_probs))
 
             assert k.shape in {
