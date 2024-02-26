@@ -8,6 +8,7 @@ from bayes_traj.mult_pyro import MultPyro
 from bayes_traj.prior_from_model import prior_from_model
 from bayes_traj.utils import *
 from bayes_traj.fit_stats import compute_waic2
+import torch
 import pyro
 from bayes_traj.pyro_helper import *
 from provenance_tools.write_provenance_data import write_provenance_data
