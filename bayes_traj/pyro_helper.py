@@ -87,6 +87,7 @@ def get_restructured_data(df, predictors, targets, groupby):
     if Y_real is not None:
         Y_real_mask = ~torch.isnan(Y_real[:, :, 0])
     if Y_bool is not None:
+        Y_bool = Y_bool.bool()
         Y_bool_mask = ~torch.isnan(Y_bool[:, :, 0])    
     
-    return X, X_mask, Y_real, Y_real_mask, Y_bool.bool(), Y_bool_mask
+    return X, X_mask, Y_real, Y_real_mask, Y_bool, Y_bool_mask
