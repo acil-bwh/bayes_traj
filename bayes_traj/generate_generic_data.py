@@ -32,6 +32,8 @@ def main():
         per individual. Note that the actual number for an individual may be less \
         than this if the generated age for a visit is greater than max_age',
         dest='num_visits', type=int, default=1)
+    parser.add_argument('--cohort', help='Name of cohort to be stored in the \
+        cohort column', type=str, default='A')    
     parser.add_argument('--out_file', help='Output data file name. Columns \
         include: intercept, x, x^2, y, id, data_names, traj.', default=None)
     
@@ -128,7 +130,8 @@ def main():
                 axs.set_ylabel('y{}'.format(d+1))
                 axs.legend()
     plt.show()
-    
+
+    df_out['cohort'] = op.cohort
     if op.out_file is not None:
         print("Writing to file...")
         df_out.to_csv(op.out_file, index=False)
