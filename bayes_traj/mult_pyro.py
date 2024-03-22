@@ -20,10 +20,12 @@ class MultPyro:
         lambda_a0: torch.Tensor,
         lambda_b0: torch.Tensor,
         X: torch.Tensor,
+        X_mask: torch.Tensor | None = None,
         Y_real: torch.Tensor | None = None,
         Y_real_mask: torch.Tensor | None = None,
         Y_bool: torch.Tensor | None = None,
         Y_bool_mask: torch.Tensor | None = None,
+        cohort: torch.Tensor | None = None,
     ) -> None:
         """
         See `MultDPRegression` for parameter descriptions.
@@ -43,6 +45,7 @@ class MultPyro:
             M (int): number of predictors (aka features)
             D (int): number of real targets `Y_real`
             B (int): number of boolean targets `Y_bool`
+            C (int): number of cohorts
 
         Args:
             alpha0 (torch.Tensor): [K], real valued Dirichlet prior
@@ -57,6 +60,9 @@ class MultPyro:
             lambda_b0 (torch.Tensor): [D], real valued prior rate for
                 likelihood precision (1/variance) parameters.
             X (torch.Tensor): [T, G, M], real valued predictor tensor.
+            X_mask (torch.Tensor): [T, G], boolean tensor indicating which
+                entries of `X` are observed. True means observed, False means
+                missing.
             Y_real (optional torch.Tensor): [T, G, D], real valued response
                 tensor.
             Y_real_mask (optional torch.Tensor): [T, G] or [T, G, D], boolean
@@ -68,6 +74,8 @@ class MultPyro:
             Y_bool_mask (optional torch.Tensor): [T, G] or [T, G, B], boolean
                 tensor indicating which entries of `Y_bool` are observed. True
                 means observed, False means missing.
+            cohort (optional torch.Tensor): [G], integer array containing the
+                cohort of each individual.
         """
         # Validate predictor data.
         assert X.dtype.is_floating_point
@@ -79,6 +87,13 @@ class MultPyro:
         assert T > 0
         assert G > 0
         assert M > 0
+
+        # Validate predictor mask.
+        self.X_mask = None
+        if X_mask is not None:
+            assert X_mask.dtype == torch.bool
+            assert X_mask.shape == (T, G)
+            self.X_mask = X_mask
 
         # Check for real observations.
         if Y_real is None:
@@ -125,6 +140,15 @@ class MultPyro:
         assert B >= 0
         assert B or D, "Must provide at least one of Y_real or Y_bool."
 
+        # Check for cohort data.
+        if cohort is None:
+            self.C = 1
+        else:
+            assert cohort.shape == (G,)
+            self.C = int(cohort.max()) + 1
+            self.cohort = cohort
+        assert self.C > 0
+
         # Validate fixed parameters.
         assert alpha0.dim() == 1
         assert alpha0.dtype.is_floating_point
@@ -141,10 +165,12 @@ class MultPyro:
         self,
         X: torch.Tensor,
         *,
+        X_mask: torch.BoolTensor | None = None,
         Y_real: torch.Tensor | None = None,
         Y_real_mask: torch.BoolTensor | None = None,
         Y_bool: torch.Tensor | None = None,  # Expected to be floating point.
         Y_bool_mask: torch.BoolTensor | None = None,
+        cohort: torch.LongTensor | None = None,
     ) -> None:
         """
         The Bayesian model definition.
@@ -157,17 +183,33 @@ class MultPyro:
         M = self.M
         K = self.K
         T = self.T
+        C = self.C
         G = X.shape[1]
         assert X.shape == (T, G, M)
 
         # We use two different dimensions for plates, which determines
         # max_plate_nesting.
         # See https://pyro.ai/examples/tensor_shapes.html
+        cohorts_plate = pyro.plate("cohorts", C, dim=-1)  # (C,)
         components_plate = pyro.plate("components", K, dim=-1)  # (K,)
         individuals_plate = pyro.plate("individuals", G, dim=-1)  # (G,)
         time_plate = pyro.plate("time", T, dim=-2)  # (T, 1)
 
-        class_probs = pyro.sample("class_probs", dist.Dirichlet(self.alpha0))
+        # Sample the distribution over classes.
+        if C == 1:
+            # Model a flat prior over classes.
+            class_probs = pyro.sample("class_probs", dist.Dirichlet(self.alpha0))
+        else:
+            # Model cohorts hierarchically.
+            assert cohort is not None
+            alpha_cohort = pyro.sample("alpha_cohort", dist.Dirichlet(self.alpha0))
+            with cohorts_plate:
+                class_probs = pyro.sample("class_probs", dist.Dirichlet(alpha_cohort))
+                assert class_probs.shape[-2:] == (C, K)
+            class_probs = class_probs[cohort]
+            assert class_probs.shape[-2:] == (G, K)
+
+        # Sample class-dependent parameters.
         with components_plate:
             # Sample the regression coefficients.
             # We use .to_event(2) to sample matrices of shape [D, M].
@@ -207,10 +249,13 @@ class MultPyro:
             assert k.max().item() < K
             W_n = W_[k]  # Determine each individual's W.
             assert W_n.shape in {(G, D + B, M), (K, 1, 1, D + B, M)}
+            assert X.shape == (T, G, M)
+            if X_mask is not None:
+                # Avoid NaNs in the masked-out entries.
+                assert X_mask.shape == (T, G)
+                X = X.masked_fill(~X_mask.unsqueeze(-1), 0)
             # We accomplish batched matrix-vector multiplication by
             # unsqueezing then squeezing.
-            assert X.shape == (T, G, M)
-
             y = (W_n @ X.unsqueeze(-1)).squeeze(-1)
             assert y.shape in {(T, G, D + B), (K, T, G, D + B)}
 
@@ -221,6 +266,10 @@ class MultPyro:
             assert Y_real_mask.shape == (T, G, D)
             assert Y_real.dtype.is_floating_point
             assert Y_real_mask.dtype == torch.bool
+            if X_mask is not None:
+                Y_real_mask = Y_real_mask & X_mask.unsqueeze(-1)  # type: ignore[assignment]
+            # Avoid NaNs in the masked-out entries.
+            Y_real = Y_real.masked_fill(~Y_real_mask, 0)
 
             # Declare the real likelihood, which is partially observed.
             with individuals_plate, time_plate:
@@ -248,6 +297,8 @@ class MultPyro:
             assert Y_bool_mask.shape == (T, G, B)
             assert Y_bool.dtype.is_floating_point
             assert Y_bool_mask.dtype == torch.bool
+            if X_mask is not None:
+                Y_bool_mask = Y_bool_mask & X_mask.unsqueeze(-1)  # type: ignore[assignment]
 
             # Declare the boolean likelihood, which is partially observed.
             with individuals_plate, time_plate:
@@ -301,6 +352,8 @@ class MultPyro:
 
             # Handle real and boolean observations.
             data = {"X": self.X}
+            if self.X_mask is not None:
+                data["X_mask"] = self.X_mask
             if self.D:
                 obs_count += int(self.Y_real_mask.long().sum())
                 data["Y_real"] = self.Y_real
@@ -310,6 +363,8 @@ class MultPyro:
                 # Convert to float for Bernoulli.log_prob().
                 data["Y_bool"] = self.Y_bool.to(dtype=self.X.dtype)
                 data["Y_bool_mask"] = self.Y_bool_mask
+            if self.C > 1:
+                data["cohort"] = self.cohort
 
             self.losses = []
             for step in range(num_steps):
@@ -349,10 +404,12 @@ class MultPyro:
         self,
         X: torch.Tensor,
         *,
+        X_mask: torch.Tensor | None = None,
         Y_real: torch.Tensor | None = None,
         Y_real_mask: torch.Tensor | None = None,
         Y_bool: torch.Tensor | None = None,
         Y_bool_mask: torch.Tensor | None = None,
+        cohort: torch.Tensor | None = None,
         num_samples: int = 100,
     ) -> torch.Tensor:
         """
@@ -363,6 +420,7 @@ class MultPyro:
 
         Args:
             X (Tensor): A `[T, G_, M]`-shaped tensor of predictors.
+            X_mask (optional Tensor): A `[T, G_]`-shaped boolean tensor
             Y_real (optional Tensor): A `[T, G_, D]`-shaped tensor of responses.
             Y_real_mask (optional Tensor): A `[T, G_]` or `[T, G_, D]` shaped
                 boolean tensor indicating which entries of `Y_real` are
@@ -371,6 +429,8 @@ class MultPyro:
             Y_bool_mask (optional Tensor): A `[T, G_]` or `[T, G_, B]` shaped
                 boolean tensor indicating which entries of `Y_bool` are
                 observed.  True means observed, False means missing.
+            cohort (optional Tensor): A `[G_]`-shaped long tensor of cohort
+                indices.
             num_samples (int): Number of samples to draw in computing empirical
                 class probabilities.
         Returns:
@@ -386,6 +446,10 @@ class MultPyro:
         G_ = X.shape[1]
         assert X.shape == (T, G_, M)
         data = {"X": X}
+        if X_mask is not None:
+            assert X_mask.shape == (T, G_)
+            assert X_mask.dtype == torch.bool
+            data["X_mask"] = X_mask
         if Y_real is not None:
             assert Y_real_mask is not None
             assert Y_real.shape == (T, G_, D)
@@ -409,6 +473,10 @@ class MultPyro:
                 Y_bool_mask = Y_bool_mask.unsqueeze(-1).expand(T, G_, B)
                 assert Y_bool_mask.shape == (T, G_, B)
             data["Y_bool_mask"] = Y_bool_mask
+        if cohort is not None:
+            assert cohort.dim() == 1
+            assert cohort.shape[0] == G_
+            data["cohort"] = cohort
 
         with pyro.get_param_store().scope(self.params):
             # Draw samples sequentially to keep tensor shapes simple.
@@ -426,6 +494,7 @@ class MultPyro:
 
                 # Accumulate the empirical sample probabilities.
                 k = trace.nodes["k"]["value"]
+                assert k is not None
                 k = k.reshape((G_,))
                 probs[g, k] += 1
             probs /= num_samples

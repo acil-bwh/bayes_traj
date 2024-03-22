@@ -251,17 +251,15 @@ def main():
                    weights_only=op.weights_only,
                    num_init_trajs=op.num_init_trajs)
         else:
-            #raise NotImplementedError("Pyro not yet implemented")
-            X, X_mask, Y_real, Y_real_mask, Y_bool, Y_bool_mask = \
-                get_restructured_data(df, preds, targets, op.groupby)
+            restructured_data = get_restructured_data(df, preds, targets, op.groupby)
             model = MultPyro(
                 alpha0=torch.full((K,), 100.0, dtype=torch.double),
                 w_mu0=torch.from_numpy(prior_data['w_mu0'].T).double(),
                 w_var0=torch.from_numpy(prior_data['w_var0'].T).double(),
                 lambda_a0=torch.from_numpy(prior_data['lambda_a0']).double(),
                 lambda_b0=torch.from_numpy(prior_data['lambda_b0']).double(),
-                X=X, Y_real=Y_real, Y_real_mask=Y_real_mask,
-                Y_bool=Y_bool, Y_bool_mask=Y_bool_mask)
+                **restructured_data
+            )
 
             model.fit(num_steps=iters)
 
