@@ -20,6 +20,7 @@ class MultPyro:
         lambda_a0: torch.Tensor,
         lambda_b0: torch.Tensor,
         X: torch.Tensor,
+        X_mask: torch.Tensor | None = None,
         Y_real: torch.Tensor | None = None,
         Y_real_mask: torch.Tensor | None = None,
         Y_bool: torch.Tensor | None = None,
@@ -59,6 +60,9 @@ class MultPyro:
             lambda_b0 (torch.Tensor): [D], real valued prior rate for
                 likelihood precision (1/variance) parameters.
             X (torch.Tensor): [T, G, M], real valued predictor tensor.
+            X_mask (torch.Tensor): [T, G], boolean tensor indicating which
+                entries of `X` are observed. True means observed, False means
+                missing.
             Y_real (optional torch.Tensor): [T, G, D], real valued response
                 tensor.
             Y_real_mask (optional torch.Tensor): [T, G] or [T, G, D], boolean
@@ -83,6 +87,13 @@ class MultPyro:
         assert T > 0
         assert G > 0
         assert M > 0
+
+        # Validate predictor mask.
+        self.X_mask = None
+        if X_mask is not None:
+            assert X_mask.dtype == torch.bool
+            assert X_mask.shape == (T, G)
+            self.X_mask = X_mask
 
         # Check for real observations.
         if Y_real is None:
@@ -133,8 +144,8 @@ class MultPyro:
         if cohort is None:
             self.C = 1
         else:
-            assert cohort.dim() == 1
-            self.C = cohort.max().item() + 1
+            assert cohort.shape == (G,)
+            self.C = int(cohort.max()) + 1
             self.cohort = cohort
         assert self.C > 0
 
@@ -154,11 +165,12 @@ class MultPyro:
         self,
         X: torch.Tensor,
         *,
+        X_mask: torch.BoolTensor | None = None,
         Y_real: torch.Tensor | None = None,
         Y_real_mask: torch.BoolTensor | None = None,
         Y_bool: torch.Tensor | None = None,  # Expected to be floating point.
         Y_bool_mask: torch.BoolTensor | None = None,
-        cohort: torch.Tensor | None = None,
+        cohort: torch.LongTensor | None = None,
     ) -> None:
         """
         The Bayesian model definition.
@@ -331,6 +343,8 @@ class MultPyro:
 
             # Handle real and boolean observations.
             data = {"X": self.X}
+            if self.X_mask is not None:
+                data["X_mask"] = self.X_mask
             if self.D:
                 obs_count += int(self.Y_real_mask.long().sum())
                 data["Y_real"] = self.Y_real
@@ -381,6 +395,7 @@ class MultPyro:
         self,
         X: torch.Tensor,
         *,
+        X_mask: torch.Tensor | None = None,
         Y_real: torch.Tensor | None = None,
         Y_real_mask: torch.Tensor | None = None,
         Y_bool: torch.Tensor | None = None,
@@ -396,6 +411,7 @@ class MultPyro:
 
         Args:
             X (Tensor): A `[T, G_, M]`-shaped tensor of predictors.
+            X_mask (optional Tensor): A `[T, G_]`-shaped boolean tensor
             Y_real (optional Tensor): A `[T, G_, D]`-shaped tensor of responses.
             Y_real_mask (optional Tensor): A `[T, G_]` or `[T, G_, D]` shaped
                 boolean tensor indicating which entries of `Y_real` are
@@ -421,6 +437,10 @@ class MultPyro:
         G_ = X.shape[1]
         assert X.shape == (T, G_, M)
         data = {"X": X}
+        if X_mask is not None:
+            assert X_mask.shape == (T, G_)
+            assert X_mask.dtype == torch.bool
+            data["X_mask"] = X_mask
         if Y_real is not None:
             assert Y_real_mask is not None
             assert Y_real.shape == (T, G_, D)

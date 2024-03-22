@@ -6,7 +6,8 @@ import torch
 from bayes_traj.mult_pyro import MultPyro
 
 
-@pytest.mark.parametrize("mask_dim", [2, 3])
+@pytest.mark.parametrize("y_mask_dim", [2, 3])
+@pytest.mark.parametrize("x_mask", [True, False])
 @pytest.mark.parametrize(
     "K, D, B, M, T, C, G, G_",
     [
@@ -17,7 +18,7 @@ from bayes_traj.mult_pyro import MultPyro
         (2, 3, 4, 5, 6, 7, 8, 9),  # Multi-cohort.
     ],
 )
-def test_smoke(K, D, B, M, T, C, G, G_, mask_dim):
+def test_smoke(K, D, B, M, T, C, G, G_, x_mask: bool, y_mask_dim: int):
     # Set hyperparameters.
     alpha0 = torch.randn(K).exp()  # Ensure positive.
     w_mu0 = torch.randn(D + B, M)
@@ -28,13 +29,15 @@ def test_smoke(K, D, B, M, T, C, G, G_, mask_dim):
     # Create fake training data.
     data_train = {}
     data_train["X"] = torch.randn(T, G, M)
+    if x_mask:
+        data_train["X_mask"] = torch.ones(T, G).bernoulli().bool()
     if D:
         data_train["Y_real"] = torch.randn(T, G, D)
-        mask_shape = {2: (T, G), 3: (T, G, D)}[mask_dim]
+        mask_shape = {2: (T, G), 3: (T, G, D)}[y_mask_dim]
         data_train["Y_real_mask"] = torch.ones(mask_shape).bernoulli().bool()
     if B:
         data_train["Y_bool"] = torch.ones(T, G, B).bernoulli().bool()
-        mask_shape = {2: (T, G), 3: (T, G, B)}[mask_dim]
+        mask_shape = {2: (T, G), 3: (T, G, B)}[y_mask_dim]
         data_train["Y_bool_mask"] = torch.ones(mask_shape).bernoulli().bool()
     if C > 1:
         data_train["cohort"] = torch.randint(C, (G,), dtype=torch.long)
@@ -67,13 +70,15 @@ def test_smoke(K, D, B, M, T, C, G, G_, mask_dim):
     # Create fake test data.
     data_test = {}
     data_test["X"] = torch.randn(T, G_, M)
+    if x_mask:
+        data_test["X_mask"] = torch.ones(T, G_).bernoulli().bool()
     if D:
         data_test["Y_real"] = torch.randn(T, G_, D)
-        mask_shape = {2: (T, G_), 3: (T, G_, D)}[mask_dim]
+        mask_shape = {2: (T, G_), 3: (T, G_, D)}[y_mask_dim]
         data_test["Y_real_mask"] = torch.ones(mask_shape).bernoulli().bool()
     if B:
         data_test["Y_bool"] = torch.ones(T, G_, B).bernoulli().bool()
-        mask_shape = {2: (T, G_), 3: (T, G_, B)}[mask_dim]
+        mask_shape = {2: (T, G_), 3: (T, G_, B)}[y_mask_dim]
         data_test["Y_bool_mask"] = torch.ones(mask_shape).bernoulli().bool()
     if C > 1:
         data_test["cohort"] = torch.randint(C, (G_,), dtype=torch.long)

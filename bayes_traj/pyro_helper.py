@@ -7,7 +7,7 @@ class RestructuredData(TypedDict):
     """Dict containing data tensors used by `MultPyro`."""
 
     X: torch.Tensor
-    X_mask: torch.Tensor
+    X_mask: Optional[torch.Tensor]
     Y_real: Optional[torch.Tensor]
     Y_real_mask: Optional[torch.Tensor]
     Y_bool: Optional[torch.Tensor]
@@ -92,12 +92,20 @@ def get_restructured_data(df, predictors, targets, groupby) -> RestructuredData:
     Y_real_mask = None
     Y_bool = None
     Y_bool_mask = None
+    cohort: Optional[torch.Tensor] = None
     if len(real_cols) > 0:
         Y_real_orig = torch.from_numpy(df[real_cols].values).double()
         Y_real = torch.full((T, G, D), float('nan')).double()
     if len(bool_cols) > 0:
         Y_bool_orig = torch.from_numpy(df[bool_cols].values).double()    
         Y_bool = torch.full((T, G, B), float('nan')).double()
+    if "cohort" in df.columns:
+        cohort_ids = sorted(set(df["cohort"].values))
+        cohort_orig = torch.tensor(
+            [cohort_ids.index(cohort_id) for cohort_id in df["cohort"].values],
+            dtype=torch.long,
+        )
+        cohort = torch.full((G,), -1, dtype=torch.long)
  
     X = torch.full((T, G, M), float('nan')).double()
             
@@ -110,27 +118,21 @@ def get_restructured_data(df, predictors, targets, groupby) -> RestructuredData:
         if Y_bool_orig is not None:
             assert Y_bool is not None
             Y_bool[:num_obs, g, :] = Y_bool_orig[start_idx:start_idx+num_obs, :] 
+        if cohort is not None:
+            cohort[g] = cohort_orig[start_idx]
         
         start_idx += num_obs
 
-    X_mask = ~torch.isnan(X[:, :, 0])
+    X_mask = ~(torch.isnan(X[:, :]).any(dim=-1))
     if Y_real is not None:
         Y_real_mask = ~torch.isnan(Y_real[:, :, 0])
     if Y_bool is not None:
         Y_bool = Y_bool.bool()
         Y_bool_mask = ~torch.isnan(Y_bool[:, :, 0])
 
-    cohort: Optional[torch.Tensor] = None
-    if "cohort" in df.columns:
-        cohort_ids = sorted(set(df["cohort"].values))
-        cohort = torch.tensor(
-            [cohort_ids.index(cohort_id) for cohort_id in df["cohort"].values],
-            dtype=torch.long,
-        )
-
     result = RestructuredData(
         X=X,
-        X_mask=X_mask,
+        X_mask=None if X_mask.all() else X_mask,
         Y_real=Y_real,
         Y_real_mask=Y_real_mask,
         Y_bool=Y_bool,
