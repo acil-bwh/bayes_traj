@@ -249,10 +249,13 @@ class MultPyro:
             assert k.max().item() < K
             W_n = W_[k]  # Determine each individual's W.
             assert W_n.shape in {(G, D + B, M), (K, 1, 1, D + B, M)}
+            assert X.shape == (T, G, M)
+            if X_mask is not None:
+                # Avoid NaNs in the masked-out entries.
+                assert X_mask.shape == (T, G)
+                X = X.masked_fill(~X_mask.unsqueeze(-1), 0)
             # We accomplish batched matrix-vector multiplication by
             # unsqueezing then squeezing.
-            assert X.shape == (T, G, M)
-
             y = (W_n @ X.unsqueeze(-1)).squeeze(-1)
             assert y.shape in {(T, G, D + B), (K, T, G, D + B)}
 
@@ -263,6 +266,10 @@ class MultPyro:
             assert Y_real_mask.shape == (T, G, D)
             assert Y_real.dtype.is_floating_point
             assert Y_real_mask.dtype == torch.bool
+            if X_mask is not None:
+                Y_real_mask = Y_real_mask & X_mask.unsqueeze(-1)  # type: ignore[assignment]
+            # Avoid NaNs in the masked-out entries.
+            Y_real = Y_real.masked_fill(~Y_real_mask, 0)
 
             # Declare the real likelihood, which is partially observed.
             with individuals_plate, time_plate:
@@ -290,6 +297,8 @@ class MultPyro:
             assert Y_bool_mask.shape == (T, G, B)
             assert Y_bool.dtype.is_floating_point
             assert Y_bool_mask.dtype == torch.bool
+            if X_mask is not None:
+                Y_bool_mask = Y_bool_mask & X_mask.unsqueeze(-1)  # type: ignore[assignment]
 
             # Declare the boolean likelihood, which is partially observed.
             with individuals_plate, time_plate:
