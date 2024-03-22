@@ -158,6 +158,7 @@ class MultPyro:
         Y_real_mask: torch.BoolTensor | None = None,
         Y_bool: torch.Tensor | None = None,  # Expected to be floating point.
         Y_bool_mask: torch.BoolTensor | None = None,
+        cohort: torch.Tensor | None = None,
     ) -> None:
         """
         The Bayesian model definition.
@@ -170,17 +171,33 @@ class MultPyro:
         M = self.M
         K = self.K
         T = self.T
+        C = self.C
         G = X.shape[1]
         assert X.shape == (T, G, M)
 
         # We use two different dimensions for plates, which determines
         # max_plate_nesting.
         # See https://pyro.ai/examples/tensor_shapes.html
+        cohorts_plate = pyro.plate("cohorts", C, dim=-1)  # (C,)
         components_plate = pyro.plate("components", K, dim=-1)  # (K,)
         individuals_plate = pyro.plate("individuals", G, dim=-1)  # (G,)
         time_plate = pyro.plate("time", T, dim=-2)  # (T, 1)
 
-        class_probs = pyro.sample("class_probs", dist.Dirichlet(self.alpha0))
+        # Sample the distribution over classes.
+        if C == 1:
+            # Model a flat prior over classes.
+            class_probs = pyro.sample("class_probs", dist.Dirichlet(self.alpha0))
+        else:
+            # Model cohorts hierarchically.
+            assert cohort is not None
+            alpha_cohort = pyro.sample("alpha_cohort", dist.Dirichlet(self.alpha0))
+            with cohorts_plate:
+                class_probs = pyro.sample("class_probs", dist.Dirichlet(alpha_cohort))
+                assert class_probs.shape[-2:] == (C, K)
+            class_probs = class_probs[cohort]
+            assert class_probs.shape[-2:] == (G, K)
+
+        # Sample class-dependent parameters.
         with components_plate:
             # Sample the regression coefficients.
             # We use .to_event(2) to sample matrices of shape [D, M].
@@ -323,6 +340,8 @@ class MultPyro:
                 # Convert to float for Bernoulli.log_prob().
                 data["Y_bool"] = self.Y_bool.to(dtype=self.X.dtype)
                 data["Y_bool_mask"] = self.Y_bool_mask
+            if self.C > 1:
+                data["cohort"] = self.cohort
 
             self.losses = []
             for step in range(num_steps):
@@ -366,6 +385,7 @@ class MultPyro:
         Y_real_mask: torch.Tensor | None = None,
         Y_bool: torch.Tensor | None = None,
         Y_bool_mask: torch.Tensor | None = None,
+        cohort: torch.Tensor | None = None,
         num_samples: int = 100,
     ) -> torch.Tensor:
         """
@@ -384,6 +404,8 @@ class MultPyro:
             Y_bool_mask (optional Tensor): A `[T, G_]` or `[T, G_, B]` shaped
                 boolean tensor indicating which entries of `Y_bool` are
                 observed.  True means observed, False means missing.
+            cohort (optional Tensor): A `[G_]`-shaped long tensor of cohort
+                indices.
             num_samples (int): Number of samples to draw in computing empirical
                 class probabilities.
         Returns:
@@ -422,6 +444,10 @@ class MultPyro:
                 Y_bool_mask = Y_bool_mask.unsqueeze(-1).expand(T, G_, B)
                 assert Y_bool_mask.shape == (T, G_, B)
             data["Y_bool_mask"] = Y_bool_mask
+        if cohort is not None:
+            assert cohort.dim() == 1
+            assert cohort.shape[0] == G_
+            data["cohort"] = cohort
 
         with pyro.get_param_store().scope(self.params):
             # Draw samples sequentially to keep tensor shapes simple.

@@ -75,6 +75,8 @@ def test_smoke(K, D, B, M, T, C, G, G_, mask_dim):
         data_test["Y_bool"] = torch.ones(T, G_, B).bernoulli().bool()
         mask_shape = {2: (T, G_), 3: (T, G_, B)}[mask_dim]
         data_test["Y_bool_mask"] = torch.ones(mask_shape).bernoulli().bool()
+    if C > 1:
+        data_test["cohort"] = torch.randint(C, (G_,), dtype=torch.long)
 
     # Classify a novel batch of data of batch size B.
     probs = model.classify(**data_test)
