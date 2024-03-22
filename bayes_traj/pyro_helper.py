@@ -1,8 +1,20 @@
 import numpy as np
 import torch
-import pdb
+from typing import Optional, TypedDict
 
-def get_restructured_data(df, predictors, targets, groupby):
+
+class RestructuredData(TypedDict):
+    """Dict containing data tensors used by `MultPyro`."""
+
+    X: torch.Tensor
+    X_mask: torch.Tensor
+    Y_real: Optional[torch.Tensor]
+    Y_real_mask: Optional[torch.Tensor]
+    Y_bool: Optional[torch.Tensor]
+    Y_bool_mask: Optional[torch.Tensor]
+
+
+def get_restructured_data(df, predictors, targets, groupby) -> RestructuredData:
     """
 
     Parameters
@@ -21,23 +33,35 @@ def get_restructured_data(df, predictors, targets, groupby):
 
     Returns
     -------
-    X_re : array, shape ( T, G, M )
-        Restructured predictor matrix. T corresponds to the maximum number of
-        time points observed for any individual. G is the number of 
-        individuals, and M is the number of predictors.
+    restructured_data : RestructuredData
+        A dict containing the restructured data:
 
-    X_mask : array, shape ( T, G, M )
-        Boolean mask corresponding to X_re. True where X_re is non-nan, false 
-        otherwise.
+        X : array, shape ( T, G, M )
+            Restructured predictor matrix. T corresponds to the maximum number
+            of time points observed for any individual. G is the number of 
+            individuals, and M is the number of predictors.
 
-    Y_re : array, shape ( T, G, D )
-        Restructured predictor matrix. T corresponds to the maximum number of
-        time points observed for any individual. G is the number of 
-        individuals, and D is the number of targets.
+        X_mask : array, shape ( T, G, M )
+            Boolean mask corresponding to X_re. True where X_re is non-nan,
+            false otherwise.
 
-    Y_mask : array, shape ( T, G, D )
-        Boolean mask corresponding to Y_re. True where Y_re is non-nan, false 
-        otherwise.
+        Y_real : array, shape ( T, G, D )
+            Restructured predictor matrix. T corresponds to the maximum number
+            of time points observed for any individual. G is the number of 
+            individuals, and D is the number of real valued targets.
+            
+        Y_real_mask : array, shape ( T, G, D )
+            Boolean mask corresponding to Y_real. True where Y_real is observed,
+            false otherwise.
+
+        Y_bool : array, shape ( T, G, B )
+            Restructured predictor matrix. T corresponds to the maximum number
+            of time points observed for any individual. G is the number of 
+            individuals, and B is the number of boolean targets.
+
+        Y_bool_mask : array, shape ( T, G, B )
+            Boolean mask corresponding to Y_bool. True where Y_bool is observed,
+            false otherwise.
     """
     num_observations_per_subject = \
         df.groupby(groupby).apply(lambda dd : dd.shape[0]).values
@@ -88,6 +112,16 @@ def get_restructured_data(df, predictors, targets, groupby):
         Y_real_mask = ~torch.isnan(Y_real[:, :, 0])
     if Y_bool is not None:
         Y_bool = Y_bool.bool()
-        Y_bool_mask = ~torch.isnan(Y_bool[:, :, 0])    
-    
-    return X, X_mask, Y_real, Y_real_mask, Y_bool, Y_bool_mask
+        Y_bool_mask = ~torch.isnan(Y_bool[:, :, 0])
+
+    result = RestructuredData(
+        X=X,
+        X_mask=X_mask,
+        Y_real=Y_real,
+        Y_real_mask=Y_real_mask,
+        Y_bool=Y_bool,
+        Y_bool_mask=Y_bool_mask,
+    )
+    for k, v in result.items():
+        print(f'{k: >12s}: {getattr(v, "shape", "n/a")}')
+    return result

@@ -426,6 +426,7 @@ class MultPyro:
 
                 # Accumulate the empirical sample probabilities.
                 k = trace.nodes["k"]["value"]
+                assert k is not None
                 k = k.reshape((G_,))
                 probs[g, k] += 1
             probs /= num_samples
