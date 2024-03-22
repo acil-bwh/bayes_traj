@@ -1,18 +1,23 @@
+from typing import Optional
+
 import pytest
 import torch
+
 from bayes_traj.mult_pyro import MultPyro
 
 
 @pytest.mark.parametrize("mask_dim", [2, 3])
 @pytest.mark.parametrize(
-    "K, D, B, M, T, G, G_",
+    "K, D, B, M, T, C, G, G_",
     [
-        (1, 1, 0, 1, 1, 1, 1),  # Real data only.
-        (1, 0, 1, 1, 1, 1, 1),  # Boolean data only.
-        (2, 3, 4, 5, 6, 7, 8),  # All distinct to detect shape errors.
+        (1, 1, 0, 1, 1, 1, 1, 1),  # Real data only.
+        (1, 0, 1, 1, 1, 1, 1, 1),  # Boolean data only.
+        # The following use all distinct sizes to detect shape errors.
+        (2, 3, 4, 5, 6, 1, 7, 8),  # Single cohort.
+        (2, 3, 4, 5, 6, 7, 8, 9),  # Multi-cohort.
     ],
 )
-def test_smoke(K, D, B, M, T, G, G_, mask_dim):
+def test_smoke(K, D, B, M, T, C, G, G_, mask_dim):
     # Set hyperparameters.
     alpha0 = torch.randn(K).exp()  # Ensure positive.
     w_mu0 = torch.randn(D + B, M)
@@ -31,6 +36,8 @@ def test_smoke(K, D, B, M, T, G, G_, mask_dim):
         data_train["Y_bool"] = torch.ones(T, G, B).bernoulli().bool()
         mask_shape = {2: (T, G), 3: (T, G, B)}[mask_dim]
         data_train["Y_bool_mask"] = torch.ones(mask_shape).bernoulli().bool()
+    if C > 1:
+        data_train["cohort"] = torch.randint(C, (G,), dtype=torch.long)
 
     # Create a model instance.
     model = MultPyro(

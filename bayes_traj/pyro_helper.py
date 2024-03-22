@@ -12,6 +12,7 @@ class RestructuredData(TypedDict):
     Y_real_mask: Optional[torch.Tensor]
     Y_bool: Optional[torch.Tensor]
     Y_bool_mask: Optional[torch.Tensor]
+    cohort: Optional[torch.Tensor]
 
 
 def get_restructured_data(df, predictors, targets, groupby) -> RestructuredData:
@@ -62,6 +63,9 @@ def get_restructured_data(df, predictors, targets, groupby) -> RestructuredData:
         Y_bool_mask : array, shape ( T, G, B )
             Boolean mask corresponding to Y_bool. True where Y_bool is observed,
             false otherwise.
+
+        cohort : array, shape ( G, )
+            Optional integer array containing the cohort of each individual.
     """
     num_observations_per_subject = \
         df.groupby(groupby).apply(lambda dd : dd.shape[0]).values
@@ -101,8 +105,10 @@ def get_restructured_data(df, predictors, targets, groupby) -> RestructuredData:
     for g, num_obs in enumerate(num_observations_per_subject):
         X[:num_obs, g, :] = X_orig[start_idx:start_idx+num_obs, :]
         if Y_real_orig is not None:
+            assert Y_real is not None
             Y_real[:num_obs, g, :] = Y_real_orig[start_idx:start_idx+num_obs, :]
         if Y_bool_orig is not None:
+            assert Y_bool is not None
             Y_bool[:num_obs, g, :] = Y_bool_orig[start_idx:start_idx+num_obs, :] 
         
         start_idx += num_obs
@@ -114,6 +120,14 @@ def get_restructured_data(df, predictors, targets, groupby) -> RestructuredData:
         Y_bool = Y_bool.bool()
         Y_bool_mask = ~torch.isnan(Y_bool[:, :, 0])
 
+    cohort: Optional[torch.Tensor] = None
+    if "cohort" in df.columns:
+        cohort_ids = sorted(set(df["cohort"].values))
+        cohort = torch.tensor(
+            [cohort_ids.index(cohort_id) for cohort_id in df["cohort"].values],
+            dtype=torch.long,
+        )
+
     result = RestructuredData(
         X=X,
         X_mask=X_mask,
@@ -121,6 +135,7 @@ def get_restructured_data(df, predictors, targets, groupby) -> RestructuredData:
         Y_real_mask=Y_real_mask,
         Y_bool=Y_bool,
         Y_bool_mask=Y_bool_mask,
+        cohort=cohort,
     )
     for k, v in result.items():
         print(f'{k: >12s}: {getattr(v, "shape", "n/a")}')

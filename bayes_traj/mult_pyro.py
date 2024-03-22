@@ -24,6 +24,7 @@ class MultPyro:
         Y_real_mask: torch.Tensor | None = None,
         Y_bool: torch.Tensor | None = None,
         Y_bool_mask: torch.Tensor | None = None,
+        cohort: torch.Tensor | None = None,
     ) -> None:
         """
         See `MultDPRegression` for parameter descriptions.
@@ -43,6 +44,7 @@ class MultPyro:
             M (int): number of predictors (aka features)
             D (int): number of real targets `Y_real`
             B (int): number of boolean targets `Y_bool`
+            C (int): number of cohorts
 
         Args:
             alpha0 (torch.Tensor): [K], real valued Dirichlet prior
@@ -68,6 +70,8 @@ class MultPyro:
             Y_bool_mask (optional torch.Tensor): [T, G] or [T, G, B], boolean
                 tensor indicating which entries of `Y_bool` are observed. True
                 means observed, False means missing.
+            cohort (optional torch.Tensor): [G], integer array containing the
+                cohort of each individual.
         """
         # Validate predictor data.
         assert X.dtype.is_floating_point
@@ -124,6 +128,15 @@ class MultPyro:
             self.Y_bool_mask = Y_bool_mask
         assert B >= 0
         assert B or D, "Must provide at least one of Y_real or Y_bool."
+
+        # Check for cohort data.
+        if cohort is None:
+            self.C = 1
+        else:
+            assert cohort.dim() == 1
+            self.C = cohort.max().item() + 1
+            self.cohort = cohort
+        assert self.C > 0
 
         # Validate fixed parameters.
         assert alpha0.dim() == 1
