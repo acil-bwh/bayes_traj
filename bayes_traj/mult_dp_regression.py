@@ -1299,10 +1299,12 @@ class MultDPRegression:
             self.lambda_b_ = \
                 (scale_factor*torch.ones([self.D_, self.K_])).double()
             for d in range(self.D_):
-                scale = 1./self.lambda_b0_[d]
-                shape = self.lambda_a0_[d]                                
-                self.lambda_a_[d, :] = self.lambda_a_[d, :]*(\
-                    torch.distributions.Gamma(shape, scale).sample((self.K_,)))
+                if self.target_type_[d] == 'gaussian':
+                    scale = 1./self.lambda_b0_[d]
+                    shape = self.lambda_a0_[d]                                
+                    self.lambda_a_[d, :] = self.lambda_a_[d, :]*(\
+                        torch.distributions.Gamma(shape, scale).\
+                            sample((self.K_,)))
 
         if torch.isnan(torch.sum(self.lambda_a_)):
             for dd in range(self.D_):
