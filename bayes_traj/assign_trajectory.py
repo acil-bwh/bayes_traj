@@ -13,14 +13,14 @@ def main():
     desc = """Assigns individuals to trajectory subgroups using their data 
     contained the input csv file and a trajectory model. The individuals can be 
     different from those used to train the model. However, it is assumed that 
-    the predictor names and target names  match."""
+    the predictor names and target names match."""
 
     args = ArgumentParser(desc)
     args.add_argument('--in_csv', help='Input csv data file. Individuals in \
         this file will be assigned to the best trajectory', required=True,
         type=str)
     args.add_argument('--groupby', help='Subject identifier column name in the \
-        input data file to use for grouping. ', required=False, type=str,
+        input data file to use for grouping.', required=False, type=str,
         default=None)    
     args.add_argument('--model', help='Pickled trajectory model to use for \
         assigning data instances to trajectories', type=str, required=True)
