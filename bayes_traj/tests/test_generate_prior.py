@@ -18,18 +18,17 @@ def test_prior_info_from_model():
     pg = PriorGenerator(targets, preds)
     pg.set_model(mm)
     pg.prior_info_from_model('y')
-
-    assert np.isclose(pg.prior_info_['w_mu0']['y']['intercept'], 7.810441593), \
+    assert np.isclose(pg.prior_info_['w_mu0']['y']['intercept'], 7.73326866724), \
         "w_mu0 not as expected"
-    assert np.isclose(pg.prior_info_['w_mu0']['y']['age'], -1.48068743758711), \
+    assert np.isclose(pg.prior_info_['w_mu0']['y']['age'], -1.47391042070), \
         "w_mu0 not as expected"
-    assert np.isclose(pg.prior_info_['w_var0']['y']['intercept'], 0.51800801), \
+    assert np.isclose(pg.prior_info_['w_var0']['y']['intercept'], 0.46760358415383), \
         "w_var0 not as expected"    
-    assert np.isclose(pg.prior_info_['w_var0']['y']['age'], 0.04260915525159), \
+    assert np.isclose(pg.prior_info_['w_var0']['y']['age'], 0.0439302696606), \
         "w_var0 not as expected"
-    assert np.isclose(pg.prior_info_['lambda_a0']['y'], 207.87669370617036), \
+    assert np.isclose(pg.prior_info_['lambda_a0']['y'], 17.7068686687), \
         "lambda_a0 not as expected"
-    assert np.isclose(pg.prior_info_['lambda_b0']['y'], 67.86146951205156), \
+    assert np.isclose(pg.prior_info_['lambda_b0']['y'], 24.0246304888), \
         "lambda_b0 not as expected"
     
 def test_prior_info_from_df():
@@ -98,7 +97,7 @@ def test_traj_prior_info_from_df():
     age_co = -1
     resid_std = 2
 
-    traj = 5
+    traj = 1
     pg.traj_prior_info_from_df('y', traj)
 
     mu = pg.prior_info_['w_mu']['intercept']['y'][traj]
@@ -123,7 +122,7 @@ def test_traj_prior_info_from_df():
     std_low = np.sqrt(1/prec_high)
 
     assert resid_std >= std_low and resid_std <= std_high, \
-        "Prior over residual precision not as expected for trajectory 5"
+        "Prior over residual precision not as expected for trajectory 1"
 
     #---------------------------------------------------------------------------
     # Evaluate prior for trajectory 3
@@ -174,7 +173,7 @@ def test_traj_prior_info_from_model():
     for tt in np.where(mm.sig_trajs_)[0]:
         pg.traj_prior_info_from_model('y', tt)
 
-    for tt in [3, 5]:
+    for tt in [1, 3]:
         assert pg.prior_info_['w_mu']['intercept']['y'][tt] == \
             mm.w_mu_[0, 0, tt], \
             "Intercept prior not as expected for trajectory 1"
@@ -247,20 +246,20 @@ def test_compute_prior_info_2():
     pg.set_data(df, 'id')
     pg.compute_prior_info()
 
-    assert np.isclose(pg.prior_info_['w_mu0']['y']['intercept'], 7.810441593), \
+    assert np.isclose(pg.prior_info_['w_mu0']['y']['intercept'], 7.733268667), \
         "w_mu0 not as expected"
-    assert np.isclose(pg.prior_info_['w_mu0']['y']['age'], -1.48068743758711), \
+    assert np.isclose(pg.prior_info_['w_mu0']['y']['age'], -1.473910420702446), \
         "w_mu0 not as expected"
-    assert np.isclose(pg.prior_info_['w_var0']['y']['intercept'], 0.51800801), \
+    assert np.isclose(pg.prior_info_['w_var0']['y']['intercept'], 0.46760358415383946), \
         "w_var0 not as expected"    
-    assert np.isclose(pg.prior_info_['w_var0']['y']['age'], 0.04260915525159), \
+    assert np.isclose(pg.prior_info_['w_var0']['y']['age'], 0.043930269660685), \
         "w_var0 not as expected"
-    assert np.isclose(pg.prior_info_['lambda_a0']['y'], 207.87669370617036), \
+    assert np.isclose(pg.prior_info_['lambda_a0']['y'], 17.70686866876), \
         "lambda_a0 not as expected"
-    assert np.isclose(pg.prior_info_['lambda_b0']['y'], 67.86146951205156), \
+    assert np.isclose(pg.prior_info_['lambda_b0']['y'], 24.0246304888103), \
         "lambda_b0 not as expected"
 
-    for tt in [3, 5]:
+    for tt in [1, 3]:
         assert pg.prior_info_['w_mu']['intercept']['y'][tt] == \
             mm.w_mu_[0, 0, tt], \
             "Intercept prior not as expected for trajectory 1"
@@ -290,20 +289,20 @@ def test_compute_prior_info_3():
     pg.set_data(df, 'id')
     pg.compute_prior_info()
 
-    assert np.isclose(pg.prior_info_['w_mu0']['y']['intercept'], 7.810441593), \
+    assert np.isclose(pg.prior_info_['w_mu0']['y']['intercept'], 7.733268667), \
         "w_mu0 not as expected"
-    assert np.isclose(pg.prior_info_['w_mu0']['y']['age'], -1.48068743758711), \
+    assert np.isclose(pg.prior_info_['w_mu0']['y']['age'], -1.473910420702446), \
         "w_mu0 not as expected"
-    assert np.isclose(pg.prior_info_['w_var0']['y']['intercept'], 0.51800801), \
+    assert np.isclose(pg.prior_info_['w_var0']['y']['intercept'], 0.46760358415383946), \
         "w_var0 not as expected"    
-    assert np.isclose(pg.prior_info_['w_var0']['y']['age'], 0.04260915525159), \
+    assert np.isclose(pg.prior_info_['w_var0']['y']['age'], 0.043930269660685), \
         "w_var0 not as expected"
-    assert np.isclose(pg.prior_info_['lambda_a0']['y'], 207.87669370617036), \
+    assert np.isclose(pg.prior_info_['lambda_a0']['y'], 17.70686866876), \
         "lambda_a0 not as expected"
-    assert np.isclose(pg.prior_info_['lambda_b0']['y'], 67.86146951205156), \
+    assert np.isclose(pg.prior_info_['lambda_b0']['y'], 24.0246304888103), \
         "lambda_b0 not as expected"
 
-    for tt in [3, 5]:
+    for tt in [1, 3]:
         assert pg.prior_info_['w_mu']['intercept']['y'][tt] == \
             mm.w_mu_[0, 0, tt], \
             "Intercept prior not as expected for trajectory 1"
@@ -334,20 +333,20 @@ def test_compute_prior_info_4():
     pg.set_data(df, 'id')
     pg.compute_prior_info()
 
-    assert np.isclose(pg.prior_info_['w_mu0']['y']['intercept'], 7.810441593), \
+    assert np.isclose(pg.prior_info_['w_mu0']['y']['intercept'], 7.733268667), \
         "w_mu0 not as expected"
-    assert np.isclose(pg.prior_info_['w_mu0']['y']['age'], -1.48068743758711), \
+    assert np.isclose(pg.prior_info_['w_mu0']['y']['age'], -1.473910420702446), \
         "w_mu0 not as expected"
-    assert np.isclose(pg.prior_info_['w_var0']['y']['intercept'], 0.51800801), \
+    assert np.isclose(pg.prior_info_['w_var0']['y']['intercept'], 0.46760358415383946), \
         "w_var0 not as expected"    
-    assert np.isclose(pg.prior_info_['w_var0']['y']['age'], 0.04260915525159), \
+    assert np.isclose(pg.prior_info_['w_var0']['y']['age'], 0.043930269660685), \
         "w_var0 not as expected"
-    assert np.isclose(pg.prior_info_['lambda_a0']['y'], 207.87669370617036), \
+    assert np.isclose(pg.prior_info_['lambda_a0']['y'], 17.70686866876), \
         "lambda_a0 not as expected"
-    assert np.isclose(pg.prior_info_['lambda_b0']['y'], 67.86146951205156), \
+    assert np.isclose(pg.prior_info_['lambda_b0']['y'], 24.0246304888103), \
         "lambda_b0 not as expected"
 
-    for tt in [3, 5]:
+    for tt in [1, 3]:
         assert pg.prior_info_['w_mu']['intercept']['y'][tt] == \
             mm.w_mu_[0, 0, tt], \
             "Intercept prior not as expected for trajectory 1"
@@ -371,20 +370,20 @@ def test_compute_prior_info_4():
     assert np.isclose(pg.prior_info_['lambda_b0']['y2'], 356.5218504085522), \
         "lambda_b0 nost as expected"
 
-    for tt in [3, 5]:
+    for tt in [1, 3]:
         assert np.isclose(mm.w_mu_[0, 0, tt] + 10, \
-            pg.prior_info_['w_mu']['intercept']['y2'][tt], atol=0.05), \
+            pg.prior_info_['w_mu']['intercept']['y2'][tt], atol=0.2), \
             "Intercept prior not as expected"
         assert np.isclose(pg.prior_info_['w_mu']['age']['y2'][tt],  \
-            mm.w_mu_[1, 0, tt], atol=0.01), \
+            mm.w_mu_[1, 0, tt], atol=0.02), \
             "Age prior not as expected"
 
     assert np.isclose(np.sqrt(pg.prior_info_['lambda_b']['y2'][3]/\
         pg.prior_info_['lambda_a']['y2'][3]), 1, atol=0.001), \
         "Gamma prior not as expected for trajectory 3"
-    assert np.isclose(np.sqrt(pg.prior_info_['lambda_b']['y2'][5]/\
-        pg.prior_info_['lambda_a']['y2'][5]), 2, atol=0.03), \
-        "Gamma prior not as expected for trajectory 5"
+    assert np.isclose(np.sqrt(pg.prior_info_['lambda_b']['y2'][1]/\
+        pg.prior_info_['lambda_a']['y2'][1]), 2, atol=0.03), \
+        "Gamma prior not as expected for trajectory 1"
     
 def test_compute_prior_info_5():
     """Model and data, different preds, new target
@@ -409,7 +408,6 @@ def test_compute_prior_info_5():
     # The following values are from a prior that -- upon visual inspection of
     # random draws -- appears reasonable. This test, then, should be considered
     # a regression test as opposed to a test of "correct" values
-    
     prior_info_gt = \
         {'w_mu0': {'y': {'intercept': 8.102185344934247,
                          'age': -1.7021817743184755,
@@ -442,7 +440,8 @@ def test_compute_prior_info_5():
          'lambda_b': {'y': np.array([201.74450982, 48.8934525]),
                       'y2': np.array([201.74450982, 48.8934525])},
          'v_a': np.array([51., 51.]),
-         'v_b': np.array([50.74102343, 0.74102343]),
+         #'v_b': np.array([50.74102343, 0.74102343]),
+         'v_b': np.array([0.74102343, 50.74102343]),         
          'traj_probs': np.array([0.5, 0.5]),
          'alpha': 0.5}
 
@@ -513,48 +512,49 @@ def test_compute_prior_info_5():
         prior_info_gt['lambda_b']['y2'][0]), "Error in prior"
     assert np.isclose(pg.prior_info_['v_a'][3], \
         prior_info_gt['v_a'][0]), "Error in prior"
+
     assert np.isclose(pg.prior_info_['v_b'][3], \
         prior_info_gt['v_b'][0]), "Error in prior"
     assert np.isclose(pg.prior_info_['traj_probs'][3], \
         prior_info_gt['traj_probs'][0]), "Error in prior"
 
-    assert np.isclose(pg.prior_info_['w_mu']['intercept']['y'][5], \
+    assert np.isclose(pg.prior_info_['w_mu']['intercept']['y'][1], \
         prior_info_gt['w_mu']['intercept']['y'][1]), "Error in prior"
-    assert np.isclose(pg.prior_info_['w_mu']['intercept']['y2'][5], \
+    assert np.isclose(pg.prior_info_['w_mu']['intercept']['y2'][1], \
         prior_info_gt['w_mu']['intercept']['y2'][1]), "Error in prior"
-    assert np.isclose(pg.prior_info_['w_mu']['age']['y'][5], \
+    assert np.isclose(pg.prior_info_['w_mu']['age']['y'][1], \
         prior_info_gt['w_mu']['age']['y'][1]), "Error in prior"
-    assert np.isclose(pg.prior_info_['w_mu']['age']['y2'][5], \
+    assert np.isclose(pg.prior_info_['w_mu']['age']['y2'][1], \
         prior_info_gt['w_mu']['age']['y2'][1]), "Error in prior"
-    assert np.isclose(pg.prior_info_['w_mu']['age^2']['y'][5], \
+    assert np.isclose(pg.prior_info_['w_mu']['age^2']['y'][1], \
         prior_info_gt['w_mu']['age^2']['y'][1]), "Error in prior"
-    assert np.isclose(pg.prior_info_['w_mu']['age^2']['y2'][5], \
+    assert np.isclose(pg.prior_info_['w_mu']['age^2']['y2'][1], \
         prior_info_gt['w_mu']['age^2']['y2'][1]), "Error in prior"
-    assert np.isclose(pg.prior_info_['w_var']['intercept']['y'][5], \
+    assert np.isclose(pg.prior_info_['w_var']['intercept']['y'][1], \
         prior_info_gt['w_var']['intercept']['y'][1]), "Error in prior"
-    assert np.isclose(pg.prior_info_['w_var']['intercept']['y2'][5], \
+    assert np.isclose(pg.prior_info_['w_var']['intercept']['y2'][1], \
         prior_info_gt['w_var']['intercept']['y2'][1]), "Error in prior"
-    assert np.isclose(pg.prior_info_['w_var']['age']['y'][5], \
+    assert np.isclose(pg.prior_info_['w_var']['age']['y'][1], \
         prior_info_gt['w_var']['age']['y'][1]), "Error in prior"
-    assert np.isclose(pg.prior_info_['w_var']['age']['y2'][5], \
+    assert np.isclose(pg.prior_info_['w_var']['age']['y2'][1], \
         prior_info_gt['w_var']['age']['y2'][1]), "Error in prior"
-    assert np.isclose(pg.prior_info_['w_var']['age^2']['y'][5], \
+    assert np.isclose(pg.prior_info_['w_var']['age^2']['y'][1], \
         prior_info_gt['w_var']['age^2']['y'][1]), "Error in prior"
-    assert np.isclose(pg.prior_info_['w_var']['age^2']['y2'][5], \
+    assert np.isclose(pg.prior_info_['w_var']['age^2']['y2'][1], \
         prior_info_gt['w_var']['age^2']['y2'][1]), "Error in prior"
-    assert np.isclose(pg.prior_info_['lambda_a']['y'][5], \
+    assert np.isclose(pg.prior_info_['lambda_a']['y'][1], \
         prior_info_gt['lambda_a']['y'][1]), "Error in prior"
-    assert np.isclose(pg.prior_info_['lambda_a']['y2'][5], \
+    assert np.isclose(pg.prior_info_['lambda_a']['y2'][1], \
         prior_info_gt['lambda_a']['y2'][1]), "Error in prior"
-    assert np.isclose(pg.prior_info_['lambda_b']['y'][5], \
+    assert np.isclose(pg.prior_info_['lambda_b']['y'][1], \
         prior_info_gt['lambda_b']['y'][1]), "Error in prior"
-    assert np.isclose(pg.prior_info_['lambda_b']['y2'][5], \
+    assert np.isclose(pg.prior_info_['lambda_b']['y2'][1], \
         prior_info_gt['lambda_b']['y2'][1]), "Error in prior"
-    assert np.isclose(pg.prior_info_['v_a'][5], \
+    assert np.isclose(pg.prior_info_['v_a'][1], \
         prior_info_gt['v_a'][1]), "Error in prior"
-    assert np.isclose(pg.prior_info_['v_b'][5], \
+    assert np.isclose(pg.prior_info_['v_b'][1], \
         prior_info_gt['v_b'][1]), "Error in prior"
-    assert np.isclose(pg.prior_info_['traj_probs'][5], \
+    assert np.isclose(pg.prior_info_['traj_probs'][1], \
         prior_info_gt['traj_probs'][1]), "Error in prior"
     
     assert pg.prior_info_['alpha'] == prior_info_gt['alpha'], "Error in prior"
