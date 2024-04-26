@@ -4,11 +4,17 @@ from argparse import ArgumentParser
 import pandas as pd
 import numpy as np
 from bayes_traj.mult_dp_regression import MultDPRegression
+from bayes_traj.mult_pyro import MultPyro
 from bayes_traj.prior_from_model import prior_from_model
 from bayes_traj.utils import *
 from bayes_traj.fit_stats import compute_waic2
+import torch
+import pyro
+from bayes_traj.pyro_helper import *
 from provenance_tools.write_provenance_data import write_provenance_data
-import pdb, pickle, sys, warnings
+import pickle, sys, warnings
+
+torch.set_default_dtype(torch.double) # TODO -- may not be desirable to set this globally
 
 def main():
     """
@@ -245,9 +251,24 @@ def main():
                    weights_only=op.weights_only,
                    num_init_trajs=op.num_init_trajs)
         else:
-            raise NotImplementedError("Pyro not yet implemented")
+            restructured_data = get_restructured_data(df, preds, targets, op.groupby)
+            model = MultPyro(
+                alpha0=torch.full((K,), 100.0, dtype=torch.double),
+                w_mu0=torch.from_numpy(prior_data['w_mu0'].T).double(),
+                w_var0=torch.from_numpy(prior_data['w_var0'].T).double(),
+                lambda_a0=torch.from_numpy(prior_data['lambda_a0']).double(),
+                lambda_b0=torch.from_numpy(prior_data['lambda_b0']).double(),
+                **restructured_data
+            )
 
-        if r == 0:
+            model.fit(num_steps=iters)
+
+            if op.out_model is not None:
+                torch.save(model, op.out_model)
+
+        if op.use_pyro:
+            pass
+        elif r == 0:
             if op.out_model is not None:
                 print("Saving model...")
                 pickle.dump({'MultDPRegression': mm}, open(op.out_model, 'wb'))
