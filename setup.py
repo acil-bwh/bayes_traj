@@ -46,8 +46,8 @@ setup(
     
     install_requires=[
         'provenance-tools >= 0.0.5',
-        'pandas < 2.0.0',
-        'numpy >= 1.19.1',
+        'pandas < 2.2.2',
+        'numpy >= 1.26.4',
         'matplotlib >= 3.3.1',
         'scipy >= 1.5.2',
         'argparse >= 1.1',
@@ -55,6 +55,8 @@ setup(
         'torch >= 2.0.1',
         'pyro-ppl >= 1.8.5',
         'pytest >= 7.0.0',
+        'numexpr >= 2.10.0',
+        'bottleneck >= 1.3.8',        
     ],
     
     
