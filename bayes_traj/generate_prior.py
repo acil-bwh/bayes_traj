@@ -7,6 +7,7 @@ import pandas as pd
 import statsmodels.api as sm
 import numpy as np
 import copy, pdb
+from bayes_traj.get_alpha_estimate import get_alpha_estimate
 from provenance_tools.write_provenance_data import write_provenance_data
 
 class PriorGenerator:
@@ -466,6 +467,22 @@ class PriorGenerator:
                 # information
                 self.prior_info_from_df(tt)
 
+        # Get an estimate for alpha:
+        if self.df_data_ is not None:
+            if self.groupby_col_ is not None:
+                num_individuals = \
+                    self.df_data_.groupby(self.groupby_col_).ngroups
+            else:
+                num_individuals = self.df_data_.shape[0]
+
+            num_expected_trajs = (self.min_num_trajs_ + \
+                                  self.max_num_trajs_)/2
+            
+            self.alpha_ = get_alpha_estimate(num_individuals,
+                                             num_expected_trajs)            
+        elif self.mm_ is not None:    
+            self.alpha_ = self.mm_.alpha_
+            
     def prior_info_from_df_binary(self, target):
         """
         """
@@ -490,9 +507,7 @@ class PriorGenerator:
             self.prior_info_from_df_binary(target)
         else:
             self.prior_info_from_df_gaussians(target)
-
             
-
 #-------------------------               
 # END OF CLASS DEFINITION
 #-------------------------        
@@ -708,10 +723,10 @@ def main():
         is assumed that the file contains data columns with names corresponding \
         to the predictor and target names specified on the command line.',
         type=str, default=None)
-    parser.add_argument('--num_trajs', help='Rough estimate of the number of \
+    parser.add_argument('--num_trajs', help='Estimate of the number of \
         trajectories expected in the data set. Can be specified as a single \
         value or as a dash-separated range, such as 4-6. If a single value is \
-        specified, a range will be assumed as -1 to +1 the specified value.',
+        specified, a range will be assumed to be 1 to (2*num_trajs-1)',
         type=str, default='3')
     parser.add_argument('--model', help='Pickled bayes_traj model that \
         has been fit to data and from which information will be extracted to \
@@ -752,8 +767,8 @@ def main():
         pg.min_num_trajs_ = float(op.num_trajs.split('-')[0])
         pg.max_num_trajs_ = float(op.num_trajs.split('-')[1])        
     else:
-        pg.min_num_trajs_ = np.max([0.001, float(tmp[0]) - 1])
-        pg.max_num_trajs_ = float(tmp[0]) + 1
+        pg.min_num_trajs_ = 1
+        pg.max_num_trajs_ = 2*int(tmp[0]) - 1
         
     #---------------------------------------------------------------------------
     # Read in and process data and models as availabe
