@@ -79,12 +79,7 @@ class PriorGenerator:
         if alpha is not None:
             self.prior_info_['alpha'] = alpha
         else:
-            # Guesstimate of how big a data sample. Will be used to generate an
-            # estimate of alpha. Will be overwritten if a data file has been
-            # specified.
-            N = 10000
-            self.prior_info_['alpha'] = \
-                (self.min_num_trajs_ + self.max_num_trajs_)/(2*np.log10(N))
+            self.prior_info_['alpha'] = None
         
         for tt in targets:
             self.prior_info_['lambda_a0'][tt] = 1
@@ -478,10 +473,10 @@ class PriorGenerator:
             num_expected_trajs = (self.min_num_trajs_ + \
                                   self.max_num_trajs_)/2
             
-            self.alpha_ = get_alpha_estimate(num_individuals,
-                                             num_expected_trajs)            
+            self.prior_info_['alpha'] = get_alpha_estimate(num_individuals,
+                                                           num_expected_trajs)
         elif self.mm_ is not None:    
-            self.alpha_ = self.mm_.alpha_
+            self.prior_info_['alpha'] = self.mm_.alpha_
             
     def prior_info_from_df_binary(self, target):
         """
