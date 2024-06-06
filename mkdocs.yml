@@ -2,10 +2,15 @@ site_name: bayes_traj Documentation
 theme:
   name: material
   features:
-    - mathjax
+    - navigation.instant
+    - search.highlight
 nav:
   - Home: index.md
+  - Tutorial: bayes_traj_tutorial.md
+  - Inference: inference.md
 plugins:
   - search
-
-
+  - bibtex:
+      bib_file: "references.bib"
+extra_javascript:
+  - https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/MathJax.js?config=TeX-MML-AM_CHTML
