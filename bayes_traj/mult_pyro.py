@@ -19,6 +19,7 @@ class MultPyro:
         w_var0: torch.Tensor,
         lambda_a0: torch.Tensor,
         lambda_b0: torch.Tensor,
+        sig_u0: torch.Tensor,
         X: torch.Tensor,
         X_mask: torch.Tensor | None = None,
         Y_real: torch.Tensor | None = None,
@@ -59,6 +60,8 @@ class MultPyro:
                 likelihood precision (1/variance) parameters.
             lambda_b0 (torch.Tensor): [D], real valued prior rate for
                 likelihood precision (1/variance) parameters.
+            sig_u0 (torch.Tensor): [D + B, M, M], real valued prior over random
+                effect covaraince matrices.
             X (torch.Tensor): [T, G, M], real valued predictor tensor.
             X_mask (torch.Tensor): [T, G], boolean tensor indicating which
                 entries of `X` are observed. True means observed, False means
@@ -157,9 +160,11 @@ class MultPyro:
         assert K > 0
         assert w_mu0.shape == (D + B, M)
         assert w_var0.shape == (D + B, M)
+        assert sig_u0.shape == (D + B, M, M)        
         self.alpha0 = alpha0
         self.w_mu0 = w_mu0
         self.w_var0 = w_var0
+        self.sig_u0 = sig_u0
 
     def model(
         self,
@@ -176,6 +181,21 @@ class MultPyro:
         The Bayesian model definition.
 
         This is called during each training step and during classification.
+
+        TODO: we'll want to extend the model definition to accomdate 
+        specification of random effects. Whether or not the user desires to use
+        random effects will be indicated in the structure of sig_u0, the prior
+        over the zero-centered, multivarate covariance matrix: if all elements
+        of sig_u0 are 0, then random effects are to be ignored. Generally,
+        the presence of 0 at any matrix location will indicate not to model that
+        matrix element. We'll have a covariance matrix prior for each of the
+        possible D+B targets. During inference, we'll want to estimate each
+        trajectory's random effects covariance matrix (so (D+B)xK matrices).
+        In the most general case, this is a lot of parameters to estimate --
+        in practical usage, I expect we can initialize these matrices close
+        to a local minimum... In terms of what prior to use, I guess 
+        inverse Wishart is conjugage, but I think whatever pyro handles most
+        naturally is fine...
         """
         # Validate shapes.
         D = self.D
