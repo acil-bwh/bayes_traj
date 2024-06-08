@@ -19,7 +19,7 @@ class MultPyro:
         w_var0: torch.Tensor,
         lambda_a0: torch.Tensor,
         lambda_b0: torch.Tensor,
-        sig_u0: torch.Tensor,
+        sig_u0: torch.Tensor | None = None,
         X: torch.Tensor,
         X_mask: torch.Tensor | None = None,
         Y_real: torch.Tensor | None = None,
@@ -60,8 +60,8 @@ class MultPyro:
                 likelihood precision (1/variance) parameters.
             lambda_b0 (torch.Tensor): [D], real valued prior rate for
                 likelihood precision (1/variance) parameters.
-            sig_u0 (torch.Tensor): [D + B, M, M], real valued prior over random
-                effect covaraince matrices.
+            sig_u0 (optional torch.Tensor): [D + B, M, M], real valued prior
+                over random effect covariance matrices.
             X (torch.Tensor): [T, G, M], real valued predictor tensor.
             X_mask (torch.Tensor): [T, G], boolean tensor indicating which
                 entries of `X` are observed. True means observed, False means
@@ -160,7 +160,7 @@ class MultPyro:
         assert K > 0
         assert w_mu0.shape == (D + B, M)
         assert w_var0.shape == (D + B, M)
-        assert sig_u0.shape == (D + B, M, M)        
+        assert sig_u0 is None or sig_u0.shape == (D + B, M, M)        
         self.alpha0 = alpha0
         self.w_mu0 = w_mu0
         self.w_var0 = w_var0
@@ -182,10 +182,10 @@ class MultPyro:
 
         This is called during each training step and during classification.
 
-        TODO: we'll want to extend the model definition to accomdate 
+        TODO: we'll want to extend the model definition to accommodate 
         specification of random effects. Whether or not the user desires to use
         random effects will be indicated in the structure of sig_u0, the prior
-        over the zero-centered, multivarate covariance matrix: if all elements
+        over the zero-centered, multivariate covariance matrix: if all elements
         of sig_u0 are 0, then random effects are to be ignored. Generally,
         the presence of 0 at any matrix location will indicate not to model that
         matrix element. We'll have a covariance matrix prior for each of the
@@ -194,7 +194,7 @@ class MultPyro:
         In the most general case, this is a lot of parameters to estimate --
         in practical usage, I expect we can initialize these matrices close
         to a local minimum... In terms of what prior to use, I guess 
-        inverse Wishart is conjugage, but I think whatever pyro handles most
+        inverse Wishart is conjugate, but I think whatever pyro handles most
         naturally is fine...
         """
         # Validate shapes.
@@ -252,6 +252,17 @@ class MultPyro:
                 assert isinstance(lambda_, torch.Tensor)
                 assert lambda_.shape == (K, D)
 
+            if self.sig_u0 is not None:
+                # Sample the random effects covariance matrices.
+                # This uses a couple inverses to simulate an inverse Wishart.
+                # FIXME switch to an LKJ prior for the covariance matrices.
+                assert self.sig_u0.shape == (D + B, M, M)
+                prec_u = pyro.sample(
+                    "prec_u",
+                    dist.Wishart(df=M, precision_matrix=self.sig_u0).to_event(1)
+                )
+                assert prec_u.shape == (K, D + B, M, M)
+
         # Sample the mixture component of each individual.
         # This will be enumerated out during SVI.
         # See https://pyro.ai/examples/enumeration.html
@@ -278,6 +289,17 @@ class MultPyro:
             # unsqueezing then squeezing.
             y = (W_n @ X.unsqueeze(-1)).squeeze(-1)
             assert y.shape in {(T, G, D + B), (K, T, G, D + B)}
+
+            # Optionally add random effects.
+            if self.sig_u0 is not None:
+                u0 = torch.zeros(M)
+                assert prec_u.shape == (K, D + B, M, M)
+                u = pyro.sample(
+                    "u",
+                    dist.MultivariateNormal(u0, precision_matrix=prec_u[k]),
+                )
+                assert u.shape in {(G, D + B, M), (K, T, G, D + B, M)}
+                y = y + u
 
         if D:  # Check for real observations.
             assert Y_real is not None

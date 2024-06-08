@@ -8,6 +8,7 @@ from bayes_traj.mult_pyro import MultPyro
 
 @pytest.mark.parametrize("y_mask_dim", [2, 3])
 @pytest.mark.parametrize("x_mask", [True, False])
+@pytest.mark.parametrize("rand_eff", [False, True])
 @pytest.mark.parametrize(
     "K, D, B, M, T, C, G, G_",
     [
@@ -18,13 +19,14 @@ from bayes_traj.mult_pyro import MultPyro
         (2, 3, 4, 5, 6, 7, 8, 9),  # Multi-cohort.
     ],
 )
-def test_smoke(K, D, B, M, T, C, G, G_, x_mask: bool, y_mask_dim: int):
+def test_smoke(K, D, B, M, T, C, G, G_, x_mask: bool, y_mask_dim: int, rand_eff: bool):
     # Set hyperparameters.
     alpha0 = torch.randn(K).exp()  # Ensure positive.
     w_mu0 = torch.randn(D + B, M)
     w_var0 = torch.randn(D + B, M).exp()  # Ensure positive.
     lambda_a0 = torch.randn(D).exp()  # Ensure positive.
     lambda_b0 = torch.randn(D).exp()  # Ensure positive.
+    sig_u0 = torch.eye(M).expand(D + B, M, M) if rand_eff else None
 
     # Create fake training data.
     data_train = {}
@@ -49,6 +51,7 @@ def test_smoke(K, D, B, M, T, C, G, G_, x_mask: bool, y_mask_dim: int):
         w_var0=w_var0,
         lambda_a0=lambda_a0,
         lambda_b0=lambda_b0,
+        sig_u0=sig_u0,
         **data_train,
     )
 
