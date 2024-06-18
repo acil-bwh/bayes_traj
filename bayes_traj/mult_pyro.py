@@ -20,6 +20,7 @@ class MultPyro:
         lambda_a0: torch.Tensor,
         lambda_b0: torch.Tensor,
         sig_u0: torch.Tensor | None = None,
+        conc_u0: float | None = None,
         X: torch.Tensor,
         X_mask: torch.Tensor | None = None,
         Y_real: torch.Tensor | None = None,
@@ -60,8 +61,11 @@ class MultPyro:
                 likelihood precision (1/variance) parameters.
             lambda_b0 (torch.Tensor): [D], real valued prior rate for
                 likelihood precision (1/variance) parameters.
-            sig_u0 (optional torch.Tensor): [D + B, M, M], real valued prior
-                over random effect covariance matrices.
+            sig_u0 (optional torch.Tensor): [D + B, M], positive valued prior
+                over random effect scales. TODO allow this to be sparse in D+B.
+            conc_u0 (optional float): positive concentration parameter for the
+                LKJ prior over the random effects correlation matrix. Defaults
+                to a uniform prior value of 1.0.
             X (torch.Tensor): [T, G, M], real valued predictor tensor.
             X_mask (torch.Tensor): [T, G], boolean tensor indicating which
                 entries of `X` are observed. True means observed, False means
@@ -152,6 +156,18 @@ class MultPyro:
             self.cohort = cohort
         assert self.C > 0
 
+        # Check for random effects.
+        if sig_u0 is None:
+            assert conc_u0 is None
+        else:
+            assert sig_u0.shape == (D + B, M)
+            if conc_u0 is None:
+                conc_u0 = 1.0
+            assert isinstance(conc_u0, float)
+            assert conc_u0 > 0
+        self.sig_u0 = sig_u0
+        self.conc_u0 = conc_u0
+
         # Validate fixed parameters.
         assert alpha0.dim() == 1
         assert alpha0.dtype.is_floating_point
@@ -160,11 +176,9 @@ class MultPyro:
         assert K > 0
         assert w_mu0.shape == (D + B, M)
         assert w_var0.shape == (D + B, M)
-        assert sig_u0 is None or sig_u0.shape == (D + B, M, M)        
         self.alpha0 = alpha0
         self.w_mu0 = w_mu0
         self.w_var0 = w_var0
-        self.sig_u0 = sig_u0
 
     def model(
         self,
@@ -253,33 +267,59 @@ class MultPyro:
                 assert lambda_.shape == (K, D)
 
             if self.sig_u0 is not None:
-                # Sample the random effects covariance matrices.
-                # This uses a couple inverses to simulate an inverse Wishart.
-                # FIXME switch to an LKJ prior for the covariance matrices.
-                assert self.sig_u0.shape == (D + B, M, M)
-                prec_u = pyro.sample(
-                    "prec_u",
-                    dist.Wishart(df=M, precision_matrix=self.sig_u0).to_event(1)
+                # Sample the random effects covariance matrices
+                #   cov = chol_cov_u @ chol_cov_u.mT
+                # where the Cholesky factor chol_cov_u is decomposed from an LKJ
+                # correlation matrix chol_corr_u and a scale vector scale_u.
+                # See https://pyro.ai/examples/lkj.html
+                assert self.sig_u0.shape == (D + B, M)
+                scale_u = pyro.sample(
+                    "scale_u", dist.HalfCauchy(self.sig_u0).to_event(2)
                 )
-                assert prec_u.shape == (K, D + B, M, M)
+                assert scale_u.shape == (K, D + B, M)
+                if M == 1:  # The trivial case is deterministic.
+                    chol_cov_u = scale_u[..., None]
+                else:
+                    assert self.conc_u0 is not None
+                    assert isinstance(self.conc_u0, float)
+                    conc_u = scale_u.new_full((D + B,), self.conc_u0)
+                    chol_corr_u = pyro.sample(
+                        "chol_corr_u", dist.LKJCholesky(M, conc_u).to_event(1)
+                    )
+                    assert chol_corr_u.shape == (K, D + B, M, M)
+                    chol_cov_u = scale_u[..., None] * chol_corr_u
+                assert chol_cov_u.shape == (K, D + B, M, M)
 
         # Sample the mixture component of each individual.
         # This will be enumerated out during SVI.
         # See https://pyro.ai/examples/enumeration.html
         with individuals_plate:
             k = pyro.sample("k", dist.Categorical(class_probs))
-
             assert k.shape in {
                 (G,),  # During prior sampling.
                 (K, 1, 1),  # During training due to enumeration.
             }
 
-            # Compute the predicted mean.
+            # Determine the individual's coefficient W.
             assert W_.shape == (K, D + B, M)
             assert k.shape in {(G,), (K, 1, 1)}
             assert k.max().item() < K
             W_n = W_[k]  # Determine each individual's W.
             assert W_n.shape in {(G, D + B, M), (K, 1, 1, D + B, M)}
+
+            # Optionally add random effects.
+            if self.sig_u0 is not None:
+                u0 = torch.zeros(M)
+                assert chol_cov_u.shape == (K, D + B, M, M)
+                u = pyro.sample(
+                    "u",
+                    dist.MultivariateNormal(u0, scale_tril=chol_cov_u[k]).to_event(1),
+                )
+                assert u.shape in {(G, D + B, M), (K, 1, G, D + B, M)}
+                W_n = W_n + u
+                assert W_n.shape in {(G, D + B, M), (K, 1, G, D + B, M)}
+
+            # Compute the predicted mean.
             assert X.shape == (T, G, M)
             if X_mask is not None:
                 # Avoid NaNs in the masked-out entries.
@@ -289,17 +329,6 @@ class MultPyro:
             # unsqueezing then squeezing.
             y = (W_n @ X.unsqueeze(-1)).squeeze(-1)
             assert y.shape in {(T, G, D + B), (K, T, G, D + B)}
-
-            # Optionally add random effects.
-            if self.sig_u0 is not None:
-                u0 = torch.zeros(M)
-                assert prec_u.shape == (K, D + B, M, M)
-                u = pyro.sample(
-                    "u",
-                    dist.MultivariateNormal(u0, precision_matrix=prec_u[k]),
-                )
-                assert u.shape in {(G, D + B, M), (K, T, G, D + B, M)}
-                y = y + u
 
         if D:  # Check for real observations.
             assert Y_real is not None

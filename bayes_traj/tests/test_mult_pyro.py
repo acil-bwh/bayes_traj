@@ -26,7 +26,7 @@ def test_smoke(K, D, B, M, T, C, G, G_, x_mask: bool, y_mask_dim: int, rand_eff:
     w_var0 = torch.randn(D + B, M).exp()  # Ensure positive.
     lambda_a0 = torch.randn(D).exp()  # Ensure positive.
     lambda_b0 = torch.randn(D).exp()  # Ensure positive.
-    sig_u0 = torch.eye(M).expand(D + B, M, M) if rand_eff else None
+    sig_u0 = torch.ones(D + B, M) if rand_eff else None
 
     # Create fake training data.
     data_train = {}
