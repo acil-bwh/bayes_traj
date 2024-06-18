@@ -266,6 +266,11 @@ def main():
             if op.out_model is not None:
                 torch.save(model, op.out_model)
 
+                print("Saving model provenance info...")
+                provenance_desc = """ """
+                write_provenance_data(op.out_model, generator_args=op,
+                                      desc=provenance_desc,
+                                      module_name='bayes_traj')
         if op.use_pyro:
             pass
         elif r == 0:
