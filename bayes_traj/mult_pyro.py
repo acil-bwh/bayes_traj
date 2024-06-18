@@ -63,9 +63,15 @@ class MultPyro:
                 likelihood precision (1/variance) parameters.
             sig_u0 (optional torch.Tensor): [D + B, M], positive valued prior
                 over random effect scales. TODO allow this to be sparse in D+B.
+                (@Fritz: I think we want this to (also) be sparse in M. E.g.,
+                in practice, we may only want to consider random effects
+                for the intercept, or some subset of the predictors)
             conc_u0 (optional float): positive concentration parameter for the
                 LKJ prior over the random effects correlation matrix. Defaults
                 to a uniform prior value of 1.0.
+                (@Fritz: a default value of 1 seems fine. This probably ought
+                to be a [D + B] dimensional vector, though, to support per-
+                target specification)
             X (torch.Tensor): [T, G, M], real valued predictor tensor.
             X_mask (torch.Tensor): [T, G], boolean tensor indicating which
                 entries of `X` are observed. True means observed, False means
