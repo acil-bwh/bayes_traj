@@ -1,6 +1,23 @@
-from bayes_traj.utils import sample_cos, sample_precs
+from bayes_traj.utils import sample_cos, sample_precs, load_model
+import pickle, torch
 import numpy as np
+import os
 import pdb
+import bayes_traj
+
+def test_load_model_pickle():
+    model_file_name = os.path.split(os.path.realpath(__file__))[0] + \
+        '/../resources/models/model_1.p'
+        
+    model = load_model(model_file_name)
+    
+    assert isinstance(model, bayes_traj.mult_dp_regression.MultDPRegression), \
+        "Model not read correctly"
+
+
+def test_load_model_torch():
+    # TODO
+    pass
 
 def test_sample_cos():
     """

@@ -1,6 +1,53 @@
 import pickle
 import numpy as np
 from argparse import ArgumentParser
+import torch
+import pdb
+
+
+# bayes_traj/io_utils.py
+
+import pickle
+import torch
+
+def load_model(file_path):
+    """
+    Load a model from the given file path. Determines the file type by 
+    inspecting the file header and loads using appropriate method.
+
+    Parameters
+    ----------
+        file_path : str
+            Path to the model file.
+
+    Returns
+    -------
+        model : object
+            Instance of MultDPRegression or MultPyro
+        
+    """    
+    # Try to load with pickle first
+    try:
+        with open(file_path, 'rb') as f:
+            model = pickle.load(f)['MultDPRegression']
+        print("Model loaded with pickle")
+        
+        return model
+    except (pickle.UnpicklingError, AttributeError, EOFError, ImportError,
+            IndexError):
+        print("Pickle load failed. Trying torch...")
+
+    # If pickle fails, try torch
+    try:
+        model = torch.load(file_path)
+        print("Model loaded with torch")
+        
+        return model
+    except Exception as e:
+        print(f"Torch load failed: {e}")
+
+    raise ValueError("Failed to load the model with both pickle and torch")
+
 
 def get_pred_names_from_prior_info(prior_info):
     """Gets the list of predictor names used to construct a prior info 
