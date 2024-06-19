@@ -251,17 +251,16 @@ def main():
                    weights_only=op.weights_only,
                    num_init_trajs=op.num_init_trajs)
         else:
-            restructured_data = get_restructured_data(df, preds, targets, op.groupby)
             model = MultPyro(
                 alpha0=torch.full((K,), 100.0, dtype=torch.double),
                 w_mu0=torch.from_numpy(prior_data['w_mu0'].T).double(),
                 w_var0=torch.from_numpy(prior_data['w_var0'].T).double(),
                 lambda_a0=torch.from_numpy(prior_data['lambda_a0']).double(),
-                lambda_b0=torch.from_numpy(prior_data['lambda_b0']).double(),
-                **restructured_data
+                lambda_b0=torch.from_numpy(prior_data['lambda_b0']).double()
             )
 
-            model.fit(num_steps=iters)
+            model.fit(target_names=targets, predictor_names=preds, df=df,
+                      groupby=op.groupby, num_steps=iters)
 
             if op.out_model is not None:
                 torch.save(model, op.out_model)
