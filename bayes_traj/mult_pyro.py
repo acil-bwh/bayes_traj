@@ -6,8 +6,8 @@ import pyro.distributions as dist
 from pyro import poutine
 from pyro.infer import SVI, TraceEnum_ELBO, config_enumerate, infer_discrete
 from pyro.infer.autoguide import AutoNormal, init_to_sample
-
 from pyro.optim import ClippedAdam
+from bayes_traj.pyro_helper import *
 
 
 class MultPyro:
@@ -21,24 +21,9 @@ class MultPyro:
         lambda_b0: torch.Tensor,
         sig_u0: torch.Tensor | None = None,
         conc_u0: float | None = None,
-        X: torch.Tensor,
-        X_mask: torch.Tensor | None = None,
-        Y_real: torch.Tensor | None = None,
-        Y_real_mask: torch.Tensor | None = None,
-        Y_bool: torch.Tensor | None = None,
-        Y_bool_mask: torch.Tensor | None = None,
-        cohort: torch.Tensor | None = None,
     ) -> None:
         """
         See `MultDPRegression` for parameter descriptions.
-
-        Users should provide at least one of `Y_real` or `Y_bool`, together with
-        their respective masks. Observations `Y_real` follow a linear-normal
-        model with variance `lambda`, while observations `Y_bool` follow a
-        linear-logistic model.
-
-        This assumes one column of `X` is a constant ones column, which
-        represents the intercept term.
 
         Attributes:
             K (int): number of components
@@ -72,96 +57,7 @@ class MultPyro:
                 (@Fritz: a default value of 1 seems fine. This probably ought
                 to be a [D + B] dimensional vector, though, to support per-
                 target specification)
-            X (torch.Tensor): [T, G, M], real valued predictor tensor.
-            X_mask (torch.Tensor): [T, G], boolean tensor indicating which
-                entries of `X` are observed. True means observed, False means
-                missing.
-            Y_real (optional torch.Tensor): [T, G, D], real valued response
-                tensor.
-            Y_real_mask (optional torch.Tensor): [T, G] or [T, G, D], boolean
-                tensor indicating which entries of `Y_real` are observed. True
-                means observed, False means missing.
-            Y_bool (optional torch.Tensor): [T, G, B], boolean valued response
-                tensor. This should have `.dtype == torch.bool`, although a
-                floating point tensor is used internally.
-            Y_bool_mask (optional torch.Tensor): [T, G] or [T, G, B], boolean
-                tensor indicating which entries of `Y_bool` are observed. True
-                means observed, False means missing.
-            cohort (optional torch.Tensor): [G], integer array containing the
-                cohort of each individual.
         """
-        # Validate predictor data.
-        assert X.dtype.is_floating_point
-        assert X.dim() == 3
-        self.X = X
-        self.T = T = X.shape[0]
-        self.G = G = X.shape[1]
-        self.M = M = X.shape[2]
-        assert T > 0
-        assert G > 0
-        assert M > 0
-
-        # Validate predictor mask.
-        self.X_mask = None
-        if X_mask is not None:
-            assert X_mask.dtype == torch.bool
-            assert X_mask.shape == (T, G)
-            self.X_mask = X_mask
-
-        # Check for real observations.
-        if Y_real is None:
-            assert Y_real_mask is None
-            self.D = D = 0
-        else:
-            assert Y_real_mask is not None
-            assert Y_real.dim() == 3
-            self.D = D = Y_real.shape[2]
-            assert Y_real.shape == (T, G, D)
-            assert Y_real.dtype.is_floating_point
-            assert Y_real_mask.shape in {(T, G), (T, G, D)}
-            assert Y_real_mask.dtype == torch.bool
-            self.Y_real = Y_real
-            if Y_real_mask.dim() == 2:
-                Y_real_mask = Y_real_mask.unsqueeze(-1).expand(T, G, D)
-                assert Y_real_mask.shape == (T, G, D)
-            self.Y_real_mask = Y_real_mask
-
-            # Validate likelihood parameter.
-            assert lambda_a0.shape == (D,)
-            assert lambda_b0.shape == (D,)
-            self.lambda_a0 = lambda_a0
-            self.lambda_b0 = lambda_b0
-        assert D >= 0
-
-        # Check for boolean observations.
-        if Y_bool is None:
-            assert Y_bool_mask is None
-            self.B = B = 0
-        else:
-            assert Y_bool_mask is not None
-            assert Y_bool.dim() == 3
-            self.B = B = Y_bool.shape[2]
-            assert Y_bool.shape == (T, G, B)
-            assert Y_bool.dtype == torch.bool
-            assert Y_bool_mask.shape in {(T, G), (T, G, B)}
-            assert Y_bool_mask.dtype == torch.bool
-            self.Y_bool = Y_bool
-            if Y_bool_mask.dim() == 2:
-                Y_bool_mask = Y_bool_mask.unsqueeze(-1).expand(T, G, B)
-                assert Y_bool_mask.shape == (T, G, B)
-            self.Y_bool_mask = Y_bool_mask
-        assert B >= 0
-        assert B or D, "Must provide at least one of Y_real or Y_bool."
-
-        # Check for cohort data.
-        if cohort is None:
-            self.C = 1
-        else:
-            assert cohort.shape == (G,)
-            self.C = int(cohort.max()) + 1
-            self.cohort = cohort
-        assert self.C > 0
-
         # Check for random effects.
         if sig_u0 is None:
             assert conc_u0 is None
@@ -180,12 +76,20 @@ class MultPyro:
         assert (alpha0 > 0).all()
         self.K = K = alpha0.shape[0]
         assert K > 0
-        assert w_mu0.shape == (D + B, M)
-        assert w_var0.shape == (D + B, M)
         self.alpha0 = alpha0
         self.w_mu0 = w_mu0
         self.w_var0 = w_var0
+        self.lambda_a0 = lambda_a0
+        self.lambda_b0 = lambda_b0
 
+        self.X = None
+        self.X_mask = None
+        self.Y_real = None
+        self.Y_real_mask = None
+        self.Y_bool = None
+        self.Y_bool_mask = None
+        self.cohort = None
+        
     def model(
         self,
         X: torch.Tensor,
@@ -216,6 +120,34 @@ class MultPyro:
         to a local minimum... In terms of what prior to use, I guess 
         inverse Wishart is conjugate, but I think whatever pyro handles most
         naturally is fine...
+
+        Users should provide at least one of `Y_real` or `Y_bool`, together with
+        their respective masks. Observations `Y_real` follow a linear-normal
+        model with variance `lambda`, while observations `Y_bool` follow a
+        linear-logistic model.
+
+        This assumes one column of `X` is a constant ones column, which
+        represents the intercept term.
+
+        Args:
+            X (torch.Tensor): [T, G, M], real valued predictor tensor.
+            X_mask (torch.Tensor): [T, G], boolean tensor indicating which
+                entries of `X` are observed. True means observed, False means
+                missing.
+            Y_real (optional torch.Tensor): [T, G, D], real valued response
+                tensor.
+            Y_real_mask (optional torch.Tensor): [T, G] or [T, G, D], boolean
+                tensor indicating which entries of `Y_real` are observed. True
+                means observed, False means missing.
+            Y_bool (optional torch.Tensor): [T, G, B], boolean valued response
+                tensor. This should have `.dtype == torch.bool`, although a
+                floating point tensor is used internally.
+            Y_bool_mask (optional torch.Tensor): [T, G] or [T, G, B], boolean
+                tensor indicating which entries of `Y_bool` are observed. True
+                means observed, False means missing.
+            cohort (optional torch.Tensor): [G], integer array containing the
+                cohort of each individual.
+
         """
         # Validate shapes.
         D = self.D
@@ -396,12 +328,108 @@ class MultPyro:
     def fit(
         self,
         *,
+        target_names,
+        predictor_names,
+        df,
+        groupby,            
         learning_rate: float = 0.05,
         learning_rate_decay: float = 0.1,
         num_steps: int = 1001,
         seed: int = 20231215,
     ) -> None:
-        """Fits the model via Stochastic Variational Inference (SVI)."""
+        """Fits the model via Stochastic Variational Inference (SVI).
+        """        
+
+        assert len(set(target_names)) == len(target_names), \
+            "Duplicate target name found"
+        self.target_names_ = target_names
+    
+        assert len(set(predictor_names)) == len(predictor_names), \
+            "Duplicate predictor name found"
+        self.predictor_names_ = predictor_names
+
+        self.groupby_col_ = groupby
+        restructured_data = \
+            get_restructured_data(df, predictor_names, target_names, groupby)
+
+
+        # Validate predictor data.
+        assert restructured_data['X'].dtype.is_floating_point
+        assert restructured_data['X'].dim() == 3
+        self.X = restructured_data['X']
+        self.T = T = restructured_data['X'].shape[0]
+        self.G = G = restructured_data['X'].shape[1]
+        self.M = M = restructured_data['X'].shape[2]
+        assert T > 0
+        assert G > 0
+        assert M > 0
+
+        # Validate predictor mask.
+        self.X_mask = None
+        if restructured_data['X_mask'] is not None:
+            assert restructured_data['X_mask'].dtype == torch.bool
+            assert restructured_data['X_mask'].shape == (T, G)
+            self.X_mask = restructured_data['X_mask']
+
+        # Check for real observations.
+        if restructured_data['Y_real'] is None:
+            assert restructured_data['Y_real_mask'] is None
+            self.D = D = 0
+        else:
+            assert restructured_data['Y_real_mask'] is not None
+            assert restructured_data['Y_real'].dim() == 3
+            self.D = D = restructured_data['Y_real'].shape[2]
+            assert restructured_data['Y_real'].shape == (T, G, D)
+            assert restructured_data['Y_real'].dtype.is_floating_point
+            assert restructured_data['Y_real_mask'].shape in {(T, G), (T, G, D)}
+            assert restructured_data['Y_real_mask'].dtype == torch.bool
+            self.Y_real = restructured_data['Y_real']
+            if restructured_data['Y_real_mask'].dim() == 2:
+                restructured_data['Y_real_mask'] = \
+                    restructured_data['Y_real_mask'].unsqueeze(-1).expand(T, G, D)
+                assert restructured_data['Y_real_mask'].shape == (T, G, D)
+            self.Y_real_mask = restructured_data['Y_real_mask']
+
+            # Validate likelihood parameter.
+            assert self.lambda_a0.shape == (D,)
+            assert self.lambda_b0.shape == (D,)
+        assert D >= 0
+
+        # Check for boolean observations.
+        if restructured_data['Y_bool'] is None:
+            assert restructured_data['Y_bool_mask'] is None
+            self.B = B = 0
+        else:
+            assert restructured_data['Y_bool_mask'] is not None
+            assert restructured_data['Y_bool'].dim() == 3
+            self.B = B = restructured_data['Y_bool'].shape[2]
+            assert restructured_data['Y_bool'].shape == (T, G, B)
+            assert restructured_data['Y_bool'].dtype == torch.bool
+            assert restructured_data['Y_bool_mask'].shape in {(T, G), (T, G, B)}
+            assert restructured_data['Y_bool_mask'].dtype == torch.bool
+            self.Y_bool = restructured_data['Y_bool']
+            if restructured_data['Y_bool_mask'].dim() == 2:
+                restructured_data['Y_bool_mask'] = \
+                    restructured_data['Y_bool_mask'].unsqueeze(-1).expand(T, G, B)
+                assert restructured_data['Y_bool_mask'].shape == (T, G, B)
+            self.Y_bool_mask = restructured_data['Y_bool_mask']
+        assert B >= 0
+        assert B or D, "Must provide at least one of Y_real or Y_bool."
+
+        # Check for cohort data.
+        if restructured_data['cohort'] is None:
+            self.C = 1
+        else:
+            assert restructured_data['cohort'].shape == (G,)
+            self.C = int(restructured_data['cohort'].max()) + 1
+            self.cohort = restructured_data['cohort']
+        assert self.C > 0
+
+
+        # Validate prior shapes
+        assert self.w_mu0.shape == (D + B, M)
+        assert self.w_var0.shape == (D + B, M)
+        
         # Reset state to ensure reproducibility.
         pyro.set_rng_seed(seed)
         with pyro.get_param_store().scope() as self.params:
@@ -479,14 +507,7 @@ class MultPyro:
     @torch.no_grad()
     def classify(
         self,
-        X: torch.Tensor,
-        *,
-        X_mask: torch.Tensor | None = None,
-        Y_real: torch.Tensor | None = None,
-        Y_real_mask: torch.Tensor | None = None,
-        Y_bool: torch.Tensor | None = None,
-        Y_bool_mask: torch.Tensor | None = None,
-        cohort: torch.Tensor | None = None,
+        df = None,
         num_samples: int = 100,
     ) -> torch.Tensor:
         """
@@ -495,25 +516,47 @@ class MultPyro:
 
         Note the batch size `G_` may differ from the training set size `G`.
 
-        Args:
-            X (Tensor): A `[T, G_, M]`-shaped tensor of predictors.
-            X_mask (optional Tensor): A `[T, G_]`-shaped boolean tensor
-            Y_real (optional Tensor): A `[T, G_, D]`-shaped tensor of responses.
-            Y_real_mask (optional Tensor): A `[T, G_]` or `[T, G_, D]` shaped
-                boolean tensor indicating which entries of `Y_real` are
-                observed.  True means observed, False means missing.
-            Y_bool (optional Tensor): A `[T, G_, B]`-shaped tensor of responses.
-            Y_bool_mask (optional Tensor): A `[T, G_]` or `[T, G_, B]` shaped
-                boolean tensor indicating which entries of `Y_bool` are
-                observed.  True means observed, False means missing.
-            cohort (optional Tensor): A `[G_]`-shaped long tensor of cohort
-                indices.
-            num_samples (int): Number of samples to draw in computing empirical
-                class probabilities.
-        Returns:
-            (Tensor): A `[G_, K]`-shaped tensor of empirical sample
-                probabilities, normalized over the leftmost dimension.
+        TODO: make sure classification can apply to test / out-of-sample data.
+        Specifically, make sure that this routine can classify individuals who
+        have a different number of time points compared to the training data.
+
+        Parameters
+        ----------
+        df : pandas DataFrame, optional
+            Data frame containing data to classify. This data frame should have 
+            columns that correspond to the predictor names, target names, and 
+            subject identifier (groupby) column that were used to train the 
+            model. If none specified, this function will by default classify 
+            the data that was used to train the model
+
+        Returns
+        -------
+        probs : Tensor
+            A `[G_, K]`-shaped tensor of empirical sample probabilities, 
+            normalized over the leftmost dimension.
         """
+        if df is None:
+            # By default, use data trained on
+            X = self.X
+            X_mask = self.X_mask
+            Y_real = self.Y_real
+            Y_real_mask = self.Y_real_mask
+            Y_bool = self.Y_bool
+            Y_bool_mask = self.Y_bool_mask
+            cohort = self.cohort
+        else:
+            restructured_data = \
+                get_restructured_data(df, self.predictor_names_,
+                                      self.target_names_, self.groupby_col_)
+
+            X = restructured_data['X']
+            X_mask = restructured_data['X_mask']
+            Y_real = restructured_data['Y_real']
+            Y_real_mask = restructured_data['Y_real_mask']
+            Y_bool = restructured_data['Y_bool']
+            Y_bool_mask = restructured_data['Y_bool_mask']
+            cohort = restructured_data['cohort']
+        
         # Validate shapes.
         T = self.T
         D = self.D
