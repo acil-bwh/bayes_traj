@@ -3,12 +3,7 @@ import numpy as np
 from argparse import ArgumentParser
 import torch
 import pdb
-
-
-# bayes_traj/io_utils.py
-
-import pickle
-import torch
+import bayes_traj
 
 def load_model(file_path):
     """
@@ -48,6 +43,35 @@ def load_model(file_path):
 
     raise ValueError("Failed to load the model with both pickle and torch")
 
+
+def assign_trajectory(df, model):
+    """Takes a pandas data frame as input and assigns each individual to their 
+    most probable trajectory using the specified mode.
+
+    Parameters
+    ----------
+    df : pandas dataframe
+        Dataframe contains the predictors and target variables that will be used
+        to assign each individual to their most probable trajectory
+
+    model : object
+        MultDPRegression or MultPyro object that will be used to assign 
+        trajectories
+
+    Returns
+    -------
+    df_aug : pandas dataframe
+        Corresponds to the input dataframe, but augmented with the columns:
+        'traj' and 'traj_*'. 'traj' contains the most probable trajectory
+         assignment; 'traj_*' columns record the probability of each of the
+        trajectories.
+    """
+    if isinstance(model, bayes_traj.mult_dp_regression.MultDPRegression):
+        pass
+
+    if isinstance(model, bayes_traj.mult_pyro.MultPyro):
+        pass
+    
 
 def get_pred_names_from_prior_info(prior_info):
     """Gets the list of predictor names used to construct a prior info 
