@@ -8,6 +8,7 @@ from pyro.infer import SVI, TraceEnum_ELBO, config_enumerate, infer_discrete
 from pyro.infer.autoguide import AutoNormal, init_to_sample
 from pyro.optim import ClippedAdam
 from bayes_traj.pyro_helper import *
+import pdb
 
 
 class MultPyro:
@@ -62,7 +63,6 @@ class MultPyro:
         if sig_u0 is None:
             assert conc_u0 is None
         else:
-            assert sig_u0.shape == (D + B, M)
             if conc_u0 is None:
                 conc_u0 = 1.0
             assert isinstance(conc_u0, float)
@@ -178,6 +178,7 @@ class MultPyro:
             with cohorts_plate:
                 class_probs = pyro.sample("class_probs", dist.Dirichlet(alpha_cohort))
                 assert class_probs.shape[-2:] == (C, K)
+            #pdb.set_trace()
             class_probs = class_probs[cohort]
             assert class_probs.shape[-2:] == (G, K)
 
@@ -263,6 +264,7 @@ class MultPyro:
                 # Avoid NaNs in the masked-out entries.
                 assert X_mask.shape == (T, G)
                 X = X.masked_fill(~X_mask.unsqueeze(-1), 0)
+
             # We accomplish batched matrix-vector multiplication by
             # unsqueezing then squeezing.
             y = (W_n @ X.unsqueeze(-1)).squeeze(-1)
@@ -425,6 +427,9 @@ class MultPyro:
             self.cohort = restructured_data['cohort']
         assert self.C > 0
 
+        # Validate random effect prior shape if necessary
+        if self.sig_u0 is not None:
+            assert self.sig_u0.shape == (D + B, M)
 
         # Validate prior shapes
         assert self.w_mu0.shape == (D + B, M)
