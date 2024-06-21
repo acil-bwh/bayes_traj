@@ -3,6 +3,7 @@
 from argparse import ArgumentParser
 import pandas as pd
 import numpy as np
+from bayes_traj.utils import load_model
 from bayes_traj.mult_dp_regression import MultDPRegression
 from provenance_tools.write_provenance_data import write_provenance_data
 import pdb, pickle
@@ -45,6 +46,7 @@ def main():
     df = pd.read_csv(op.in_csv)
 
     print("Reading model...")
+    mm = load_model(op.model)
     mm = pickle.load(open(op.model, 'rb'))['MultDPRegression']
 
     traj_map = {}
