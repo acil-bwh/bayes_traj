@@ -1,9 +1,76 @@
 from typing import Optional
 
+import pdb
 import pytest
 import torch
+import numpy as np
+import pandas as pd
 
 from bayes_traj.mult_pyro import MultPyro
+
+torch.set_default_dtype(torch.double)
+
+def create_dummy_df(D, B, M, G, T, C):
+    """
+    Create a dummy DataFrame with D real target columns, B boolean target 
+    # columns, M predictor columns, and a cohort column, for G individuals 
+    # each with T time points.
+
+    Args:
+        D (int): Number of real-valued target columns.
+        B (int): Number of boolean target columns.
+        M (int): Number of predictor columns.
+        G (int): Number of individuals.
+        T (int): Number of time points per individual.
+        C (int): Number of cohorts.
+
+    Returns:
+        pd.DataFrame: A DataFrame with the generated data.
+    """
+    assert C <= G, "Cannot have more cohorts than individuals"
+    
+    # Create a time index and individual ID for each time point
+    time = np.tile(np.arange(T), G)
+    individual = np.repeat(np.arange(G), T)
+
+    # Create D columns of real values for targets drawn from a
+    # normal distribution
+    real_data = np.random.randn(T * G, D)
+
+    # Create B columns of boolean values for targets drawn from a
+    # Bernoulli distribution
+    bool_data = np.random.rand(T * G, B) < 0.5
+
+    # Create M columns of real values for predictors drawn from a
+    # normal distribution
+    predictors_data = np.random.randn(T * G, M)
+
+    # Create cohort assignments
+    cohort = np.random.randint(0, C, G)
+    cohort[0:C] = range(0, C) # Ensures all cohorts are represented
+    # Repeat cohort for each time point of an individual
+    cohort_column = np.repeat(cohort, T)  
+
+    # Combine into a single DataFrame
+    df = pd.DataFrame(data={
+        'time': time,
+        'id': individual,
+        'cohort': cohort_column
+    })
+
+    # Add real-valued target columns
+    for i in range(D):
+        df[f'real_target_{i}'] = real_data[:, i]
+
+    # Add boolean target columns
+    for i in range(B):
+        df[f'bool_target_{i}'] = bool_data[:, i].astype(bool)
+
+    # Add real-valued predictor columns
+    for i in range(M):
+        df[f'predictor_{i}'] = predictors_data[:, i]
+
+    return df
 
 
 @pytest.mark.parametrize("y_mask_dim", [2, 3])
@@ -19,7 +86,9 @@ from bayes_traj.mult_pyro import MultPyro
         (2, 3, 4, 5, 6, 7, 8, 9),  # Multi-cohort.
     ],
 )
-def test_smoke(K, D, B, M, T, C, G, G_, x_mask: bool, y_mask_dim: int, rand_eff: bool):
+def test_smoke(K, D, B, M, T, C, G, G_, x_mask: bool, y_mask_dim: int,
+               rand_eff: bool):
+
     # Set hyperparameters.
     alpha0 = torch.randn(K).exp()  # Ensure positive.
     w_mu0 = torch.randn(D + B, M)
@@ -29,20 +98,7 @@ def test_smoke(K, D, B, M, T, C, G, G_, x_mask: bool, y_mask_dim: int, rand_eff:
     sig_u0 = torch.ones(D + B, M) if rand_eff else None
 
     # Create fake training data.
-    data_train = {}
-    data_train["X"] = torch.randn(T, G, M)
-    if x_mask:
-        data_train["X_mask"] = torch.ones(T, G).bernoulli().bool()
-    if D:
-        data_train["Y_real"] = torch.randn(T, G, D)
-        mask_shape = {2: (T, G), 3: (T, G, D)}[y_mask_dim]
-        data_train["Y_real_mask"] = torch.ones(mask_shape).bernoulli().bool()
-    if B:
-        data_train["Y_bool"] = torch.ones(T, G, B).bernoulli().bool()
-        mask_shape = {2: (T, G), 3: (T, G, B)}[y_mask_dim]
-        data_train["Y_bool_mask"] = torch.ones(mask_shape).bernoulli().bool()
-    if C > 1:
-        data_train["cohort"] = torch.randint(C, (G,), dtype=torch.long)
+    df = create_dummy_df(D, B, M, G, T, C)
 
     # Create a model instance.
     model = MultPyro(
@@ -51,12 +107,23 @@ def test_smoke(K, D, B, M, T, C, G, G_, x_mask: bool, y_mask_dim: int, rand_eff:
         w_var0=w_var0,
         lambda_a0=lambda_a0,
         lambda_b0=lambda_b0,
-        sig_u0=sig_u0,
-        **data_train,
+        sig_u0=sig_u0     
     )
 
+    target_names = []
+    for ii in range(D):
+        target_names.append(f'real_target_{ii}')
+
+    for ii in range(B):
+        target_names.append(f'bool_target_{ii}')
+
+    predictor_names = []
+    for ii in range(M):
+        predictor_names.append(f'predictor_{ii}')    
+
     # Fit the model.
-    model.fit(num_steps=3)
+    model.fit(df=df, target_names=target_names, predictor_names=predictor_names,
+              groupby='id', num_steps=3)
 
     # Estimate parameters.
     params = model.estimate_params()
@@ -71,22 +138,9 @@ def test_smoke(K, D, B, M, T, C, G, G_, x_mask: bool, y_mask_dim: int, rand_eff:
     assert params["W_var"].shape == (K, D + B, M)
 
     # Create fake test data.
-    data_test = {}
-    data_test["X"] = torch.randn(T, G_, M)
-    if x_mask:
-        data_test["X_mask"] = torch.ones(T, G_).bernoulli().bool()
-    if D:
-        data_test["Y_real"] = torch.randn(T, G_, D)
-        mask_shape = {2: (T, G_), 3: (T, G_, D)}[y_mask_dim]
-        data_test["Y_real_mask"] = torch.ones(mask_shape).bernoulli().bool()
-    if B:
-        data_test["Y_bool"] = torch.ones(T, G_, B).bernoulli().bool()
-        mask_shape = {2: (T, G_), 3: (T, G_, B)}[y_mask_dim]
-        data_test["Y_bool_mask"] = torch.ones(mask_shape).bernoulli().bool()
-    if C > 1:
-        data_test["cohort"] = torch.randint(C, (G_,), dtype=torch.long)
+    df_test = create_dummy_df(D, B, M, G_, T, C)
 
     # Classify a novel batch of data of batch size B.
-    probs = model.classify(**data_test)
+    probs = model.classify(df_test)
     assert probs.shape == (G_, K)
     assert probs.sum(-1).allclose(torch.ones(G_))
