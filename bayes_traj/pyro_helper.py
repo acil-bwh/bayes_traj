@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 from typing import Optional, TypedDict
+import pdb
 
 
 class RestructuredData(TypedDict):
@@ -73,11 +74,11 @@ def get_restructured_data(df, predictors, targets, groupby) -> RestructuredData:
     bool_cols = []
     real_cols = []
     for tt in targets:
-        if set(df[tt].values) == {0, 1}:
+        if set(df[tt].values).issubset({0, 1}):
             bool_cols.append(tt)
         else:
             real_cols.append(tt)
-    
+
     M = len(predictors)
     D = len(real_cols)
     B = len(bool_cols)
