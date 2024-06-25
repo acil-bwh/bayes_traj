@@ -4,6 +4,8 @@ from argparse import ArgumentParser
 import torch
 import pdb
 import bayes_traj
+import pandas as pd
+
 
 def load_model(file_path):
     """
@@ -42,11 +44,11 @@ def load_model(file_path):
         print(f"Torch load failed: {e}")
 
     raise ValueError("Failed to load the model with both pickle and torch")
+    
 
-
-def assign_trajectory(df, model):
+def augment_df_with_traj_info(df, model, traj_map=None):
     """Takes a pandas data frame as input and assigns each individual to their 
-    most probable trajectory using the specified mode.
+    most probable trajectory using the specified model.
 
     Parameters
     ----------
@@ -58,6 +60,10 @@ def assign_trajectory(df, model):
         MultDPRegression or MultPyro object that will be used to assign 
         trajectories
 
+    traj_map : dict
+        An integer-to-integer mapping from current trajectory numbers to 
+        desired trajectory numbers
+ 
     Returns
     -------
     df_aug : pandas dataframe
@@ -67,10 +73,32 @@ def assign_trajectory(df, model):
         trajectories.
     """
     if isinstance(model, bayes_traj.mult_dp_regression.MultDPRegression):
-        pass
+        if traj_map is None:
+            traj_map = {}
+            for ii in np.where(model.sig_trajs_)[0]:
+                traj_map[ii] = ii
+        
+        R = model.get_R_matrix(df, model.gb_.grouper.names[0]).numpy()
+        N = df.shape[0]
+        # Now augment the dataframe with trajectory info
+        traj = []
+        for i in range(N):
+            traj.append(traj_map[np.where(np.max(R[i, :]) == R[i, :])[0][0]])
+        df['traj'] = traj
+
+        for ss in np.where(model.sig_trajs_)[0]:
+            df[f'traj_{traj_map[ss]}'] = R[:, ss]
+
+        return df
 
     if isinstance(model, bayes_traj.mult_pyro.MultPyro):
-        pass
+        if traj_map is None:
+            traj_map = {}
+            for ii in np.range(model.K):
+                traj_map[ii] = ii
+                
+        probs = model.classify(df)
+        pdb.set_trace()
     
 
 def get_pred_names_from_prior_info(prior_info):
