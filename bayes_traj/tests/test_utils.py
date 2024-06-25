@@ -1,9 +1,11 @@
-from bayes_traj.utils import sample_cos, sample_precs, load_model
+from bayes_traj.utils import *
 import pickle, torch
 import numpy as np
 import os
 import pdb
 import bayes_traj
+import pandas as pd
+import warnings
 
 def test_load_model_pickle():
     model_file_name = os.path.split(os.path.realpath(__file__))[0] + \
@@ -18,6 +20,40 @@ def test_load_model_pickle():
 def test_load_model_torch():
     # TODO
     pass
+
+
+def test_augment_df_with_traj_info():
+    """
+    """
+    warnings.filterwarnings("ignore", category=DeprecationWarning,
+                            module="pandas")
+    # Read df
+    data_file_name = os.path.split(os.path.realpath(__file__))[0] + \
+        '/../resources/data/trajectory_data_1.csv'
+
+    # Modify the input data a bit before testing the assignment
+    df = pd.read_csv(data_file_name)
+    df['y'] = df['y'].values + 0.01*np.random.randn(1)
+    df[:] = df.sample(frac=1).values
+    if 'traj' in df.columns:
+        df.rename(columns={'traj': 'traj_gt'}, inplace=True)
+
+    # Read MultDPRegression model
+    model_file_name = os.path.split(os.path.realpath(__file__))[0] + \
+        '/../resources/models/model_1.p'
+
+    model = load_model(model_file_name)
+
+    # Augment df and evaluate
+    df_aug = augment_df_with_traj_info(df, model, traj_map=None)
+
+    assert np.sum((df_aug.traj.values == 1) & (df.traj_gt.values == 1)) + \
+        np.sum((df_aug.traj.values == 3) & (df.traj_gt.values == 2)), \
+        "Error in trajectory assignment"
+    
+    # Read MultPyro model
+
+    # Augment df and evaluate
 
 def test_sample_cos():
     """
