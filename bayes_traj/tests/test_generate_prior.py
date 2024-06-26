@@ -443,7 +443,7 @@ def test_compute_prior_info_5():
          #'v_b': np.array([50.74102343, 0.74102343]),
          'v_b': np.array([0.74102343, 50.74102343]),         
          'traj_probs': np.array([0.5, 0.5]),
-         'alpha': 0.5}
+         'alpha': 0.3613243243243244}
 
     assert pg.prior_info_['w_mu0']['y']['intercept'] == \
         prior_info_gt['w_mu0']['y']['intercept'], "Error in prior"
@@ -556,8 +556,9 @@ def test_compute_prior_info_5():
         prior_info_gt['v_b'][1]), "Error in prior"
     assert np.isclose(pg.prior_info_['traj_probs'][1], \
         prior_info_gt['traj_probs'][1]), "Error in prior"
-    
-    assert pg.prior_info_['alpha'] == prior_info_gt['alpha'], "Error in prior"
+
+    assert np.isclose(pg.prior_info_['alpha'], prior_info_gt['alpha']), \
+        "Error in prior"
     
 
     

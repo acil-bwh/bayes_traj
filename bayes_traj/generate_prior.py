@@ -472,7 +472,7 @@ class PriorGenerator:
 
             num_expected_trajs = (self.min_num_trajs_ + \
                                   self.max_num_trajs_)/2
-            
+
             self.prior_info_['alpha'] = get_alpha_estimate(num_individuals,
                                                            num_expected_trajs)
         elif self.mm_ is not None:    
