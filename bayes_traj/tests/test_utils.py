@@ -22,7 +22,7 @@ def test_load_model_torch():
     pass
 
 
-def test_augment_df_with_traj_info():
+def test_augment_df_with_traj_info_1():
     """
     """
     warnings.filterwarnings("ignore", category=DeprecationWarning,
@@ -41,7 +41,6 @@ def test_augment_df_with_traj_info():
     # Read MultDPRegression model
     model_file_name = os.path.split(os.path.realpath(__file__))[0] + \
         '/../resources/models/model_1.p'
-
     model = load_model(model_file_name)
 
     # Augment df and evaluate
@@ -50,11 +49,33 @@ def test_augment_df_with_traj_info():
     assert np.sum((df_aug.traj.values == 1) & (df.traj_gt.values == 1)) + \
         np.sum((df_aug.traj.values == 3) & (df.traj_gt.values == 2)), \
         "Error in trajectory assignment"
+
+def test_augment_df_with_traj_info_2():
+    """
+    """
+    warnings.filterwarnings("ignore", category=DeprecationWarning,
+                            module="pandas")
+    # Read df
+    data_file_name = os.path.split(os.path.realpath(__file__))[0] + \
+        '/../resources/data/trajectory_data_1.csv'
+
+    # Modify the input data a bit before testing the assignment
+    df = pd.read_csv(data_file_name)
+    df['y'] = df['y'].values + 0.01*np.random.randn(1)
+    df[:] = df.sample(frac=1).values
+    if 'traj' in df.columns:
+        df.rename(columns={'traj': 'traj_gt'}, inplace=True)
     
     # Read MultPyro model
+    model_file_name = os.path.split(os.path.realpath(__file__))[0] + \
+        '/../resources/models/pyro_model_1.pt'
+    model = load_model(model_file_name)
 
+    foo = model.classify(df)
+    pdb.set_trace()
+    
     # Augment df and evaluate
-
+    
 def test_sample_cos():
     """
     """

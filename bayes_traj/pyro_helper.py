@@ -14,7 +14,7 @@ class RestructuredData(TypedDict):
     Y_bool: Optional[torch.Tensor]
     Y_bool_mask: Optional[torch.Tensor]
     cohort: Optional[torch.Tensor]
-
+    group_to_index : dict
 
 def get_restructured_data(df, predictors, targets, groupby) -> RestructuredData:
     """
@@ -68,8 +68,8 @@ def get_restructured_data(df, predictors, targets, groupby) -> RestructuredData:
         cohort : array, shape ( G, )
             Optional integer array containing the cohort of each individual.
     """
-    num_observations_per_subject = \
-        df.groupby(groupby).apply(lambda dd : dd.shape[0]).values
+    gb = df.groupby(groupby)
+    num_observations_per_subject = gb.apply(lambda dd : dd.shape[0]).values
 
     bool_cols = []
     real_cols = []
@@ -93,53 +93,51 @@ def get_restructured_data(df, predictors, targets, groupby) -> RestructuredData:
     Y_real_mask = None
     Y_bool = None
     Y_bool_mask = None
+    X = None
+    X_mask = None
     cohort: Optional[torch.Tensor] = None
+    X = torch.full((T, G, M), float('nan')).double()
     if len(real_cols) > 0:
-        Y_real_orig = torch.from_numpy(df[real_cols].values).double()
         Y_real = torch.full((T, G, D), float('nan')).double()
     if len(bool_cols) > 0:
-        Y_bool_orig = torch.from_numpy(df[bool_cols].values).double()    
         Y_bool = torch.full((T, G, B), float('nan')).double()
     if "cohort" in df.columns:
-        cohort_ids = sorted(set(df["cohort"].values))
-        cohort_orig = torch.tensor(
-            [cohort_ids.index(cohort_id) for cohort_id in df["cohort"].values],
-            dtype=torch.long,
-        )
-        cohort = torch.full((G,), -1, dtype=torch.long)
- 
-    X = torch.full((T, G, M), float('nan')).double()
-            
-    start_idx = 0
-    for g, num_obs in enumerate(num_observations_per_subject):
-        X[:num_obs, g, :] = X_orig[start_idx:start_idx+num_obs, :]
-        if Y_real_orig is not None:
-            assert Y_real is not None
-            Y_real[:num_obs, g, :] = Y_real_orig[start_idx:start_idx+num_obs, :]
-        if Y_bool_orig is not None:
-            assert Y_bool is not None
-            Y_bool[:num_obs, g, :] = Y_bool_orig[start_idx:start_idx+num_obs, :] 
-        if cohort is not None:
-            cohort[g] = cohort_orig[start_idx]
-        
-        start_idx += num_obs
+        cohort = torch.full((G,), torch.nan)
 
-    X_mask = ~(torch.isnan(X[:, :]).any(dim=-1))
-    if Y_real is not None:
-        Y_real_mask = ~torch.isnan(Y_real[:, :, 0])
-    if Y_bool is not None:
-        Y_bool = Y_bool.bool()
-        Y_bool_mask = ~torch.isnan(Y_bool[:, :, 0])
+    for ii, gg in enumerate(gb.groups.keys()):
+        df_tmp = gb.get_group(gg)
+        X[:df_tmp.shape[0], ii, :] = \
+            torch.from_numpy(df_tmp[predictors].values)
+        if len(real_cols) > 0:        
+            Y_real[:df_tmp.shape[0], ii, :] = \
+                torch.from_numpy(df_tmp[real_cols].values)
+        if len(bool_cols) > 0:
+            Y_bool[:df_tmp.shape[0], ii, :] = \
+                torch.from_numpy(df_tmp[bool_cols].values)
+        if "cohort" in df_tmp.columns:
+            tmp = torch.from_numpy(df_tmp['cohort'].values)
+            assert torch.all(tmp==tmp[0]), \
+                "Different cohorts assigned to same individual"
+            cohort[ii] = tmp[0]
+
+    X_mask = ~torch.isnan(X)
+    if len(real_cols) > 0:
+        Y_real_mask = ~torch.isnan(Y_real)
+    if len(bool_cols) > 0:
+        Y_bool_mask = ~torch.isnan(Y_bool)        
 
     result = RestructuredData(
         X=X,
-        X_mask=None if X_mask.all() else X_mask,
+        X_mask=X_mask,
         Y_real=Y_real,
         Y_real_mask=Y_real_mask,
         Y_bool=Y_bool,
         Y_bool_mask=Y_bool_mask,
         cohort=cohort,
+        group_to_index=df.groupby(groupby).groups
     )
     for k, v in result.items():
         print(f'{k: >12s}: {getattr(v, "shape", "n/a")}')
     return result
+
+
