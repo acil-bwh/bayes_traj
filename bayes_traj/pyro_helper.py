@@ -85,10 +85,6 @@ def get_restructured_data(df, predictors, targets, groupby) -> RestructuredData:
     G = df.groupby(groupby).ngroups
     T = np.max(num_observations_per_subject)
    
-    X_orig = torch.from_numpy(df[predictors].values).double()
-
-    Y_real_orig = None
-    Y_bool_orig = None
     Y_real = None
     Y_real_mask = None
     Y_bool = None
@@ -100,9 +96,11 @@ def get_restructured_data(df, predictors, targets, groupby) -> RestructuredData:
     if len(real_cols) > 0:
         Y_real = torch.full((T, G, D), float('nan')).double()
     if len(bool_cols) > 0:
-        Y_bool = torch.full((T, G, B), float('nan')).double()
+        # Note that Y_bool will not be bool type -- it needs to record NaNs if
+        # necessary
+        Y_bool = torch.full((T, G, B), float('nan'))
     if "cohort" in df.columns:
-        cohort = torch.full((G,), torch.nan)
+        cohort = torch.full((G,), torch.nan).int()
 
     for ii, gg in enumerate(gb.groups.keys()):
         df_tmp = gb.get_group(gg)
@@ -115,7 +113,7 @@ def get_restructured_data(df, predictors, targets, groupby) -> RestructuredData:
             Y_bool[:df_tmp.shape[0], ii, :] = \
                 torch.from_numpy(df_tmp[bool_cols].values)
         if "cohort" in df_tmp.columns:
-            tmp = torch.from_numpy(df_tmp['cohort'].values)
+            tmp = torch.from_numpy(df_tmp['cohort'].values).int()
             assert torch.all(tmp==tmp[0]), \
                 "Different cohorts assigned to same individual"
             cohort[ii] = tmp[0]
@@ -124,7 +122,7 @@ def get_restructured_data(df, predictors, targets, groupby) -> RestructuredData:
     if len(real_cols) > 0:
         Y_real_mask = ~torch.isnan(Y_real)
     if len(bool_cols) > 0:
-        Y_bool_mask = ~torch.isnan(Y_bool)        
+        Y_bool_mask = ~torch.isnan(Y_bool)
 
     result = RestructuredData(
         X=X,
