@@ -70,9 +70,7 @@ def test_augment_df_with_traj_info_2():
     model_file_name = os.path.split(os.path.realpath(__file__))[0] + \
         '/../resources/models/pyro_model_1.pt'
     model = load_model(model_file_name)
-
     foo = model.classify(df)
-    pdb.set_trace()
     
     # Augment df and evaluate
     
