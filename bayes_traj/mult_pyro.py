@@ -178,7 +178,6 @@ class MultPyro:
             with cohorts_plate:
                 class_probs = pyro.sample("class_probs", dist.Dirichlet(alpha_cohort))
                 assert class_probs.shape[-2:] == (C, K)
-            #pdb.set_trace()
             class_probs = class_probs[cohort]
             assert class_probs.shape[-2:] == (G, K)
 
@@ -262,9 +261,10 @@ class MultPyro:
             assert X.shape == (T, G, M)
             if X_mask is not None:
                 # Avoid NaNs in the masked-out entries.
-                assert X_mask.shape == (T, G)
-                X = X.masked_fill(~X_mask.unsqueeze(-1), 0)
-
+                assert X_mask.shape == (T, G, M)
+                #X = X.masked_fill(~X_mask.unsqueeze(-1), 0)
+                X = X.masked_fill(~X_mask, 0)
+                
             # We accomplish batched matrix-vector multiplication by
             # unsqueezing then squeezing.
             y = (W_n @ X.unsqueeze(-1)).squeeze(-1)
@@ -277,8 +277,7 @@ class MultPyro:
             assert Y_real_mask.shape == (T, G, D)
             assert Y_real.dtype.is_floating_point
             assert Y_real_mask.dtype == torch.bool
-            if X_mask is not None:
-                Y_real_mask = Y_real_mask & X_mask.unsqueeze(-1)  # type: ignore[assignment]
+            
             # Avoid NaNs in the masked-out entries.
             Y_real = Y_real.masked_fill(~Y_real_mask, 0)
 
@@ -308,8 +307,6 @@ class MultPyro:
             assert Y_bool_mask.shape == (T, G, B)
             assert Y_bool.dtype.is_floating_point
             assert Y_bool_mask.dtype == torch.bool
-            if X_mask is not None:
-                Y_bool_mask = Y_bool_mask & X_mask.unsqueeze(-1)  # type: ignore[assignment]
 
             # Declare the boolean likelihood, which is partially observed.
             with individuals_plate, time_plate:
@@ -354,7 +351,6 @@ class MultPyro:
         restructured_data = \
             get_restructured_data(df, predictor_names, target_names, groupby)
 
-
         # Validate predictor data.
         assert restructured_data['X'].dtype.is_floating_point
         assert restructured_data['X'].dim() == 3
@@ -370,7 +366,7 @@ class MultPyro:
         self.X_mask = None
         if restructured_data['X_mask'] is not None:
             assert restructured_data['X_mask'].dtype == torch.bool
-            assert restructured_data['X_mask'].shape == (T, G)
+            assert restructured_data['X_mask'].shape == (T, G, M)
             self.X_mask = restructured_data['X_mask']
 
         # Check for real observations.
@@ -406,7 +402,7 @@ class MultPyro:
             assert restructured_data['Y_bool'].dim() == 3
             self.B = B = restructured_data['Y_bool'].shape[2]
             assert restructured_data['Y_bool'].shape == (T, G, B)
-            assert restructured_data['Y_bool'].dtype == torch.bool
+            assert restructured_data['Y_bool'].dtype.is_floating_point
             assert restructured_data['Y_bool_mask'].shape in {(T, G), (T, G, B)}
             assert restructured_data['Y_bool_mask'].dtype == torch.bool
             self.Y_bool = restructured_data['Y_bool']
@@ -553,7 +549,6 @@ class MultPyro:
             restructured_data = \
                 get_restructured_data(df, self.predictor_names_,
                                       self.target_names_, self.groupby_col_)
-
             X = restructured_data['X']
             X_mask = restructured_data['X_mask']
             Y_real = restructured_data['Y_real']
@@ -561,7 +556,7 @@ class MultPyro:
             Y_bool = restructured_data['Y_bool']
             Y_bool_mask = restructured_data['Y_bool_mask']
             cohort = restructured_data['cohort']
-        
+
         # Validate shapes.
         T = self.T
         D = self.D
@@ -572,7 +567,7 @@ class MultPyro:
         assert X.shape == (T, G_, M)
         data = {"X": X}
         if X_mask is not None:
-            assert X_mask.shape == (T, G_)
+            assert X_mask.shape == (T, G_, M)
             assert X_mask.dtype == torch.bool
             data["X_mask"] = X_mask
         if Y_real is not None:
@@ -586,14 +581,14 @@ class MultPyro:
                 Y_real_mask = Y_real_mask.unsqueeze(-1).expand(T, G_, D)
                 assert Y_real_mask.shape == (T, G_, D)
             data["Y_real_mask"] = Y_real_mask
+
         if Y_bool is not None:
             assert Y_bool_mask is not None
             assert Y_bool.shape == (T, G_, B)
             assert Y_bool_mask.shape in {(T, G_), (T, G_, B)}
-            assert Y_bool.dtype == torch.bool
+            assert Y_bool.dtype.is_floating_point
             assert Y_bool_mask.dtype == torch.bool
-            # Convert to float for Bernoulli.log_prob().
-            data["Y_bool"] = Y_bool.to(dtype=self.X.dtype)
+            data["Y_bool"] = Y_bool
             if Y_bool_mask.dim() == 2:
                 Y_bool_mask = Y_bool_mask.unsqueeze(-1).expand(T, G_, B)
                 assert Y_bool_mask.shape == (T, G_, B)
@@ -602,7 +597,7 @@ class MultPyro:
             assert cohort.dim() == 1
             assert cohort.shape[0] == G_
             data["cohort"] = cohort
-
+            
         with pyro.get_param_store().scope(self.params):
             # Draw samples sequentially to keep tensor shapes simple.
             probs = torch.zeros(G_, self.K)
