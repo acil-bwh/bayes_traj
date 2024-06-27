@@ -39,8 +39,10 @@ def create_dummy_df(D, B, M, G, T, C):
 
     # Create B columns of boolean values for targets drawn from a
     # Bernoulli distribution
-    bool_data = np.random.rand(T * G, B) < 0.5
-
+    #bool_data = np.random.rand(T * G, B) < 0.5
+    bool_data = \
+        np.random.binomial(n=1, p=0.5, size=[T*G, B]).astype(float)
+    
     # Create M columns of real values for predictors drawn from a
     # normal distribution
     predictors_data = np.random.randn(T * G, M)
@@ -64,7 +66,7 @@ def create_dummy_df(D, B, M, G, T, C):
 
     # Add boolean target columns
     for i in range(B):
-        df[f'bool_target_{i}'] = bool_data[:, i].astype(bool)
+        df[f'bool_target_{i}'] = bool_data[:, i]
 
     # Add real-valued predictor columns
     for i in range(M):
@@ -88,7 +90,6 @@ def create_dummy_df(D, B, M, G, T, C):
 )
 def test_smoke(K, D, B, M, T, C, G, G_, x_mask: bool, y_mask_dim: int,
                rand_eff: bool):
-
     # Set hyperparameters.
     alpha0 = torch.randn(K).exp()  # Ensure positive.
     w_mu0 = torch.randn(D + B, M)
@@ -139,7 +140,7 @@ def test_smoke(K, D, B, M, T, C, G, G_, x_mask: bool, y_mask_dim: int,
 
     # Create fake test data.
     df_test = create_dummy_df(D, B, M, G_, T, C)
-
+    
     # Classify a novel batch of data of batch size B.
     probs = model.classify(df_test)
     assert probs.shape == (G_, K)
