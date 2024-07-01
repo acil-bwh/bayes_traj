@@ -198,8 +198,7 @@ class PriorGenerator:
     
             if compute_df_traj_data:
                 self.df_traj_data_ = \
-                    self.mm_.augment_df_with_traj_info(self.df_data_,
-                        self.groupby_col_)
+                    self.mm_.augment_df_with_traj_info(self.df_data_)
 
         return compute_df_traj_data
 
