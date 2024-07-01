@@ -3,7 +3,7 @@
 from argparse import ArgumentParser
 import pandas as pd
 import numpy as np
-from bayes_traj.utils import load_model
+from bayes_traj.load_model import load_model
 from bayes_traj.mult_dp_regression import MultDPRegression
 from provenance_tools.write_provenance_data import write_provenance_data
 import pdb, pickle
@@ -20,9 +20,6 @@ def main():
     args.add_argument('--in_csv', help='Input csv data file. Individuals in \
         this file will be assigned to the best trajectory', required=True,
         type=str)
-    args.add_argument('--groupby', help='Subject identifier column name in the \
-        input data file to use for grouping.', required=False, type=str,
-        default=None)    
     args.add_argument('--model', help='Pickled trajectory model to use for \
         assigning data instances to trajectories', type=str, required=True)
     args.add_argument('--out_csv', help='Output csv file with data instances \
@@ -46,21 +43,27 @@ def main():
     df = pd.read_csv(op.in_csv)
 
     print("Reading model...")
-    mm = load_model(op.model)
-    mm = pickle.load(open(op.model, 'rb'))['MultDPRegression']
+    model = load_model(op.model)
 
     traj_map = {}
     if op.traj_map is not None:
-        for ii in np.where(mm.sig_trajs_)[0]:
-            traj_map[ii] = np.nan
-        for ii in op.traj_map.split(','):
-            traj_map[int(ii.split('-')[0])] = int(ii.split('-')[1])
+        if isinstance(model, bayes_traj.mult_dp_regression.MultDPRegression):
+            for ii in np.where(mm.sig_trajs_)[0]:
+                traj_map[ii] = np.nan
+            for ii in op.traj_map.split(','):
+                traj_map[int(ii.split('-')[0])] = int(ii.split('-')[1])
+        elif isinstance(model, bayes_traj.mult_pyro.MultPyro):
+            traj_map[int(ii.split('-')[0])] = int(ii.split('-')[1])                
     else:
-        for ii in np.where(mm.sig_trajs_)[0]:
-            traj_map[ii] = ii
+        if isinstance(model, bayes_traj.mult_dp_regression.MultDPRegression):
+            for ii in np.where(mm.sig_trajs_)[0]:
+                traj_map[ii] = ii
+        elif isinstance(model, bayes_traj.mult_pyro.MultPyro):
+            for kk in range(model.K):
+                traj_map[kk] = kk
     
     print("Assigning...")    
-    df_out = mm.augment_df_with_traj_info(df, op.groupby)
+    df_out = model.augment_df_with_traj_info(df)
     df_out.replace({'traj': traj_map}, inplace=True)
     
     if op.out_csv is not None:
