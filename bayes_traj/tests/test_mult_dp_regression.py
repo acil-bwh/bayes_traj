@@ -4,6 +4,8 @@ import numpy as np
 import pandas as pd
 from bayes_traj.utils import *
 import pdb, os, pickle
+import warnings
+from bayes_traj.load_model import load_model
 
 np.set_printoptions(precision = 10, suppress = True, threshold=1e6,
                     linewidth=300)
@@ -624,16 +626,27 @@ def test_get_traj_probs():
 
     
 def test_augment_df_with_traj_info():
-    mm = get_gt_model()
-    df = get_gt_df()
-    df_aug = mm.augment_df_with_traj_info(df, 'sid')
+    warnings.filterwarnings("ignore", category=DeprecationWarning,
+                            module="pandas")
+    # Read df
+    data_file_name = os.path.split(os.path.realpath(__file__))[0] + \
+        '/../resources/data/trajectory_data_1.csv'
 
-    assert np.sum(df_aug['traj'].values == \
-        np.array([0, 0, 0, 0, 0, 1, 1, 1, 1])) == 9, \
-        "Incorrect traj assignment"
+    # Modify the input data a bit before testing the assignment
+    df = pd.read_csv(data_file_name)
+    df['y'] = df['y'].values + 0.01*np.random.randn(1)
+    df[:] = df.sample(frac=1).values
+    if 'traj' in df.columns:
+        df.rename(columns={'traj': 'traj_gt'}, inplace=True)
 
-    for cc in df.columns:
-        assert cc in df_aug.columns, "Dataframe incorrectly augmented"
-    
-    df_aug2 = mm.augment_df_with_traj_info(df)
+    # Read MultDPRegression model
+    model_file_name = os.path.split(os.path.realpath(__file__))[0] + \
+        '/../resources/models/model_1.p'
+    model = load_model(model_file_name)
 
+    # Augment df and evaluate
+    df_aug = model.augment_df_with_traj_info(df)
+
+    assert np.sum((df_aug.traj.values == 1) & (df.traj_gt.values == 1)) + \
+        np.sum((df_aug.traj.values == 3) & (df.traj_gt.values == 2)), \
+        "Error in trajectory assignment"
