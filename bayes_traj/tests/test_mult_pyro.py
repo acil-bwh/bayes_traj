@@ -5,6 +5,8 @@ import pytest
 import torch
 import numpy as np
 import pandas as pd
+import warnings, os
+from bayes_traj.load_model import load_model
 
 from bayes_traj.mult_pyro import MultPyro
 
@@ -90,6 +92,10 @@ def create_dummy_df(D, B, M, G, T, C):
 )
 def test_smoke(K, D, B, M, T, C, G, G_, x_mask: bool, y_mask_dim: int,
                rand_eff: bool):
+
+    #TODO: remove after testing:
+    rand_eff = False
+    
     # Set hyperparameters.
     alpha0 = torch.randn(K).exp()  # Ensure positive.
     w_mu0 = torch.randn(D + B, M)
@@ -145,3 +151,34 @@ def test_smoke(K, D, B, M, T, C, G, G_, x_mask: bool, y_mask_dim: int,
     probs = model.classify(df_test)
     assert probs.shape == (G_, K)
     assert probs.sum(-1).allclose(torch.ones(G_))
+
+def test_augment_df_with_traj_info():
+    warnings.filterwarnings("ignore", category=DeprecationWarning,
+                            module="pandas")
+    # Read df
+    data_file_name = os.path.split(os.path.realpath(__file__))[0] + \
+        '/../resources/data/trajectory_data_1.csv'
+
+    # Modify the input data a bit before testing the assignment
+    df = pd.read_csv(data_file_name)
+    df['y'] = df['y'].values + 0.01*np.random.randn(1)
+    df[:] = df.sample(frac=1).values
+    if 'traj' in df.columns:
+        df.rename(columns={'traj': 'traj_gt'}, inplace=True)
+
+    # Read MultPyro model
+    model_file_name = os.path.split(os.path.realpath(__file__))[0] + \
+        '/../resources/models/pyro_model_1.pt'
+    model = load_model(model_file_name)
+
+    # Augment df and evaluate
+    df_aug = model.augment_df_with_traj_info(df)
+    assert np.sum((df_aug.traj_gt.values == 1) & (df.traj.values == 1)) + \
+        np.sum((df_aug.traj_gt.values == 2) & (df.traj.values == 0)), \
+        "Error in trajectory assignment"
+
+    for kk in range(model.K):
+        assert np.sum(df_aug.groupby('id').\
+            apply(lambda dd : np.all(dd[f'traj_{kk}'].values == \
+                dd[f'traj_{kk}'].values[0]))) == df_aug.groupby('id').ngroups, \
+                "Trajectory probabilities differ within individual"

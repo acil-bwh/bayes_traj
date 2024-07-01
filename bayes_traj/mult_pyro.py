@@ -9,9 +9,9 @@ from pyro.infer.autoguide import AutoNormal, init_to_sample
 from pyro.optim import ClippedAdam
 from bayes_traj.pyro_helper import *
 import pdb
+from bayes_traj.base_model import BaseModel
 
-
-class MultPyro:
+class MultPyro(BaseModel):
     def __init__(
         self,
         *,  # force passing by keyword to avoid confusion
@@ -619,3 +619,30 @@ class MultPyro:
                 probs[g, k] += 1
             probs /= num_samples
             return probs
+
+    def augment_df_with_traj_info(self, df):
+        """
+        """
+        probs = self.classify(df)
+        re_data = \
+            get_restructured_data(df, self.predictor_names_,
+                    self.target_names_, self.groupby_col_)
+
+        traj_probs = {}
+        for ii in range(self.K):
+            traj_probs[f'traj_{ii}'] = np.array([np.nan]*df.shape[0])
+        
+        traj = np.array([np.nan]*df.shape[0])
+        for ii, gg in enumerate(re_data['group_to_index'].keys()):
+            which_traj = \
+                np.where(probs[ii].numpy() == np.max(probs[ii].numpy()))[0][0]            
+            traj[re_data['group_to_index'][gg]] = which_traj
+            for tt in range(self.K):
+                traj_probs[f'traj_{tt}'][re_data['group_to_index'][gg]] = \
+                    probs[ii].numpy()[tt]
+
+        df['traj'] = traj
+        for ii in range(self.K):
+            df[f'traj_{ii}'] = traj_probs[f'traj_{ii}']
+        
+        return df
