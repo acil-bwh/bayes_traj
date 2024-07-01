@@ -19,10 +19,10 @@ from scipy.stats import norm
 import pandas as pd
 import pdb, sys, pickle, time, warnings
 import copy
+from bayes_traj.base_model import BaseModel
 
 
-
-class MultDPRegression:
+class MultDPRegression(BaseModel):
     """Uses Dirichlet process mixture modeling to identify mixtures of
     regressors. In the below, 'D' signifies the dimension of the target
     variable, and we assume that each target is associated with a vector of
@@ -1399,7 +1399,7 @@ class MultDPRegression:
         self.R_[:] = init_traj_probs
         self.sig_trajs_ = torch.max(self.R_, 0)[0] > self.prob_thresh_
 
-    def augment_df_with_traj_info(self, df, gb_col=None):
+    def augment_df_with_traj_info(self, df):
         """Compute the probability that each data instance belongs to each of
         the 'k' clusters. Note that 'X' and 'Y' can be "new" data; that is,
         data that was not necessarily used to train the model.
@@ -1411,9 +1411,6 @@ class MultDPRegression:
         df : pandas DataFrame
             Input data frame to augment with trajectory info
 
-        gb_col : str, optional
-            df column to groupby. Should correspond to subject identifier.
-
         Returns
         -------
         df_aug : pandas DataFrame
@@ -1421,9 +1418,12 @@ class MultDPRegression:
             indicates the most probable trajectory assignment, and 
             'traj_<num>', <num> indicates each of the trajectories and the 
             column values are the probabilities of assignment. 
-        """        
+        """
+        gb_col = self.gb_.grouper.names[0]
+
         R = self.get_R_matrix(df, gb_col).numpy()
         N = df.shape[0]
+        
         # Now augment the dataframe with trajectory info
         traj = []
         for i in range(N):
