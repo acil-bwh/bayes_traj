@@ -182,3 +182,24 @@ def test_augment_df_with_traj_info():
             apply(lambda dd : np.all(dd[f'traj_{kk}'].values == \
                 dd[f'traj_{kk}'].values[0]))) == df_aug.groupby('id').ngroups, \
                 "Trajectory probabilities differ within individual"
+
+def test_to_df():
+    # Read MultPyro model
+    model_file_name = os.path.split(os.path.realpath(__file__))[0] + \
+        '/../resources/models/pyro_model_1.pt'
+    model = load_model(model_file_name)
+    df = model.to_df()
+
+    # Get columns that don't have 'traj' in name:
+    cols = []
+    for cc in df.columns:
+        if 'traj' not in cc:
+            cols.append(cc)
+    
+    # Read data on which the model was trained
+    data_file_name = os.path.split(os.path.realpath(__file__))[0] + \
+        '/../resources/data/trajectory_data_1.csv'
+    df_ref = pd.read_csv(data_file_name)
+
+    pd.testing.assert_frame_equal(df_ref[cols], df[cols])
+
