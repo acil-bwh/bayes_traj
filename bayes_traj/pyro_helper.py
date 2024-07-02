@@ -15,6 +15,8 @@ class RestructuredData(TypedDict):
     Y_bool_mask: Optional[torch.Tensor]
     cohort: Optional[torch.Tensor]
     group_to_index : dict
+    Y_real_names : list
+    Y_bool_names : list
 
 def get_restructured_data(df, predictors, targets, groupby) -> RestructuredData:
     """
@@ -132,7 +134,9 @@ def get_restructured_data(df, predictors, targets, groupby) -> RestructuredData:
         Y_bool=Y_bool,
         Y_bool_mask=Y_bool_mask,
         cohort=cohort,
-        group_to_index=df.groupby(groupby).groups
+        group_to_index=df.groupby(groupby).groups,
+        Y_real_names=real_cols,
+        Y_bool_names=bool_cols,
     )
     for k, v in result.items():
         print(f'{k: >12s}: {getattr(v, "shape", "n/a")}')
