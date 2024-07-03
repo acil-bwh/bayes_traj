@@ -18,7 +18,8 @@ class RestructuredData(TypedDict):
     Y_real_names : list
     Y_bool_names : list
 
-def get_restructured_data(df, predictors, targets, groupby) -> RestructuredData:
+def get_restructured_data(df, predictors, targets,
+                          groupby, verbose=False) -> RestructuredData:
     """
 
     Parameters
@@ -34,6 +35,9 @@ def get_restructured_data(df, predictors, targets, groupby) -> RestructuredData:
 
     groupby : string
         Column in df corresponding to the subject identifier
+
+    verbose : bool, optional
+        If true, will print a summary of restructured data
 
     Returns
     -------
@@ -138,8 +142,11 @@ def get_restructured_data(df, predictors, targets, groupby) -> RestructuredData:
         Y_real_names=real_cols,
         Y_bool_names=bool_cols,
     )
-    for k, v in result.items():
-        print(f'{k: >12s}: {getattr(v, "shape", "n/a")}')
+
+    if verbose:
+        for k, v in result.items():
+            print(f'{k: >12s}: {getattr(v, "shape", "n/a")}')
+            
     return result
 
 
