@@ -1,5 +1,6 @@
 from typing import Dict
 
+import matplotlib.pyplot as plt
 import torch
 import pyro
 import pyro.distributions as dist
@@ -190,6 +191,7 @@ class MultPyro(BaseModel):
             scale = self.w_var0.sqrt()
             assert loc.shape == (D + B, M)
             assert scale.shape == (D + B, M)
+
             W_ = pyro.sample("W_", dist.Normal(loc, scale).to_event(2))
             assert W_.shape == (K, D + B, M)
 
@@ -332,7 +334,7 @@ class MultPyro(BaseModel):
         predictor_names,
         df,
         groupby,            
-        learning_rate: float = 0.05,
+        learning_rate: float = 0.05, # Might need to lower substantially...
         learning_rate_decay: float = 0.1,
         num_steps: int = 1001,
         seed: int = 20231215,
@@ -437,7 +439,7 @@ class MultPyro(BaseModel):
         assert self.w_var0.shape == (D + B, M)
         
         # Reset state to ensure reproducibility.
-        pyro.set_rng_seed(seed)
+        pyro.set_rng_seed(seed) # TODO -- handle as optional
         with pyro.get_param_store().scope() as self.params:
             # Run SVI.
             # We need a guide only over the continuous latent variables since we're
@@ -445,6 +447,7 @@ class MultPyro(BaseModel):
             self.guide = AutoNormal(poutine.block(self.model, hide=["k"]),
                                     init_scale=0.01,
                                     init_loc_fn=init_to_sample)
+            
             optim = ClippedAdam(
                 {"lr": learning_rate, "lrd": learning_rate_decay**(1 / num_steps)}
             )
@@ -479,7 +482,7 @@ class MultPyro(BaseModel):
 
             self.losses = []
             for step in range(num_steps):
-                loss = svi.step(**data)
+                loss = svi.step(**data)                
                 loss /= obs_count  # Per-observation loss is interpretable.
                 self.losses.append(loss)
                 if step % 100 == 0:
@@ -636,7 +639,7 @@ class MultPyro(BaseModel):
         traj_probs = {}
         for ii in range(self.K):
             traj_probs[f'traj_{ii}'] = np.array([np.nan]*df.shape[0])
-        
+
         traj = np.array([np.nan]*df.shape[0])
         for ii, gg in enumerate(re_data['group_to_index'].keys()):
             which_traj = \
@@ -889,7 +892,9 @@ class MultPyro(BaseModel):
 
     def to_df(self) -> pd.DataFrame:
         """
-        Reconstitutes the contents of the restructured data into a DataFrame.
+        Reconstitutes the contents of the restructured data into a DataFrame. 
+        This function will also augment the dataframe with traj assignments 
+        ('traj' column) and traj probilities ('traj_*') columns.
         
         Returns
         -------
@@ -929,3 +934,194 @@ class MultPyro(BaseModel):
         
         return df
     
+    def plot(model, x_axis, y_axis, x_label=None, y_label=None,
+             which_trajs=None, show=True, min_traj_prob=0, max_traj_prob=1,
+             traj_map=None, hide_traj_details=False, hide_scatter=False,
+             traj_markers=None, traj_colors=None, fill_alpha=0.3):
+        """Generates a 2D plot of trajectory results. The original data will be
+        shown as a scatter plot, color-coded according to trajectory membership.
+        Trajectories will be plotted with line plots indicating the expected 
+        target value given predictor values. The user has control over what
+        variables will appear on the x- and y-axes. This plotting function
+        expects that predictors raised to a power use the ^ character. E.g.
+        predictors might be: 'age' and 'age^2'. In this case, if the user
+        wants to plot 'age' on the x-axis, he/she need only specify 'age' (the
+        plotting routine will take care of the higher order terms). Predictor
+        variables not specified to be on the x-axis will be set to their mean
+        values for plotting.     
+            
+        TODO: Update to accomodate binary target variables as necessary
+    
+        Parameters
+        ----------
+        x_axis : str
+            Predictor name corresponding to x-axis.
+    
+        y_axis : str
+            Target variable name corresponding to y-axis.
+    
+        x_label : str, optional
+            Label to display on x-axis. If none given, the variable name 
+            specified with x_axis will be used
+    
+        y_label : str, optional
+            Label to display on y-axis. If none given, the variable name 
+            specified with y_axis will be used
+    
+        which_trajs : int or array, optional
+            If specified, only these trajectories will be plotted. If not 
+            specified, all trajectories will be plotted.
+    
+        show : bool, optional
+            By default, invocation of this function will show the plot. If set
+            to false, the handle to the axes will be returned, but the plot will
+            not be displayed
+    
+        min_traj_prob : float, optional
+            The probability of a given trajectory must be at least this value in
+            order to be rendered. Value should be between 0 and 1 inclusive.
+    
+        max_traj_prob : float, optional
+            The probability of a given trajectory can not be larger than this 
+            value in order to be rendered. Value should be between 0 and 1 
+            inclusive.
+    
+        traj_map : dict, optional
+            Int-to-int mapping of trajectories, where keys are the original 
+            (default) trajectory numbers, and the values are the new trajectory
+            numbers. This for display purposes only. Supercedes which_trajs.
+    
+        hide_traj_details : bool, optional
+            If true, trajectory details (N and percentage of sample) will not 
+            appear in the legend.
+    
+        hide_scatter : bool, optional
+            If true, data scatter plot will not render
+    
+        traj_markers : list of strings, optional
+            List of markers to use for each trajectory's line plot. Length of
+            list should match number of trajectories to plot.
+    
+        traj_colors : list of strings, optional
+            List of colors to use for each trajectory's line plot. Length of
+            list should match number of trajectories to plot.
+    
+        fill_alpha : float, optional
+            Value between 0 and 1 that controls opacity of each trajectorys 
+            fill region (which indicates +\- 2 residual standard deviations 
+            about the mean)
+        """
+        cmap = plt.cm.get_cmap('tab20')
+        
+        df_traj = model.to_df()
+
+        n_tot = df_traj.groupby(model.groupby_col_).ngroups
+    
+        num_real_targets = len(model.real_target_names_)
+        num_bool_targets = len(model.bool_target_names_)    
+    
+        if y_axis in model.real_target_names_:
+            target_index = model.real_target_names_.index(y_axis)
+        elif y_axis in model.bool_target_names_:
+            target_index = model.bool_target_names_.index(y_axis) + \
+                len(model.real_target_names_)
+        else:
+            raise ValueError("Unrecognized target")
+            
+        num_dom_locs = 100
+        x_dom = np.linspace(np.min(df_traj[x_axis].values),
+                            np.max(df_traj[x_axis].values),
+                            num_dom_locs)
+        
+        X_tmp = np.ones([num_dom_locs, model.M])
+        for (inc, pp) in enumerate(model.predictor_names_):
+            tmp_pow = pp.split('^')
+            tmp_int = pp.split('*')
+                
+            if len(tmp_pow) > 1:
+                if x_axis in tmp_pow:                
+                    X_tmp[:, inc] = x_dom**(int(tmp_pow[-1]))
+                else:                
+                    X_tmp[:, inc] = np.mean(df_traj[tmp_pow[0]].values)**\
+                        (int(tmp_pow[-1]))
+            elif len(tmp_int) > 1:
+                if x_axis in tmp_int:                
+                    X_tmp[:, inc] = \
+                        x_dom**np.mean(df_traj[tmp_int[np.where(\
+                            np.array(tmp_int) != x_axis)[0][0]]].values)
+                else:
+                    X_tmp[:, inc] = np.mean(df_traj[tmp_int[0]])*\
+                        np.mean(df_traj[tmp_int[1]])                    
+            elif pp == x_axis:
+                X_tmp[:, inc] = x_dom
+            else:
+                X_tmp[:, inc] = np.nanmean(df_traj[tmp_pow[0]].values)
+                
+        # Create a trajeectory mapping for internal uses. By default, this is
+        # the trivial mapping whereby every trajectory maps to itself. Using
+        # this trajectory mapping consistently will facilitate the use case
+        # when a user specifies a specific mapping. Note that traj_map_ is only
+        # for plotting color selection and legend numbering
+        traj_map_ = {}
+        for ii in range(model.K):
+            traj_map_[ii] = ii
+                    
+        if traj_map is not None:
+            traj_ids = np.array(list(traj_map.keys()))
+            traj_map_ = traj_map
+        elif which_trajs is not None:
+            if type(which_trajs) == int:
+                traj_ids = np.array([which_trajs])
+            else:
+                traj_ids = which_trajs
+        else:
+            traj_ids = np.unique(df_traj.traj.values).astype(int)
+                        
+        fig, ax = plt.subplots(figsize=(6, 6))
+        for kk in traj_ids:
+            marker = None
+            if traj_markers is not None:
+                marker = traj_markers[kk]
+    
+            color = cmap(kk)
+            if traj_colors is not None:
+                color = traj_colors[kk]
+
+            df_tmp = df_traj.groupby('traj').get_group(kk)
+            n_traj = df_tmp.groupby(model.groupby_col_).ngroups
+            perc_traj = 100*n_traj/n_tot
+    
+            if perc_traj/100 >= min_traj_prob and \
+               perc_traj/100 <= max_traj_prob:
+                if hide_traj_details:
+                    label = 'Traj {}'.format(traj_map_[tt])
+                else:
+                    label = 'Traj {} (N={}, {:.1f}%)'.\
+                        format(traj_map_[kk], n_traj, perc_traj)
+            
+                stddev = (model.estimate_params()['lambda_mu']).\
+                    rsqrt().numpy()[kk, target_index]
+                cos = (model.estimate_params()['W_mu']).\
+                    numpy()[kk, target_index, :]
+                y1_tmp = np.dot(X_tmp, cos.T)
+                lb = y1_tmp - 2*stddev
+                ub = y1_tmp + 2*stddev
+                ax.plot(x_dom, y1_tmp, color=color, label=label, linewidth=3,
+                        marker=marker, ms=8, markevery=5)
+                ax.fill_between(x_dom, lb, ub, alpha=fill_alpha, color=color)
+    
+                if not hide_scatter:            
+                    ax.scatter(df_tmp[x_axis], df_tmp[y_axis], edgecolor='k',
+                               color=color)
+            
+        ax.set_xlabel(x_axis if x_label is None else x_label, fontsize=16)
+        ax.set_ylabel(y_axis if y_label is None else y_label, fontsize=16)
+    
+        ax.legend(loc='upper right', framealpha=1)
+        
+        if show:
+            plt.show()
+    
+        return ax
+    
+        
