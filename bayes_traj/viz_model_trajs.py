@@ -6,6 +6,7 @@ import pickle
 import matplotlib.pyplot as plt
 from argparse import ArgumentParser
 from provenance_tools.write_provenance_data import write_provenance_data
+from bayes_traj.load_model import load_model
 
 def main():
     desc = """"""
@@ -70,54 +71,54 @@ def main():
         traj_map = {}
         for ii in op.traj_map.split(','):
             traj_map[int(ii.split('-')[0])] = int(ii.split('-')[1])
-    
-    with open(op.model, 'rb') as f:
-        mm = pickle.load(f)['MultDPRegression']
-        assert op.x_axis in mm.predictor_names_, \
-            'x-axis variable not among model predictor variables'
-        assert op.y_axis in mm.target_names_, \
-            'y-axis variable not among model target variables'
-        
-        show = op.fig_file is None
 
-        traj_markers = None
-        if op.traj_markers is not None:            
-            traj_markers = op.traj_markers.split(',')
-
-        traj_colors = None
-        if op.traj_colors is not None:            
-            traj_colors = op.traj_colors.split(',')            
+    model = load_model(op.model)
+            
+    assert op.x_axis in model.predictor_names_, \
+        'x-axis variable not among model predictor variables'
+    assert op.y_axis in model.target_names_, \
+        'y-axis variable not among model target variables'
         
-        if op.trajs is not None:
-            ax = mm.plot(op.x_axis, op.y_axis, op.x_label, op.y_label,
-                         np.array(op.trajs.split(','), dtype=int),
-                         show=show, min_traj_prob=op.min_traj_prob,
-                         max_traj_prob=op.max_traj_prob, traj_map=traj_map,
-                         hide_scatter=op.hs, hide_traj_details=op.htd,
-                         traj_markers=traj_markers, traj_colors=traj_colors,
-                         fill_alpha=op.fill_alpha)
-        else:            
-            ax = mm.plot(op.x_axis, op.y_axis, op.x_label, op.y_label,
-                         show=show, min_traj_prob=op.min_traj_prob,
-                         max_traj_prob=op.max_traj_prob, traj_map=traj_map,
-                         hide_scatter=op.hs, hide_traj_details=op.htd,
-                         traj_markers=traj_markers, traj_colors=traj_colors,
-                         fill_alpha=op.fill_alpha)
+    show = op.fig_file is None
+
+    traj_markers = None
+    if op.traj_markers is not None:            
+        traj_markers = op.traj_markers.split(',')
+
+    traj_colors = None
+    if op.traj_colors is not None:            
+        traj_colors = op.traj_colors.split(',')            
+        
+    if op.trajs is not None:
+        ax = model.plot(op.x_axis, op.y_axis, op.x_label, op.y_label,
+                        np.array(op.trajs.split(','), dtype=int),
+                        show=show, min_traj_prob=op.min_traj_prob,
+                        max_traj_prob=op.max_traj_prob, traj_map=traj_map,
+                        hide_scatter=op.hs, hide_traj_details=op.htd,
+                        traj_markers=traj_markers, traj_colors=traj_colors,
+                        fill_alpha=op.fill_alpha)
+    else:            
+        ax = model.plot(op.x_axis, op.y_axis, op.x_label, op.y_label,
+                        show=show, min_traj_prob=op.min_traj_prob,
+                        max_traj_prob=op.max_traj_prob, traj_map=traj_map,
+                        hide_scatter=op.hs, hide_traj_details=op.htd,
+                        traj_markers=traj_markers, traj_colors=traj_colors,
+                        fill_alpha=op.fill_alpha)
             
-        if op.ylim is not None:
-            plt.ylim(float(op.ylim.strip('--').split(',')[0]),
-                     float(op.ylim.strip('--').split(',')[1]))
-        if op.xlim is not None:
-            plt.xlim(float(op.xlim.strip('--').split(',')[0]),
-                     float(op.xlim.strip('--').split(',')[1]))            
+    if op.ylim is not None:
+        plt.ylim(float(op.ylim.strip('--').split(',')[0]),
+                 float(op.ylim.strip('--').split(',')[1]))
+    if op.xlim is not None:
+        plt.xlim(float(op.xlim.strip('--').split(',')[0]),
+                 float(op.xlim.strip('--').split(',')[1]))            
             
-        if op.fig_file is not None:
-            print("Saving figure...")
-            plt.savefig(op.fig_file)
-            print("Writing provenance info...")
-            write_provenance_data(op.fig_file, generator_args=op, desc=""" """,
-                                  module_name='bayes_traj')
-            print("DONE.")
+    if op.fig_file is not None:
+        print("Saving figure...")
+        plt.savefig(op.fig_file)
+        print("Writing provenance info...")
+        write_provenance_data(op.fig_file, generator_args=op, desc=""" """,
+                              module_name='bayes_traj')
+        print("DONE.")
 
 if __name__ == "__main__":
     main()                  
