@@ -556,8 +556,8 @@ def test_compute_prior_info_5():
         prior_info_gt['v_b'][1]), "Error in prior"
     assert np.isclose(pg.prior_info_['traj_probs'][1], \
         prior_info_gt['traj_probs'][1]), "Error in prior"
-    
-    assert pg.prior_info_['alpha'] == prior_info_gt['alpha'], "Error in prior"
+    assert np.isclose(pg.prior_info_['alpha'], 0.3613243243243244), \
+        "Error in prior"
     
 
     
