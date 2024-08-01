@@ -10,10 +10,31 @@ import copy, pdb
 from bayes_traj.get_alpha_estimate import get_alpha_estimate
 from provenance_tools.write_provenance_data import write_provenance_data
 
+def check_covariance_matrix(covmat):
+    # Check if the matrix is square
+    if covmat.shape[0] != covmat.shape[1]:
+        return False, "Matrix is not square"
+    
+    # Check if the matrix is symmetric
+    if not np.allclose(covmat, covmat.T):
+        return False, "Matrix is not symmetric"
+    
+    # Check if the matrix is positive semi-definite
+    eigenvalues = np.linalg.eigvals(covmat)
+    if not np.all(eigenvalues >= 0):
+        return False, "Matrix is not positive semi-definite"
+    
+    # Check if the diagonal elements are non-negative
+    if not np.all(np.diag(covmat) >= 0):
+        return False, "Matrix has negative diagonal elements"
+    
+    return True, "Matrix is a valid Gaussian covariance matrix"
+
+
 class PriorGenerator:
     """
     """
-    def __init__(self, targets, preds, num_trajs=2,
+    def __init__(self, targets, preds, ranefs=None, num_trajs=2,
                  min_num_trajs=None, max_num_trajs=None, alpha=None):
         """
         """
@@ -66,6 +87,28 @@ class PriorGenerator:
         self.prior_info_['v_a'] = None
         self.prior_info_['v_b'] = None
         self.prior_info_['traj_probs'] = None
+        self.prior_info_['Sig0'] = None
+        self.prior_info_['ranefs'] = None
+        self.prior_info_['ranef_indices'] = None
+
+        # The following maps a predictor name to the covariance matrix index
+        # location
+        self.prior_info_['pred_to_ranef_index'] = {}
+
+        if ranefs is not None:
+            self.prior_info_['ranefs'] = []
+            self.prior_info_['ranef_indices'] = np.zeros(len(preds), dtype=bool)
+            inc = 0
+            for ii, pp in enumerate(preds):
+                if pp in ranefs:
+                    self.prior_info_['ranefs'].append(pp)
+                    self.prior_info_['ranef_indices'][ii] = True
+                    self.prior_info_['pred_to_ranef_index'][pp] = inc
+                    inc += 1
+            Sig0 = {}
+            for dd in self.targets_:
+                Sig0[dd] = np.eye(len(ranefs))
+            self.prior_info_['Sig0'] = Sig0
 
         # The prior over the residual precision can get overwhelmed by the
         # data -- so much so that residual precision posteriors can wind up
@@ -283,7 +326,12 @@ class PriorGenerator:
             self.prior_info_['w_mu'][m][target][traj] = \
                 self.mm_.w_mu_[pred_index, target_index, traj]
             self.prior_info_['w_var'][m][target][traj] = \
-                self.mm_.w_var_[pred_index, target_index, traj]            
+                self.mm_.w_var_[pred_index, target_index, traj]
+
+        if self.prior_info_['ranefs'] is not None:
+            self.prior_info_['Sig0'] = \
+                self.ranef_covmat_from_model(self.mm_,
+                        self.prior_info_['ranefs'])
         
     def prior_info_from_df_gaussians(self, target):
         """Computes w_mu0, w_var0, lambda_a0, lambda_b0
@@ -423,6 +471,37 @@ class PriorGenerator:
                 lambda_a[target_index][sig_trajs][0]
             self.prior_info_['lambda_b0'][target] = \
                 lambda_b[target_index][sig_trajs][0]
+
+    def ranef_covmat_from_model(self, mm, ranefs):
+        """
+        """
+        Sig0 = {}
+        for dd, tt in enumerate(mm.target_names_):
+            resids_tmp = torch.zeros(mm.N_)
+            for kk in np.where(mm.sig_trajs_)[0]:        
+                resids_tmp += mm.R_[:, kk]*\
+                    np.dot(mm.X_, mm.w_mu_[:, dd, kk])
+
+            params_tmp = []
+            for (ii, jj) in mm.gb_.groups.items():
+                if jj.shape[0] > len(ranefs):
+                    params_tmp.append(sm.OLS(\
+                        resids_tmp[jj].numpy(), \
+                        mm.X_[jj, :][:, self.prior_info_['ranef_indices']].\
+                                             numpy()).fit().params)
+
+            if len(params_tmp) == 0:
+                raise ValueError("Insufficient data to esimate cov matrix")
+
+            if np.array(params_tmp).T.shape[1] > len(ranefs):
+                Sig0[tt] = np.cov(np.array(params_tmp).T)
+            else:
+                Sig0[tt] = np.eye(len(ranefs))
+
+            is_valid, msg = check_covariance_matrix(Sig0[tt])
+            assert is_valid, msg
+                
+        return Sig0
             
     def compute_prior_info(self):
         """
@@ -718,6 +797,15 @@ def main():
         is assumed that the file contains data columns with names corresponding \
         to the predictor and target names specified on the command line.',
         type=str, default=None)
+    parser.add_argument('--ranefs', help='Comma-separated list of predictors \
+        for which to consider random effects (must be a subset of preds)',
+        type=str, default=None)
+    parser.add_argument('--ranef', help='Variance or covariance prior for \
+        specified random effect. Specify as a comma-separated tuple: \
+        target_name,predictor_name,variance or target,predictor_name1,\
+        predictor_name2,covariance. By default, variances will be 1 and \
+        covariances will be 0.',
+        type=str, default=None, action='append', nargs='+')
     parser.add_argument('--num_trajs', help='Estimate of the number of \
         trajectories expected in the data set. Can be specified as a single \
         value or as a dash-separated range, such as 4-6. If a single value is \
@@ -745,12 +833,18 @@ def main():
     
     preds = op.preds.split(',')
     targets = op.targets.split(',')
-            
+
+    ranefs = None
+    if op.ranefs is not None:
+        ranefs = op.ranefs.split(',')
+        for rr in ranefs:
+            assert rr in preds, "Specified random effect not among predictors"
+        
     if op.alpha is not None:
         assert op.alpha > 0, \
             "alpha  must be a positive real value"
         
-    pg = PriorGenerator(targets, preds, alpha=op.alpha)
+    pg = PriorGenerator(targets, preds, ranefs, alpha=op.alpha)
     
     #---------------------------------------------------------------------------
     # Set the number of trajs
@@ -822,6 +916,32 @@ def main():
     
             prior_info['w_var0'][tt][pp] = s**2
 
+    if op.ranef is not None:
+        if op.ranefs is None:
+            raise ValueError("ranef is specified, but ranefs have not been")
+        for ii in range(len(op.ranef)):
+            num_in_tuple = len(op.ranef[ii][0].split(','))
+            target = op.ranef[ii][0].split(',')[0]
+            if num_in_tuple == 3: # Variance
+                pred = op.ranef[ii][0].split(',')[1]
+                variance = float(op.ranef[ii][0].split(',')[2])
+                index = prior_info['pred_to_ranef_index'][pred]
+                prior_info['Sig0'][target][index, index] = variance
+            elif num_in_tuple == 4: # Covariance
+                pred1 = op.ranef[ii][0].split(',')[1]
+                pred2 = op.ranef[ii][0].split(',')[2]
+                index1 = prior_info['pred_to_ranef_index'][pred1]
+                index2 = prior_info['pred_to_ranef_index'][pred2]
+                covariance = float(op.ranef[ii][0].split(',')[3])
+                prior_info['Sig0'][target][index1, index2] = covariance
+                prior_info['Sig0'][target][index2, index1] = covariance                
+
+            # Check that Sig0 is pos
+            Sig0_is_valid, message = \
+                check_covariance_matrix(prior_info['Sig0'][target])
+
+            assert Sig0_is_valid, message
+            
     #---------------------------------------------------------------------------
     # Summarize prior info and save to file
     #---------------------------------------------------------------------------        
@@ -842,6 +962,13 @@ def main():
             print("{} {} (mean, std): ({:.2e}, {:.2e})".\
                   format(tt, pp, tmp_mean, tmp_std))
 
+        print(f'{tt} ranefs:')
+        df_tmp = pd.DataFrame(prior_info['Sig0'][tt],
+                              index=prior_info['ranefs'],
+                              columns=prior_info['ranefs'])
+        print(df_tmp.to_string(float_format="{:.5f}".format))
+
+            
     if op.out_file is not None:                    
         pickle.dump(prior_info, open(op.out_file, 'wb'))
         desc = """ """
