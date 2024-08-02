@@ -383,7 +383,12 @@ class PriorGenerator:
 
         for (i, m) in enumerate(self.preds_):
             self.prior_info_['w_mu0'][target][m] = res_tmp.params.values[i]
-            self.prior_info_['w_var0'][target][m] = vars[i]        
+            self.prior_info_['w_var0'][target][m] = vars[i]
+
+        if self.prior_info_['ranefs'] is not None:
+            self.prior_info_['Sig0'] = \
+                self.ranef_covmat_from_df(self.df_data_,
+                        self.prior_info_['ranefs'])            
     
     def prior_info_from_model(self, target):
         """
@@ -473,7 +478,12 @@ class PriorGenerator:
                 lambda_b[target_index][sig_trajs][0]
 
     def ranef_covmat_from_model(self, mm, ranefs):
-        """
+        """Computes estimate of random effects covariance matrix given input
+        model. The procedure is to compute residuals using all predictors and
+        then to perform OLS regression on the residuals using only the ranef
+        predictors. The regression is done for each individual, and the 
+        regression parameters are tallied. The covariance matrix is computed 
+        from these tallied parameters
         """
         Sig0 = {}
         for dd, tt in enumerate(mm.target_names_):
@@ -502,7 +512,42 @@ class PriorGenerator:
             assert is_valid, msg
                 
         return Sig0
+
+    def ranef_covmat_from_df(self, df, ranefs):
+        """Computes estimate of random effects covariance matrix given input
+        model. The procedure is to compute residuals using all predictors and
+        then to perform OLS regression on the residuals using only the ranef
+        predictors. The regression is done for each individual, and the 
+        regression parameters are tallied. The covariance matrix is computed 
+        from these tallied parameters
+        """
+        gb = df.groupby('sid')
             
+        Sig0 = {}
+        for dd, tt in enumerate(self.targets_):
+            resids_tmp = \
+                sm.OLS(df[tt], df[self.preds_].values).fit().resid.values
+    
+            params_tmp = []
+            for (ii, jj) in gb.groups.items():
+                if jj.shape[0] > len(ranefs):
+                    params_tmp.append(sm.OLS(resids_tmp[jj], \
+                        df[self.preds_].values[jj, :][:,
+                        self.prior_info_['ranef_indices']]).fit().params)
+    
+            if len(params_tmp) == 0:
+                raise ValueError("Insufficient data to esimate cov matrix")
+    
+            if np.array(params_tmp).T.shape[1] > len(ranefs):
+                Sig0[tt] = np.cov(np.array(params_tmp).T)
+            else:
+                Sig0[tt] = np.eye(len(self.prior_info_['ranefs']))
+
+            is_valid, msg = check_covariance_matrix(Sig0[tt])
+            assert is_valid, msg
+                
+        return Sig0
+    
     def compute_prior_info(self):
         """
         """
