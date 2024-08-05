@@ -63,6 +63,14 @@ class MultDPRegression:
     K : int
         An integer indicating the number of elements in the truncated Dirichlet
         Process.
+ 
+    Sig0 : dict of arrays, optional
+        Dictionary of random effect covariances matrices (one matrix for each
+        target variable). If specified, ranef_indices must also be specified.
+
+    ranef_indices : array, shape ( M ), optional
+        Boolean array indicating which predictors are involved in random 
+        effects. If specified, Sig0 must also be specified.
 
     prob_thresh : float, optional
         Once the probability of belonging to a component drops below this
@@ -154,10 +162,16 @@ class MultDPRegression:
             if len(args) > 7:
                 self.prob_thresh_ = 0.001
 
+            self.Sig0_ = None
+            self.ranef_indices_ = None
             if 'K' in kwargs.keys():
                 self.K_ = kwargs['K']
+            if 'Sig0' in kwargs.keys():
+                self.Sig0_ = kwargs['Sig0']
+            if 'ranef_indices' in kwargs.keys():
+                self.ranef_indices_ = kwargs['ranef_indices']                
             if 'prob_thresh' in kwargs.keys():
-                self.prob_thresh_ = kwargs['prob_thresh']
+                self.prob_thresh_ = kwargs['prob_thresh']                
                 
             self.M_ = self.w_mu0_.shape[0]
             self.D_ = self.w_mu0_.shape[1]
@@ -457,7 +471,7 @@ class MultDPRegression:
           "Dimension mismatch between mu_ and X_"
         assert self.X_.shape[0] == self.Y_.shape[0], \
           "X_ and Y_ do not have the same number of samples"        
-    
+        
         self.N_ = self.X_.shape[0]
         self.M_ = self.X_.shape[1]
         self.D_ = self.Y_.shape[1]
@@ -512,13 +526,41 @@ class MultDPRegression:
         self.df_helper_ = pd.DataFrame(df[[groupby]])
         for k in range(self.K_):
             self.df_helper_['like_accum_' + str(k)] = np.nan*np.zeros(self.N_)
-        
+
+        self.G_ = self.N_
         self.gb_ = None        
         if groupby is not None:
             self.gb_ = self.df_helper_.groupby(groupby)
-    
+            self.G_ = self.gb_.ngroups
+            
         self._set_group_first_index(self.df_, self.gb_)
+        
+        #-----------------------------------------------------------------------
+        # If ranefs specified, precompute necessary quantities for speed
+        #-----------------------------------------------------------------------
+        if self.ranef_indices_ is not None:
+            num_ranefs = np.sum(self.ranef_indices_)
+            
+            # Precompute the outer product of the predictors, which will be reused
+            if self.G_ == self.N_:
+                raise RuntimeError("Specified random effects, but no groups")
+    
+            X_outer = torch.einsum('ij,ik->ijk', self.X_[:, self.ranef_indices_],
+                                   self.X_[:, self.ranef_indices_])
+            self.G_r_r_ = torch.zeros([self.G_, num_ranefs, num_ranefs])
+            inc = 0
+            for ii, vv in enumerate(self.gb_.groups.values()):
+                self.G_r_r_[ii, :, :] = torch.sum(X_outer[vv, :, :], axis=0)
 
+            self.invSig0_ = {}
+            for tt in self.target_names_:
+                self.invSig0_[tt] = torch.inverse(self.Sig0_[tt])
+                
+        # This is the random effects tensor. It will be used no matter what --
+        # if random effects have been specified, it will be updated during
+        # inference. If not, it will remain zero.
+        self.u_mu_ = torch.zeros((self.G_, self.D_, self.K_, self.M_))
+        
         # w_covmat_ is used for binary target variables. The EM algorithm
         # that is used to estimate w_mu_ and w_var_ for binary targets
         # actually gives us a full covariance matrix which we take advantage
@@ -848,10 +890,45 @@ class MultDPRegression:
                            self.lambda_b_[d, self.sig_trajs_])*\
                          sum_term + mu0_DIV_var0[m, d])
 
+    def update_w_gaussian(self):
+        """ Updates the variational distributions over predictor coefficients 
+        corresponding to continuous (Gaussian) target variables. 
+        """
+        mu0_DIV_var0 = self.w_mu0_/self.w_var0_
+        for m in range(0, self.M_):
+            ids = torch.ones(self.M_, dtype=bool)
+            ids[m] = False
+            for d in range(0, self.D_):
+                if self.target_type_[d] == 'gaussian':
+                    non_nan_ids = ~torch.isnan(self.Y_[:, d])
+    
+                    tmp1 = (self.lambda_a_[d, self.sig_trajs_]/\
+                            self.lambda_b_[d, self.sig_trajs_])*\
+                            (torch.sum(self.R_[:, self.sig_trajs_, None]\
+                                    [non_nan_ids, :, :]*\
+                                    self.X_[non_nan_ids, None, :]**2, 0).T)\
+                                    [:, None, :]
+    
+                    self.w_var_[:, :, self.sig_trajs_] = \
+                        (tmp1 + (1.0/self.w_var0_)[:, :, None])**-1
+    
+                    sum_term = \
+                        torch.sum(self.R_[non_nan_ids, :][:, self.sig_trajs_]*\
+                                  self.X_[non_nan_ids, m, None]*\
+                                (torch.matmul(self.X_[:, ids][non_nan_ids, :], \
+                                                self.w_mu_[ids, d, :]\
+                                                [:, self.sig_trajs_]) - \
+                                   self.Y_[non_nan_ids, d][:, None]), 0)
+                    self.w_mu_[m, d, self.sig_trajs_] = \
+                        self.w_var_[m, d, self.sig_trajs_]*\
+                        (-(self.lambda_a_[d, self.sig_trajs_]/\
+                           self.lambda_b_[d, self.sig_trajs_])*\
+                         sum_term + mu0_DIV_var0[m, d])
+
 
     def update_lambda(self):
         """Updates the variational distribution over latent variable lambda.
-        """    
+        """
         for d in range(self.D_):
             if self.target_type_[d] == 'gaussian':
                 non_nan_ids = ~torch.isnan(self.Y_[:, d])
@@ -866,15 +943,54 @@ class MultDPRegression:
                            torch.sum((self.X_[non_nan_ids, None, :]**2)*\
                                   (self.w_var_[:, d, self.sig_trajs_].T)\
                                   [None, :, :], 2)
-    
                 self.lambda_b_[d, self.sig_trajs_] = \
                     self.lambda_b0_mod_[d, None] + \
                     0.5*torch.sum(self.R_[non_nan_ids, :][:, self.sig_trajs_]*\
                             (tmp - 2*self.Y_[non_nan_ids, d, None]*\
                              torch.mm(self.X_[non_nan_ids, :], \
                                     self.w_mu_[:, d, self.sig_trajs_]) + \
-                             self.Y_[non_nan_ids, d, None]**2), 0)
+                             self.Y_[non_nan_ids, d, None]**2), 0)                    
 
+    def update_u(self):
+        """Updates the variational distribution over the random effects
+        """    
+        col_names = [f'col_{i}' for i in range(self.M_)]
+        for dd, tt in enumerate(self.target_names_):
+           for kk in np.where(self.sig_trajs_)[0]:
+               #----------------------------------------------------------------
+               # Compute the left part
+               #----------------------------------------------------------------
+               tmp_vec = (self.R_[:, kk]*\
+                   np.dot(self.X_, self.w_mu_[:,dd,kk]) - \
+                          self.Y_[:, dd]).numpy()
+    
+               tmp_mat = (self.df_[self.predictor_names_].values.T*\
+                          tmp_vec[np.newaxis, :]).T
+    
+               df_tmp = pd.DataFrame(tmp_mat, columns=col_names)
+               groupby_col = self.gb_.grouper.names[0]
+               df_tmp['id'] = self.df_[groupby_col].values
+    
+               left_term = (self.lambda_a_[dd, kk]/self.lambda_b_[dd, kk])*\
+                   df_tmp.groupby('id')[col_names].sum().values
+               
+               #----------------------------------------------------------------
+               # Compute the right part
+               #----------------------------------------------------------------
+               tmp_vec = (self.lambda_a_[dd, kk]/self.lambda_b_[dd, kk])*\
+                   self.R_[self.group_first_index_, kk]
+    
+               tmp_mat = \
+                   (self.G_r_r_.T*tmp_vec[np.newaxis, np.newaxis, :]).T + \
+                   self.invSig0_[tt][np.newaxis, :, :]
+               right_term = torch.inverse(tmp_mat)
+    
+               #----------------------------------------------------------------
+               # Compute the left-right product
+               #----------------------------------------------------------------
+               self.u_mu_[:, dd, kk, self.ranef_indices_] = \
+                   torch.bmm(right_term,
+                    left_term[:, self.ranef_indices_].unsqueeze(-1)).squeeze(-1)
 
     def sample(self, index=None, x=None):
         """sample from the posterior distribution using the input data.
@@ -950,7 +1066,6 @@ class MultDPRegression:
                         torch.distributions.Binomial(1, p).sample()
 
         return y_rep
-
 
     def lppd(self, y, index, S=20, x=None):
         """Compute the log pointwise predictive density (lppd) at a specified
