@@ -21,7 +21,6 @@ def check_covariance_matrix(covmat):
     
     # Check if the matrix is positive semi-definite
     eigenvalues = torch.linalg.eigvalsh(covmat)
-    pdb.set_trace()
     if not torch.all(eigenvalues >= 0):
         return False, "Matrix is not positive semi-definite"
     
