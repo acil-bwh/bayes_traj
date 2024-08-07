@@ -3,6 +3,7 @@
 from argparse import ArgumentParser
 import pandas as pd
 import numpy as np
+import pdb
 from bayes_traj.mult_dp_regression import MultDPRegression
 from bayes_traj.mult_pyro import MultPyro
 from bayes_traj.prior_from_model import prior_from_model
@@ -109,8 +110,8 @@ def main():
         subgroups differs. By using this flag, the proportions of previously \
         determined trajectory subgroups will be determined for the current \
         data set.', action='store_true')
-    parser.add_argument('--use_pyro', help='Use Pyro for inference',
-        action='store_true')
+#    parser.add_argument('--use_pyro', help='Use Pyro for inference',
+#        action='store_true')
     
     op = parser.parse_args()
     iters = int(op.iters)
@@ -143,7 +144,8 @@ def main():
         prior_data = {}
         for i in ['v_a', 'v_b', 'w_mu', 'w_var', 'lambda_a', 'lambda_b',
                   'traj_probs', 'R', 'probs_weight', 'w_mu0', 'w_var0',
-                  'lambda_a0', 'lambda_b0', 'alpha']:
+                  'lambda_a0', 'lambda_b0', 'alpha',  'Sig0', 'ranefs',
+                  'ranef_indices', 'pred_to_ranef_index']:
             prior_data[i] = None
     
         prior_data['w_mu0'] = np.zeros([M, D])
@@ -151,7 +153,7 @@ def main():
         prior_data['lambda_a0'] = np.ones([D])
         prior_data['lambda_b0'] = np.ones([D])
         prior_data['R'] = None
-        
+
         if 'v_a' in prior_file_info.keys():
             prior_data['v_a'] = prior_file_info['v_a']
             if prior_file_info['v_a'] is not None:
@@ -175,7 +177,11 @@ def main():
         if 'traj_probs' in prior_file_info.keys():
             prior_data['traj_probs'] = prior_file_info['traj_probs']
         if 'R' in prior_file_info.keys():
-            prior_data['R'] = prior_file_info['R']            
+            prior_data['R'] = prior_file_info['R']
+        if 'Sig0' in prior_file_info.keys():
+            prior_data['Sig0'] = prior_file_info['Sig0']
+        if 'ranef_indices' in prior_file_info.keys():
+            prior_data['ranef_indices'] = prior_file_info['ranef_indices']
         
         prior_data['alpha'] = prior_file_info['alpha']
         for (d, target) in enumerate(op.targets.split(',')):
@@ -228,14 +234,16 @@ def main():
         if r > 0:
             print(f"---------- Repeat {r}, Best WAIC2: {best_waic2} ----------")
 
-        if not op.use_pyro:
+        if True: #not op.use_pyro:
             mm = MultDPRegression(prior_data['w_mu0'],
-                                prior_data['w_var0'],
-                                prior_data['lambda_a0'],
-                                prior_data['lambda_b0'],
-                                op.prec_prior_weight,
-                                prior_data['alpha'], K=K,
-                                prob_thresh=op.prob_thresh)
+                                  prior_data['w_var0'],
+                                  prior_data['lambda_a0'],
+                                  prior_data['lambda_b0'],
+                                  op.prec_prior_weight,
+                                  prior_data['alpha'], K=K,
+                                  Sig0=prior_data['Sig0'],
+                                  ranef_indices=prior_data['ranef_indices'],
+                                  prob_thresh=op.prob_thresh)
 
             mm.fit(target_names=targets, predictor_names=preds, df=df,
                    groupby=op.groupby, iters=iters, verbose=op.verbose,
