@@ -167,7 +167,6 @@ class MultDPRegression:
             if 'K' in kwargs.keys():
                 self.K_ = kwargs['K']
             if 'Sig0' in kwargs.keys():
-                pdb.set_trace()
                 self.Sig0_ = kwargs['Sig0']
             if 'ranef_indices' in kwargs.keys():
                 self.ranef_indices_ = kwargs['ranef_indices']                
