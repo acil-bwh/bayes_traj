@@ -20,7 +20,8 @@ def check_covariance_matrix(covmat):
         return False, "Matrix is not symmetric"
     
     # Check if the matrix is positive semi-definite
-    eigenvalues = torch.linalg.eigvals(covmat)
+    eigenvalues = torch.linalg.eigvalsh(covmat)
+    pdb.set_trace()
     if not torch.all(eigenvalues >= 0):
         return False, "Matrix is not positive semi-definite"
     
