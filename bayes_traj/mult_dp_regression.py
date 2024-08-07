@@ -650,8 +650,9 @@ class MultDPRegression:
 
             self.R_ = self.update_z(self.X_, self.Y_)
 
-            if np.sum(self.ranef_indices_) > 0:
-                self.update_u()
+            if self.ranef_indices_ is not None:
+                if np.sum(self.ranef_indices_) > 0:
+                    self.update_u()
             
             self.sig_trajs_ = \
                 torch.max(self.R_, dim=0).values > self.prob_thresh_
