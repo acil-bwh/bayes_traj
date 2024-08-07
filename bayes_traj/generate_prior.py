@@ -16,16 +16,16 @@ def check_covariance_matrix(covmat):
         return False, "Matrix is not square"
     
     # Check if the matrix is symmetric
-    if not np.allclose(covmat, covmat.T):
+    if not torch.allclose(covmat, covmat.T):
         return False, "Matrix is not symmetric"
     
     # Check if the matrix is positive semi-definite
-    eigenvalues = np.linalg.eigvals(covmat)
-    if not np.all(eigenvalues >= 0):
+    eigenvalues = torch.linalg.eigvals(covmat)
+    if not torch.all(eigenvalues >= 0):
         return False, "Matrix is not positive semi-definite"
     
     # Check if the diagonal elements are non-negative
-    if not np.all(np.diag(covmat) >= 0):
+    if not torch.all(torch.diag(covmat) >= 0):
         return False, "Matrix has negative diagonal elements"
     
     return True, "Matrix is a valid Gaussian covariance matrix"
@@ -107,7 +107,7 @@ class PriorGenerator:
                     inc += 1
             Sig0 = {}
             for dd in self.targets_:
-                Sig0[dd] = np.eye(len(ranefs))
+                Sig0[dd] = torch.eye(len(ranefs))
             self.prior_info_['Sig0'] = Sig0
 
         # The prior over the residual precision can get overwhelmed by the
@@ -504,9 +504,9 @@ class PriorGenerator:
                 raise ValueError("Insufficient data to esimate cov matrix")
 
             if np.array(params_tmp).T.shape[1] > len(ranefs):
-                Sig0[tt] = np.cov(np.array(params_tmp).T)
+                Sig0[tt] = torch.cov(np.array(params_tmp).T)
             else:
-                Sig0[tt] = np.eye(len(ranefs))
+                Sig0[tt] = torch.eye(len(ranefs))
 
             is_valid, msg = check_covariance_matrix(Sig0[tt])
             assert is_valid, msg
@@ -539,9 +539,9 @@ class PriorGenerator:
                 raise ValueError("Insufficient data to esimate cov matrix")
     
             if np.array(params_tmp).T.shape[1] > len(ranefs):
-                Sig0[tt] = np.cov(np.array(params_tmp).T)
+                Sig0[tt] = torch.cov(np.array(params_tmp).T)
             else:
-                Sig0[tt] = np.eye(len(self.prior_info_['ranefs']))
+                Sig0[tt] = torch.eye(len(self.prior_info_['ranefs']))
 
             is_valid, msg = check_covariance_matrix(Sig0[tt])
             assert is_valid, msg
@@ -825,11 +825,12 @@ def main():
             print("{} {} (mean, std): ({:.2e}, {:.2e})".\
                   format(tt, pp, tmp_mean, tmp_std))
 
-        print(f'{tt} ranefs:')
-        df_tmp = pd.DataFrame(prior_info['Sig0'][tt],
-                              index=prior_info['ranefs'],
-                              columns=prior_info['ranefs'])
-        print(df_tmp.to_string(float_format="{:.5f}".format))
+        if op.ranefs is not None:
+            print(f'{tt} ranefs:')
+            df_tmp = pd.DataFrame(prior_info['Sig0'][tt],
+                                  index=prior_info['ranefs'],
+                                  columns=prior_info['ranefs'])
+            print(df_tmp.to_string(float_format="{:.5f}".format))
 
             
     if op.out_file is not None:                    
