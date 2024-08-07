@@ -504,7 +504,7 @@ class PriorGenerator:
                 raise ValueError("Insufficient data to esimate cov matrix")
 
             if np.array(params_tmp).T.shape[1] > len(ranefs):
-                Sig0[tt] = torch.cov(np.array(params_tmp).T)
+                Sig0[tt] = torch.cov(torch.tensor(params_tmp).T)
             else:
                 Sig0[tt] = torch.eye(len(ranefs))
 
