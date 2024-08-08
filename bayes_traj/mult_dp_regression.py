@@ -560,6 +560,7 @@ class MultDPRegression:
         # if random effects have been specified, it will be updated during
         # inference. If not, it will remain zero.
         self.u_mu_ = torch.zeros((self.G_, self.D_, self.K_, self.M_))
+        self.u_Sig_ = torch.zeros((self.G_, self.D_, self.K_, self.M_, self.M_))
         
         # w_covmat_ is used for binary target variables. The EM algorithm
         # that is used to estimate w_mu_ and w_var_ for binary targets
@@ -988,6 +989,8 @@ class MultDPRegression:
                    (self.G_r_r_.T*tmp_vec[np.newaxis, np.newaxis, :]).T + \
                    self.invSig0_[tt][np.newaxis, :, :]
                right_term = torch.inverse(tmp_mat)
+               self.u_Sig_[:, dd, kk, self.ranef_indices_, :]\
+                   [:, :, self.ranef_indices_] = right_term                
     
                #----------------------------------------------------------------
                # Compute the left-right product

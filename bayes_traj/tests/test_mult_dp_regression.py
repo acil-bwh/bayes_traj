@@ -744,7 +744,8 @@ def test_update_u():
     for tt in mm.target_names_:
         mm.invSig0_[tt] = torch.inverse(mm.Sig0_[tt])
                 
-    mm.u_mu_ = torch.zeros((G, mm.D_, mm.K_, mm.M_), dtype=torch.float64)    
+    mm.u_mu_ = torch.zeros((G, mm.D_, mm.K_, mm.M_), dtype=torch.float64)
+    mm.u_Sig_ = torch.zeros((G, mm.D_, mm.K_, mm.M_, mm.M_), dtype=torch.float64)
     mm.update_u()
 
     # We have made the covariance matrix over the random effects extremely
