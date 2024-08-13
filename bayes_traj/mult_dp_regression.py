@@ -532,6 +532,15 @@ class MultDPRegression:
         if groupby is not None:
             self.gb_ = self.df_helper_.groupby(groupby)
             self.G_ = self.gb_.ngroups
+
+        # The N_to_G_index_map is an N-dimensional vector where each entry is
+        # an index value for 0 to (G-1). It is an index mapping that indicates
+        # how to repeat entries of G-dimensional objects for operation
+        # compatibility with N-dimensional objects.
+        self.N_to_G_index_map_ = np.arange(self.N_)
+        if self.gb_ is not None:
+            for ii, (kk, vv) in enumerate(self.gb_.groups.items()):
+                self.N_to_G_index_map_[vv] = ii
             
         self._set_group_first_index(self.df_, self.gb_)
         
@@ -560,7 +569,9 @@ class MultDPRegression:
         # if random effects have been specified, it will be updated during
         # inference. If not, it will remain zero.
         self.u_mu_ = torch.zeros((self.G_, self.D_, self.K_, self.M_))
-        self.u_Sig_ = torch.zeros((self.G_, self.D_, self.K_, self.M_, self.M_))
+        self.u_Sig_ = \
+            torch.zeros((self.G_, self.D_, self.K_, self.M_, self.M_), \
+                    dtype=torch.float64)
         
         # w_covmat_ is used for binary target variables. The EM algorithm
         # that is used to estimate w_mu_ and w_var_ for binary targets
@@ -729,16 +740,44 @@ class MultDPRegression:
                     torch.sum((X[non_nan_ids, None, :]**2)*\
                     (self.w_var_[:, d, :].T)[None, :, :], 2)
 
+                #---------------------------------------------------------------
+                # Tally ranef terms
+                #---------------------------------------------------------------
+                ranef_terms = torch.zeros(torch.sum(non_nan_ids), self.K_)
+                if self.ranef_indices_ is not None:
+                    ranef_term1 = -2*(Y[non_nan_ids, d].unsqueeze(-1)*\
+                        torch.sum(self.u_mu_[self.N_to_G_index_map_, d, :, :]\
+                        [non_nan_ids, :, :]*X[non_nan_ids, :].unsqueeze(1),
+                                  dim=-1))
+
+                    ranef_term2 = 2*torch.matmul(X[non_nan_ids, :],
+                        self.w_mu_[:, d, :])*\
+                        torch.sum(self.u_mu_[self.N_to_G_index_map_, d, :, :]\
+                        [non_nan_ids, :, :]*X[non_nan_ids, :].unsqueeze(1),
+                                  dim=-1)
+
+                    u_Sig_times_X = torch.einsum('nkij,ni->nkj',
+                        self.u_Sig_[self.N_to_G_index_map_, d, :, :],
+                        X[non_nan_ids, :])
+                    X_times_u_Sig_times_X = torch.einsum('nkj,ni->nk', \
+                        u_Sig_times_X, X[non_nan_ids, :])
+                    ranef_term3 = X_times_u_Sig_times_X + \
+                        torch.sum(self.u_mu_[self.N_to_G_index_map_, d, :, :]\
+                            [non_nan_ids, :, :]*X[non_nan_ids, :].unsqueeze(1),
+                                  dim=-1)**2
+
+                    ranef_terms = ranef_term1 + ranef_term2 + ranef_term3
+                
                 likelihood_accum[non_nan_ids, :] = \
                     likelihood_accum[non_nan_ids, :] + \
                   0.5*(psi(self.lambda_a_[d, :]) - \
                     torch.log(self.lambda_b_[d, :]) - \
                     torch.log(torch.tensor(2*np.pi)) - \
                     (self.lambda_a_[d, :]/self.lambda_b_[d, :])*\
-                    (tmp - \
+                    (ranef_terms + tmp - \
                      2*Y[non_nan_ids, d, None]*torch.matmul(X[non_nan_ids, :], \
                     self.w_mu_[:, d, :]) + \
-                    Y[non_nan_ids, d, None]**2))
+                     Y[non_nan_ids, d, None]**2))
             elif self.target_type_[d] == 'binary':
                 for k in range(self.K_):
                     dist = MultivariateNormal(self.w_mu_[:, d, k],
