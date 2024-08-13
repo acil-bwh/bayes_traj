@@ -757,14 +757,13 @@ class MultDPRegression:
                                   dim=-1)
 
                     u_Sig_times_X = torch.einsum('nkij,ni->nkj',
-                        self.u_Sig_[self.N_to_G_index_map_, d, :, :],
+                        self.u_Sig_[self.N_to_G_index_map_, d, :, :, :],
                         X[non_nan_ids, :])
-                    X_times_u_Sig_times_X = torch.einsum('nkj,ni->nk', \
+                    X_times_u_Sig_times_X = torch.einsum('nkj,nj->nk', \
                         u_Sig_times_X, X[non_nan_ids, :])
                     ranef_term3 = X_times_u_Sig_times_X + \
-                        torch.sum(self.u_mu_[self.N_to_G_index_map_, d, :, :]\
-                            [non_nan_ids, :, :]*X[non_nan_ids, :].unsqueeze(1),
-                                  dim=-1)**2
+                        torch.sum(self.u_mu_[self.N_to_G_index_map_, d, :, :]*\
+                            X[non_nan_ids, :].unsqueeze(1), dim=-1)**2
 
                     ranef_terms = ranef_term1 + ranef_term2 + ranef_term3
                 
