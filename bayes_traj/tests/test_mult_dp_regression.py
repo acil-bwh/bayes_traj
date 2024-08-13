@@ -38,6 +38,15 @@ def get_gt_model():
     M = 2
     D = 2
     N = df.shape[0]
+
+    target_names = ['y1', 'y2']
+    predictor_names = ['intercept', 'x']
+
+    Sig0 = {}
+    for tt in target_names:
+        Sig0[tt] = torch.eye(M)
+
+    ranef_indices = np.zeros(M, dtype=bool)
     
     w_mu_gt = torch.zeros([M, D, K]).double()
     # Trajectory 0
@@ -64,7 +73,8 @@ def get_gt_model():
     # Set up model 1
     #-----------------------------------------------------------------------
     mm = MultDPRegression(w_mu0, w_var0, lambda_a0, lambda_b0,
-                          prec_prior_weight, alpha, K=K)
+                          prec_prior_weight, alpha, K=K, Sig0=Sig0,
+                          ranef_indices=ranef_indices)
     mm.R_ = torch.zeros([N, K]).double()
     mm.R_[0:5, 0] = 1.
     mm.R_[5::, 1] = 1.
@@ -75,8 +85,8 @@ def get_gt_model():
 
     mm.num_binary_targets_ = 0
     
-    mm.target_names_ = ['y1', 'y2']
-    mm.predictor_names_ = ['intercept', 'x']
+    mm.target_names_ = target_names
+    mm.predictor_names_ = predictor_names
     
     mm.w_mu_ = torch.zeros([M, D, K]).double()
     mm.w_var_ = 1e-10*torch.ones([M, D, K]).double()
@@ -100,11 +110,20 @@ def get_gt_model():
     mm.v_b_ = alpha*torch.ones(K)
     
     mm.gb_ = df.groupby('sid')
+    G = mm.gb_.ngroups
+
+    mm.N_to_G_index_map_ = np.arange(N)
+    for ii, (kk, vv) in enumerate(mm.gb_.groups.items()):
+        mm.N_to_G_index_map_[vv] = ii
+    
     mm.X_ = torch.from_numpy(df[['intercept', 'x']].values).double()
     mm.Y_ = torch.from_numpy(df[['y1', 'y2']].values).double()
     mm.N_ = N 
 
     mm._set_group_first_index(df, mm.gb_)
+
+    mm.u_mu_ = torch.zeros((G, D, K, M))
+    mm.u_Sig_ = torch.zeros((G, D, K, M, M), dtype=torch.float64)
     
     return mm
 
@@ -627,6 +646,7 @@ def test_get_traj_probs():
 def test_augment_df_with_traj_info():
     mm = get_gt_model()
     df = get_gt_df()
+
     df_aug = mm.augment_df_with_traj_info(df, 'sid')
 
     assert np.sum(df_aug['traj'].values == \

@@ -83,6 +83,7 @@ def test_traj_prior_info_from_df():
     df = pd.read_csv(data_file_name)
     mm = pickle.load(open(model_file_name, 'rb'))['MultDPRegression']
     mm.cast_to_torch()
+    mm.ranef_indices_ = None
     
     targets = ['y']
     preds = ['intercept', 'age']
@@ -238,6 +239,7 @@ def test_compute_prior_info_2():
     df = pd.read_csv(data_file_name)    
     mm = pickle.load(open(model_file_name, 'rb'))['MultDPRegression']
     mm.cast_to_torch()
+    mm.ranef_indices_ = None
     
     targets = ['y']
     preds = ['intercept', 'age']
@@ -280,6 +282,8 @@ def test_compute_prior_info_3():
 
     mm = pickle.load(open(model_file_name, 'rb'))['MultDPRegression']
     mm.cast_to_torch()
+    mm.ranef_indices_ = None
+    
     df = pd.read_csv(data_file_name)
         
     targets = ['y']
@@ -323,6 +327,8 @@ def test_compute_prior_info_4():
 
     mm = pickle.load(open(model_file_name, 'rb'))['MultDPRegression']
     mm.cast_to_torch()
+    mm.ranef_indices_ = None
+    
     df = pd.read_csv(data_file_name)
     df['y2'] = df.y.values + 10
         
@@ -395,6 +401,8 @@ def test_compute_prior_info_5():
 
     mm = pickle.load(open(model_file_name, 'rb'))['MultDPRegression']
     mm.cast_to_torch()
+    mm.ranef_indices_ = None
+    
     df = pd.read_csv(data_file_name)
     df['y2'] = df.y.values + 10
         
