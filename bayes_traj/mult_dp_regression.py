@@ -209,6 +209,9 @@ class MultDPRegression:
         The model instance that will be copied.
 
         """
+        # TODO: handle random effects
+        warnings.warn("copy method does not handle random effects")
+        
         # There are currently 31 member variables. Check that this holds.
         members = [attr for attr in dir(mm) \
                if not callable(getattr(mm, attr)) \
@@ -919,55 +922,28 @@ class MultDPRegression:
     
                     self.w_var_[:, :, self.sig_trajs_] = \
                         (tmp1 + (1.0/self.w_var0_)[:, :, None])**-1
-    
+
+
+                    ranef_terms = torch.zeros(torch.sum(non_nan_ids),
+                                              torch.sum(self.sig_trajs_))
+                    if self.ranef_indices_ is not None:
+                        ranef_terms = torch.einsum('nkm,nm->nk',
+                            self.u_mu_[self.N_to_G_index_map_, d, :, :],
+                            self.X_)[:, self.sig_trajs_]
+                    
                     sum_term = \
                         torch.sum(self.R_[non_nan_ids, :][:, self.sig_trajs_]*\
                                   self.X_[non_nan_ids, m, None]*\
                                 (torch.matmul(self.X_[:, ids][non_nan_ids, :], \
-                                                self.w_mu_[ids, d, :]\
-                                                [:, self.sig_trajs_]) - \
+                                self.w_mu_[ids, d, :][:, self.sig_trajs_]) + \
+                                 ranef_terms - \
                                    self.Y_[non_nan_ids, d][:, None]), 0)
+
                     self.w_mu_[m, d, self.sig_trajs_] = \
                         self.w_var_[m, d, self.sig_trajs_]*\
                         (-(self.lambda_a_[d, self.sig_trajs_]/\
                            self.lambda_b_[d, self.sig_trajs_])*\
                          sum_term + mu0_DIV_var0[m, d])
-
-    def update_w_gaussian(self):
-        """ Updates the variational distributions over predictor coefficients 
-        corresponding to continuous (Gaussian) target variables. 
-        """
-        mu0_DIV_var0 = self.w_mu0_/self.w_var0_
-        for m in range(0, self.M_):
-            ids = torch.ones(self.M_, dtype=bool)
-            ids[m] = False
-            for d in range(0, self.D_):
-                if self.target_type_[d] == 'gaussian':
-                    non_nan_ids = ~torch.isnan(self.Y_[:, d])
-    
-                    tmp1 = (self.lambda_a_[d, self.sig_trajs_]/\
-                            self.lambda_b_[d, self.sig_trajs_])*\
-                            (torch.sum(self.R_[:, self.sig_trajs_, None]\
-                                    [non_nan_ids, :, :]*\
-                                    self.X_[non_nan_ids, None, :]**2, 0).T)\
-                                    [:, None, :]
-    
-                    self.w_var_[:, :, self.sig_trajs_] = \
-                        (tmp1 + (1.0/self.w_var0_)[:, :, None])**-1
-    
-                    sum_term = \
-                        torch.sum(self.R_[non_nan_ids, :][:, self.sig_trajs_]*\
-                                  self.X_[non_nan_ids, m, None]*\
-                                (torch.matmul(self.X_[:, ids][non_nan_ids, :], \
-                                                self.w_mu_[ids, d, :]\
-                                                [:, self.sig_trajs_]) - \
-                                   self.Y_[non_nan_ids, d][:, None]), 0)
-                    self.w_mu_[m, d, self.sig_trajs_] = \
-                        self.w_var_[m, d, self.sig_trajs_]*\
-                        (-(self.lambda_a_[d, self.sig_trajs_]/\
-                           self.lambda_b_[d, self.sig_trajs_])*\
-                         sum_term + mu0_DIV_var0[m, d])
-
 
     def update_lambda(self):
         """Updates the variational distribution over latent variable lambda.
@@ -981,15 +957,44 @@ class MultDPRegression:
                     0.5*torch.sum(self.R_[:, self.sig_trajs_][non_nan_ids, :], 0)\
                     [None, :]
 
+                #---------------------------------------------------------------
+                # Tally ranef terms
+                #---------------------------------------------------------------
+                ranef_terms = torch.zeros(torch.sum(non_nan_ids), self.K_)
+                if self.ranef_indices_ is not None:
+                    ranef_term1 = -2*(self.Y_[non_nan_ids, d].unsqueeze(-1)*\
+                        torch.sum(self.u_mu_[self.N_to_G_index_map_, d, :, :]\
+                        [non_nan_ids, :, :]*self.X_[non_nan_ids, :].unsqueeze(1),
+                                  dim=-1))
+
+                    ranef_term2 = 2*torch.matmul(self.X_[non_nan_ids, :],
+                        self.w_mu_[:, d, :])*\
+                        torch.sum(self.u_mu_[self.N_to_G_index_map_, d, :, :]\
+                        [non_nan_ids, :, :]*self.X_[non_nan_ids, :].unsqueeze(1),
+                                  dim=-1)
+
+                    u_Sig_times_X = torch.einsum('nkij,ni->nkj',
+                        self.u_Sig_[self.N_to_G_index_map_, d, :, :, :],
+                        self.X_[non_nan_ids, :])
+                    X_times_u_Sig_times_X = torch.einsum('nkj,nj->nk', \
+                        u_Sig_times_X, self.X_[non_nan_ids, :])
+                    ranef_term3 = X_times_u_Sig_times_X + \
+                        torch.sum(self.u_mu_[self.N_to_G_index_map_, d, :, :]*\
+                            self.X_[non_nan_ids, :].unsqueeze(1), dim=-1)**2
+
+                    ranef_terms = ranef_term1 + ranef_term2 + ranef_term3
+
                 tmp = (torch.mm(self.w_mu_[:, d, self.sig_trajs_].T, \
                            self.X_[non_nan_ids, :].T)**2).T + \
                            torch.sum((self.X_[non_nan_ids, None, :]**2)*\
                                   (self.w_var_[:, d, self.sig_trajs_].T)\
                                   [None, :, :], 2)
+
                 self.lambda_b_[d, self.sig_trajs_] = \
                     self.lambda_b0_mod_[d, None] + \
                     0.5*torch.sum(self.R_[non_nan_ids, :][:, self.sig_trajs_]*\
-                            (tmp - 2*self.Y_[non_nan_ids, d, None]*\
+                            (ranef_terms[:, self.sig_trajs_] + tmp - \
+                             2*self.Y_[non_nan_ids, d, None]*\
                              torch.mm(self.X_[non_nan_ids, :], \
                                     self.w_mu_[:, d, self.sig_trajs_]) + \
                              self.Y_[non_nan_ids, d, None]**2), 0)                    
@@ -1022,10 +1027,15 @@ class MultDPRegression:
                #----------------------------------------------------------------
                tmp_vec = (self.lambda_a_[dd, kk]/self.lambda_b_[dd, kk])*\
                    self.R_[self.group_first_index_, kk]
-    
-               tmp_mat = \
-                   (self.G_r_r_.T*tmp_vec[np.newaxis, np.newaxis, :]).T + \
-                   self.invSig0_[tt][np.newaxis, :, :]
+
+               tmp_mat = (self.G_r_r_.permute(2, 1, 0) * \
+                    tmp_vec[np.newaxis, np.newaxis, :]).permute(2, 1, 0) + \
+                    self.invSig0_[tt][np.newaxis, :, :]
+               
+               #tmp_mat = \
+               #    (self.G_r_r_.T*tmp_vec[np.newaxis, np.newaxis, :]).T + \
+               #    self.invSig0_[tt][np.newaxis, :, :]
+               
                right_term = torch.inverse(tmp_mat)
                self.u_Sig_[:, dd, kk, self.ranef_indices_, :]\
                    [:, :, self.ranef_indices_] = right_term                
@@ -1265,29 +1275,38 @@ class MultDPRegression:
         else:
             lambda_a = self.lambda_a_
             lambda_b = self.lambda_b_                        
-            
+
         tmp_k = torch.zeros(self.N_, dtype=torch.float64)
-        for k in range(self.K_):
-            tmp_d = torch.ones(self.N_, dtype=torch.float64)
-            for d in range(self.D_):
+        for kk in range(self.K_):
+            tmp_d = torch.zeros(self.N_, dtype=torch.float64)
+            for dd in range(self.D_):
                 # Some of the target variables can be missing (NaNs). Exclude
                 # these from the computation.
-                ids = torch.isnan(Y[:, d]) == 0
-                mu = torch.mv(X, w_mu[:, d, k])
-                
-                if self.target_type_[d] == 'gaussian':
-                    v = lambda_b[d, k]/lambda_a[d, k]
-                    co = 1/torch.sqrt(2.*torch.pi*v)
+                ids = torch.isnan(Y[:, dd]) == 0
+
+                if ('u_mu_' not in dir(self)) or \
+                   (self.target_type_[dd] != 'gaussian'):
+                    u_mu = torch.zeros(self.G_, self.D_, self.K_, self.M_)
+                else:
+                    u_mu = self.u_mu_
+                                
+                if self.target_type_[dd] == 'gaussian':
+                    mu = torch.sum(self.X_ * \
+                        (self.w_mu_[:, dd, kk].unsqueeze(0) + \
+                         u_mu[self.N_to_G_index_map_, dd, kk, :]), 1)
+                    
+                    v = lambda_b[dd, kk]/lambda_a[dd, kk]
+                    co = torch.log(1/torch.sqrt(2.*torch.pi*v))
     
-                    tmp_d[ids] = tmp_d[ids]*(co*torch.exp(-((Y[ids, d]-
-                                               mu[ids])**2)/(2.*v)))
+                    tmp_d[ids] += co - ((Y[ids, dd]-mu[ids])**2)/(2.*v)
                 else:
                     # Target assumed to be binary
-                    tmp_d[ids] = tmp_d[ids]*\
-                        ((torch.exp(mu)**Y[ids, d])/(1 + torch.exp(mu)))
+                    prod = torch.sum(self.X_ * self.w_mu_[:, dd, kk], 1)
+                    tmp_d[ids] += prod[ids]*self.Y_[ids, dd] - \
+                        torch.log(1 + torch.exp(prod[ids]))
                     
-            tmp_k = tmp_k + R[:, k]*tmp_d
-        log_likelihood = torch.sum(torch.log(tmp_k))
+            tmp_k = tmp_k + R[ids, kk]*tmp_d
+        log_likelihood = torch.sum(tmp_k)
                 
         return log_likelihood
 

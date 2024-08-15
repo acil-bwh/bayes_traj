@@ -9,6 +9,86 @@ import matplotlib.pyplot as plt # TODO DEB
 np.set_printoptions(precision = 10, suppress = True, threshold=1e6,
                     linewidth=300)
 
+def get_basic_model(G, M, num_gaussian, num_binary, K, num_long_data_pts):
+    """
+    """
+    np.random.seed(42)
+    N = G*num_long_data_pts
+    
+    target_names = []
+    target_type = [] 
+    for dd in range(num_gaussian):
+        target_names.append(f'gaussian_{dd}')
+        target_type.append('gaussian')
+
+    for dd in range(num_binary):
+        target_names.append(f'binary_{dd}')
+        target_type.append('binary')        
+        
+    predictor_names = []
+    for pp in range(M):
+        predictor_names.append(f'predictor_{dd}')
+
+    D = num_gaussian + num_binary
+    
+    w_var0 = np.ones([M, D])
+    w_mu0 = np.zeros([M, D])
+    lambda_a0 = np.ones(D)
+    lambda_b0 = np.ones(D)
+    alpha = 1.
+    mm = MultDPRegression(w_mu0, w_var0,
+                          lambda_a0, lambda_b0,
+                          1, 1, K=K)
+    mm.target_names_ = target_names
+    mm.target_type_ = target_type
+    mm.predictor_names_ = predictor_names
+    mm.M_ = M
+    mm.N_ = N
+    mm.G_ = G
+    mm.K_ = K
+    mm.num_binary_targets_ = num_binary
+
+    mm.R_ = torch.zeros(N, K)
+    inc = 0
+    sids = []
+    for gg in range(G):
+        vec = np.exp(np.random.randn(K))
+        vec_norm = vec/np.sum(vec)
+        sid = f'sid_{gg}'
+        for nn in range(num_long_data_pts):
+            mm.R_[inc, :] = torch.from_numpy(vec_norm)
+            sids.append(sid)
+            inc += 1
+    
+    mm.X_ = torch.from_numpy(np.random.rand(N, M))
+    mm.Y_ = torch.from_numpy(np.random.rand(N, D))
+    for dd in range(num_gaussian, num_binary):
+        tmp_ids = mm.Y_[:, dd] > 0.5
+        mm.Y_[tmp_ids, dd] = 1
+        mm.Y_[~tmp_ids, dd] = 0    
+
+    mm.w_mu_ = torch.from_numpy(np.random.randn(M, D, K))
+    mm.w_var_ = torch.from_numpy(np.exp(np.random.randn(M, D, K)))
+
+    mm.lambda_a_ = torch.from_numpy(np.exp(np.random.randn(D, K)))
+    mm.lambda_b_ = torch.from_numpy(np.exp(np.random.randn(D, K)))    
+
+    mm.u_mu_ = torch.from_numpy(np.random.randn(G, D, K, M))
+
+    df = pd.DataFrame()
+    df['sid'] = sids
+    for xx in range(M):
+        df[predictor_names[xx]] = mm.X_[:, xx]
+    for yy in range(D):
+        df[target_names[yy]] = mm.Y_[:, yy]
+
+    mm.gb_ = df.groupby('sid') 
+    mm.N_to_G_index_map_ = np.arange(N)
+    for ii, (kk, vv) in enumerate(mm.gb_.groups.items()):
+        mm.N_to_G_index_map_[vv] = ii
+    
+    return mm
+    
 def get_gt_df():
     df = pd.DataFrame(\
         {'sid': ['a', 'a', 'a', 'a', 'a', 'b', 'b', 'b', 'b'],
@@ -800,12 +880,12 @@ def test_update_u():
             
     mm.u_mu_ = torch.zeros((G, mm.D_, mm.K_, mm.M_), dtype=torch.float64)    
     mm.update_u()
-    large_prec_ranefs = torch.tensor(mm.u_mu_[:, 0, 0, :])
+    large_prec_ranefs = mm.u_mu_[:, 0, 0, :].clone().detach()
 
     mm.lambda_a_[0, 0] = .00377
     mm.u_mu_ = torch.zeros((G, mm.D_, mm.K_, mm.M_), dtype=torch.float64)    
     mm.update_u()
-    small_prec_ranefs = torch.tensor(mm.u_mu_[:, 0, 0, :])
+    small_prec_ranefs = mm.u_mu_[:, 0, 0, :].clone().detach()
 
     # The magnitude of random effects are directly proportional to the
     # precision.
@@ -828,3 +908,35 @@ def test_update_u():
     #b_tmp = b + mm.u_mu_[2, 0, 0, 1]
     #plt.plot([0, 100], a_tmp + b_tmp*np.array([0, 100]), c='r')    
     #plt.show()
+
+def test_log_likelihood():
+    G = 1
+    M = 2
+    num_gaussian = 1
+    num_binary = 0    
+    K = 2
+    num_long_data_pts = 2
+    mm = get_basic_model(G, M, num_gaussian, num_binary, K, num_long_data_pts)
+
+    assert torch.isclose(mm.log_likelihood(),
+        torch.tensor(-3.1031359432, dtype=torch.float64)), \
+        "Incorrect log-likelihood value"
+
+    Y = mm.Y_.clone().detach()
+    mm.Y_[0, 0] = torch.nan
+    ll1 = mm.log_likelihood()
+    mm.Y_[0, 0] = Y[0, 0]
+    mm.Y_[1, 0] = torch.nan
+    ll2 = mm.log_likelihood()
+    assert torch.isclose(ll1 + ll2,
+        torch.tensor(-3.1031359432, dtype=torch.float64)), \
+        "Incorrect log-likelihood value"
+
+    num_gaussian = 0
+    num_binary = 1  
+    mm = get_basic_model(G, M, num_gaussian, num_binary, K, num_long_data_pts)
+
+    assert torch.isclose(mm.log_likelihood(),
+        torch.tensor(-1.8316561418, dtype=torch.float64)), \
+        "Incorrect log-likelihood value"
+    
