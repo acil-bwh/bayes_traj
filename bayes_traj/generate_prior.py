@@ -503,8 +503,20 @@ class PriorGenerator:
             if len(params_tmp) == 0:
                 raise ValueError("Insufficient data to esimate cov matrix")
 
+            params_tmp_tensor = torch.from_numpy(np.array(params_tmp)).T
+
+            # Ensure the tensor is at least 2D
+            if params_tmp_tensor.dim() == 1:
+                params_tmp_tensor = params_tmp_tensor.unsqueeze(0)
+                
             if np.array(params_tmp).T.shape[1] > len(ranefs):
-                Sig0[tt] = torch.cov(torch.from_numpy(np.array(params_tmp)).T)
+                if params_tmp_tensor.dim() == 1 or \
+                   params_tmp_tensor.shape[0] == 1:
+                    cov_matrix = torch.var(params_tmp_tensor, unbiased=True).\
+                        unsqueeze(0).unsqueeze(1)
+                else:
+                    cov_matrix = torch.cov(params_tmp_tensor)                
+                Sig0[tt] = cov_matrix
             else:
                 Sig0[tt] = torch.eye(len(ranefs))
 
