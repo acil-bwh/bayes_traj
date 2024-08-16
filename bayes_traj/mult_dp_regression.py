@@ -1339,14 +1339,24 @@ class MultDPRegression:
         num_trajs = torch.sum(torch.sum(self.R_, 0) > 0.0)
     
         # The first term below tallies the number of predictors for each
-        # trajectory and for each target variable. Here we assume the same
-        # number of predictors for each trajectory and for each target variable.
-        # The second term tallies the number of parameters derived from the
-        # total number of trajectories (i.e. the trajectory weights). They must
-        # sum to one, that's why we subtract by one (the last parameter value is
-        # determined by the sum of the others).
-        num_params = (num_trajs*self.M_*self.D_) + (num_trajs - 1.)
-    
+        # trajectory (means and variances) and for each target variable. Here we
+        # assume the same number of predictors for each trajectory and for each
+        # target variable. The second term tallies the number of parameters
+        # derived from the total number of trajectories (i.e. the trajectory
+        # weights). They must sum to one, that's why we subtract by one (the
+        # last parameter value is determined by the sum of the others). We also
+        # include the parameters estimated for each trajectory's residual
+        # variance (2 params estimated for each Gamma distribution)
+        num_parmas = (2*num_trajs*self.M_*self.D_) + (num_trajs - 1.) + \
+            2*num_trajs*(self.D_ - self.num_binary_targets_)
+
+        # Add estimates of random effects to the total number of parameters if
+        # needed
+        if self.ranef_indices_ is not None:
+            num_ranefs = np.sum(self.ranef_indices_)
+            num_params += num_trajs*num_ranefs*\
+                (self.D_ - self.num_binary_targets_)*self.G_
+        
         # Per recommendation in the reference, two BICs are computed: one in
         # which N is taken to be the number of observations (overstates true
         # "N") and one in which N is taken to be the number of subjects
