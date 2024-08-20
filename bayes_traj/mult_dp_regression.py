@@ -1387,67 +1387,6 @@ class MultDPRegression:
         else:
             return bic_obs
 
-
-#    def compute_waic2(self, S=100):
-#        """Computes the Watanabe-Akaike (aka widely available) information
-#        criterion, using the variance of individual terms in the log predictive
-#        density summed over the n data points.
-#
-#        TODO: Test implementation of binary target accomodation
-#
-#        Parameters
-#        ----------
-#        S : integer, optional
-#            The number of draws from the posterior to use when computing the
-#            required expectations.
-#
-#        Returns
-#        -------
-#        waic2 : float
-#            The Watanable-Akaike information criterion.
-#
-#        References
-#        ----------
-#        Gelman et al, 'Bayesian Data Analysis, 3rd Edition'
-#        """        
-#        self.cast_to_torch()
-#        accum = np.zeros([self.N_, self.K_, S])
-#        selector = np.zeros([self.N_, self.K_, S], dtype=bool)
-#        
-#        inc = 0
-#        for gg in self.gb_.groups:
-#            indices = self.gb_.get_group(gg).index
-#
-#            traj_probs = self.R_[self.gb_.get_group(gg).index[0], :]
-#            selector[indices, :] = \
-#                np.random.multinomial(1, traj_probs, size=S).astype(bool).T
-#
-#            inc = inc + 1
-#            for ii, k in enumerate(np.where(self.sig_trajs_)[0]):
-#                probs = np.ones([S, indices.shape[0]])
-#                for d in range(0, self.D_):
-#                    co = multivariate_normal(self.w_mu_.numpy()[:, d, k],
-#                        diag(self.w_var_.numpy()[:, d, k]), S)
-#
-#                    mu = dot(co, self.X_[indices, :].T)
-#
-#                    scale = 1./self.lambda_b_.numpy()[d, k]
-#                    shape = self.lambda_a_.numpy()[d, k]
-#                    var = 1./gamma(shape, scale, size=S)
-#                    
-#                    probs = probs*((1/sqrt(2*np.pi*var))[:, newaxis]*\
-#                            exp(-(1/(2*var))[:, newaxis]*\
-#                                (mu - self.Y_[indices, d].numpy())**2))
-#                accum[indices, k, :] = probs.T
-#                
-#        masked = np.sum(accum*selector, 1)
-#
-#        lppd = np.sum(np.log(np.nanmean(masked, 1).clip(1e-320, 1e320)))
-#        p_waic = np.sum(np.nanvar(np.log(masked.clip(1e-320, 1e320)), 1))
-#        waic2 = -2*(lppd - p_waic)
-#        
-#        return waic2
-
     def compute_waic2(self, S=100):
         """Computes the Watanabe-Akaike (aka widely available) information
         criterion, using the variance of individual terms in the log predictive
