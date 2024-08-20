@@ -26,7 +26,7 @@ packages.append('bayes_traj')
 
 setup(
     name='bayes_traj',
-    version='0.2.7',
+    version='1.0.0',
     description='bayes_traj',
     long_description=long_description,
     long_description_content_type='text/markdown',
