@@ -692,7 +692,8 @@ class MultDPRegression:
                 torch.sum(self.R_[self.group_first_index_, k+1:])
 
 
-    def get_R_matrix(self, df=None, gb_col=None, df_helper=None):
+    def get_R_matrix(self, df=None, gb_col=None, df_helper=None,
+                     test_data=False):
         """For each individual, computes the probability that he/she belongs to
         each of the trajectories.
         """        
@@ -750,7 +751,7 @@ class MultDPRegression:
                 # Tally ranef terms
                 #---------------------------------------------------------------
                 ranef_terms = torch.zeros(torch.sum(non_nan_ids), self.K_)
-                if self.ranef_indices_ is not None:
+                if self.ranef_indices_ is not None and not test_data:
                     ranef_term1 = -2*(Y[non_nan_ids, d].unsqueeze(-1)*\
                         torch.sum(self.u_mu_[self.N_to_G_index_map_, d, :, :]\
                         [non_nan_ids, :, :]*X[non_nan_ids, :].unsqueeze(1),
@@ -1276,6 +1277,15 @@ class MultDPRegression:
             w_mu = torch.from_numpy(self.w_mu_).double()
         else:
             w_mu = self.w_mu_
+
+        if 'G_' not in dir(self):
+            self.G_ = self.gb_.ngroups
+
+        if 'N_to_G_index_map_' not in dir(self):            
+            self._set_N_to_G_index_map()
+
+        if 'ranef_indices_' not in dir(self):            
+            self.ranef_indices_ = None
             
         if not torch.is_tensor(self.lambda_a_):
             lambda_a = torch.from_numpy(self.lambda_a_).double()
@@ -1355,7 +1365,7 @@ class MultDPRegression:
         # last parameter value is determined by the sum of the others). We also
         # include the parameters estimated for each trajectory's residual
         # variance (2 params estimated for each Gamma distribution)
-        num_parmas = (2*num_trajs*self.M_*self.D_) + (num_trajs - 1.) + \
+        num_params = (2*num_trajs*self.M_*self.D_) + (num_trajs - 1.) + \
             2*num_trajs*(self.D_ - self.num_binary_targets_)
 
         # Add estimates of random effects to the total number of parameters if
@@ -1676,7 +1686,7 @@ class MultDPRegression:
         self.R_[:] = init_traj_probs
         self.sig_trajs_ = torch.max(self.R_, 0)[0] > self.prob_thresh_
 
-    def augment_df_with_traj_info(self, df, gb_col=None):
+    def augment_df_with_traj_info(self, df, gb_col=None, test_data=False):
         """Compute the probability that each data instance belongs to each of
         the 'k' clusters. Note that 'X' and 'Y' can be "new" data; that is,
         data that was not necessarily used to train the model.
@@ -1691,6 +1701,11 @@ class MultDPRegression:
         gb_col : str, optional
             df column to groupby. Should correspond to subject identifier.
 
+        test_data : bool, optional
+            Indicates whether the current data set is the one being trained
+            on or a new (test) data set. This is required to properly handle
+            presence or absence of random effects.
+
         Returns
         -------
         df_aug : pandas DataFrame
@@ -1699,7 +1714,8 @@ class MultDPRegression:
             'traj_<num>', <num> indicates each of the trajectories and the 
             column values are the probabilities of assignment. 
         """        
-        R = self.get_R_matrix(df, gb_col).numpy()
+        R = self.get_R_matrix(df=df, gb_col=gb_col,
+                              test_data=test_data).numpy()
         N = df.shape[0]
         # Now augment the dataframe with trajectory info
         traj = []

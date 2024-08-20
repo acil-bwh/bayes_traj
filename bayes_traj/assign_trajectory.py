@@ -10,14 +10,20 @@ import pdb, pickle
 def main():
     """
     """
-    desc = """Assigns individuals to trajectory subgroups using their data 
-    contained the input csv file and a trajectory model. The individuals can be 
-    different from those used to train the model. However, it is assumed that 
-    the predictor names and target names match."""
+    desc = """Assigns individuals to trajectory subgroups using data 
+    contained in the input csv file and a trajectory model. The individuals can 
+    be different from those used to train the model. However, it is assumed that 
+    the predictor names and target names match. If random effects were specified
+    for fitting the model, only the fixed effects will be used for the 
+    assignment."""
 
     args = ArgumentParser(desc)
     args.add_argument('--in_csv', help='Input csv data file. Individuals in \
-        this file will be assigned to the best trajectory', required=True,
+        this file will be assigned to the best trajectory. Note that even if \
+        the specified data set is the same as the one used to train the model, \
+        only the fixed effects will be used for the assignment. For more \
+        accurate assignment in this case, it is recommended to specify an \
+        output csv file when invoking bayes_traj_main.', required=True,
         type=str)
     args.add_argument('--groupby', help='Subject identifier column name in the \
         input data file to use for grouping.', required=False, type=str,
@@ -58,7 +64,7 @@ def main():
             traj_map[ii] = ii
     
     print("Assigning...")    
-    df_out = mm.augment_df_with_traj_info(df, op.groupby)
+    df_out = mm.augment_df_with_traj_info(df, op.groupby, test_data=True)
     df_out.replace({'traj': traj_map}, inplace=True)
     
     if op.out_csv is not None:
