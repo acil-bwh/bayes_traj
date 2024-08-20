@@ -5,7 +5,7 @@ import pdb
 from bayes_traj.mult_dp_regression import MultDPRegression
 from bayes_traj.fit_stats import *
 
-def get_gt_model():
+def get_gt_model(use_ranefs=False):
     """
     """
     df = pd.DataFrame(\
@@ -88,11 +88,32 @@ def get_gt_model():
     mm.X_ = torch.from_numpy(df[['intercept', 'x']].values).double()
     mm.Y_ = torch.from_numpy(df[['y1', 'y2']].values).double()
     mm.N_ = N 
-
-    mm._set_group_first_index(df, mm.gb_)
+    mm.M_ = M
+    mm.D_ = D
+    mm.K_ = K
+    mm.G_ = mm.gb_.ngroups
     
-    return mm
+    mm._set_group_first_index(df, mm.gb_)
 
+    if use_ranefs:
+        mm.ranef_indices_ = [True, False]
+        mm.u_Sig_ = torch.zeros((mm.G_, mm.D_, mm.K_, mm.M_, mm.M_), \
+                                dtype=torch.float64)
+        for gg in range(mm.G_):
+            for dd in range(mm.D_):
+                for kk in range(mm.K_):
+                    sig_slice = mm.u_Sig_[gg, dd, kk, mm.ranef_indices_, :]
+                    sig_slice[:, mm.ranef_indices_] = \
+                        0.0001*torch.eye(np.sum(mm.ranef_indices_))
+                    mm.u_Sig_[gg, dd, kk, mm.ranef_indices_, :] = sig_slice
+        
+        mm.u_mu_ = torch.zeros((mm.G_, mm.D_, mm.K_, mm.M_),
+                               dtype=torch.float64)
+
+        mm.Y_[0:5, 0] += 0.5
+        mm.u_mu_[0, 0, 0, 0] = .5
+        
+    return mm
 
 def test_get_group_likelihood_samples_1():
     # Create a model
@@ -210,7 +231,7 @@ def test_get_group_likelihood_samples_2():
 
 
 def test_compute_waic2():
-    mm = get_gt_model()
+    mm = get_gt_model(use_ranefs=False)
 
     waic2_ref = compute_waic2(mm)
     print(waic2_ref)
@@ -287,6 +308,17 @@ def test_compute_waic2():
     
     waic2_test = compute_waic2(mm)
     print("{} should be bigger than {}".format(waic2_test, waic2_ref))    
+    if waic2_test <= waic2_ref:
+        pdb.set_trace()
+    assert waic2_test > waic2_ref, "Error in WAIC computation"
+
+    #---------------------------------------------------------------------------
+    # Test ranefs
+    #---------------------------------------------------------------------------
+    mm = get_gt_model(use_ranefs=True)
+    waic2_ref = compute_waic2(mm)
+    mm.u_mu_[0, 0, 0, 0] = 0
+    waic2_test = compute_waic2(mm)
     if waic2_test <= waic2_ref:
         pdb.set_trace()
     assert waic2_test > waic2_ref, "Error in WAIC computation"
