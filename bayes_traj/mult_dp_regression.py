@@ -1458,7 +1458,8 @@ class MultDPRegression:
                     mvn = MultivariateNormal(u_mu_tmp.expand(-1, S, -1),
                                              u_Sig_tmp.expand(-1, S, -1, -1))
                     ranef_samples = mvn.sample()[self.N_to_G_index_map_, :, :]
-                    ranef_samples_holder = torch.zeros(self.N_, S, self.M_)
+                    ranef_samples_holder = \
+                        torch.zeros(self.N_, S, self.M_, dtype=torch.float64)
                     ranef_samples_holder[:, :, self.ranef_indices_] = \
                         ranef_samples
             
