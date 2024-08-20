@@ -536,15 +536,7 @@ class MultDPRegression:
             self.gb_ = self.df_helper_.groupby(groupby)
             self.G_ = self.gb_.ngroups
 
-        # The N_to_G_index_map is an N-dimensional vector where each entry is
-        # an index value for 0 to (G-1). It is an index mapping that indicates
-        # how to repeat entries of G-dimensional objects for operation
-        # compatibility with N-dimensional objects.
-        self.N_to_G_index_map_ = np.arange(self.N_)
-        if self.gb_ is not None:
-            for ii, (kk, vv) in enumerate(self.gb_.groups.items()):
-                self.N_to_G_index_map_[vv] = ii
-            
+        self._set_N_to_G_index_map()
         self._set_group_first_index(self.df_, self.gb_)
         
         #-----------------------------------------------------------------------
@@ -624,7 +616,18 @@ class MultDPRegression:
                 
         self.fit_coordinate_ascent(iters, verbose, weights_only)
 
-                
+
+    def _set_N_to_G_index_map(self):
+        """The N_to_G_index_map is an N-dimensional vector where each entry is
+        an index value for 0 to (G-1). It is an index mapping that indicates
+        how to repeat entries of G-dimensional objects for operation
+        compatibility with N-dimensional objects.
+        """
+        self.N_to_G_index_map_ = np.arange(self.N_)
+        if self.gb_ is not None:
+            for ii, (kk, vv) in enumerate(self.gb_.groups.items()):
+                self.N_to_G_index_map_[vv] = ii
+        
     def fit_coordinate_ascent(self, iters, verbose, weights_only=False):
         """This function contains the iteratrion loop for mean-field 
         variational inference using coordinate ascent
@@ -1037,9 +1040,14 @@ class MultDPRegression:
                #    self.invSig0_[tt][np.newaxis, :, :]
                
                right_term = torch.inverse(tmp_mat)
-               self.u_Sig_[:, dd, kk, self.ranef_indices_, :]\
-                   [:, :, self.ranef_indices_] = right_term                
-    
+
+               # The following approach to setting the proper values of u_Sig_
+               # is needed because of how PyTorch handles advanced indexing
+               # operations
+               u_Sig_slice = self.u_Sig_[:, dd, kk, self.ranef_indices_, :]
+               u_Sig_slice[:, :, self.ranef_indices_] = right_term
+               self.u_Sig_[:, dd, kk, self.ranef_indices_, :] = u_Sig_slice
+
                #----------------------------------------------------------------
                # Compute the left-right product
                #----------------------------------------------------------------
@@ -1380,6 +1388,66 @@ class MultDPRegression:
             return bic_obs
 
 
+#    def compute_waic2(self, S=100):
+#        """Computes the Watanabe-Akaike (aka widely available) information
+#        criterion, using the variance of individual terms in the log predictive
+#        density summed over the n data points.
+#
+#        TODO: Test implementation of binary target accomodation
+#
+#        Parameters
+#        ----------
+#        S : integer, optional
+#            The number of draws from the posterior to use when computing the
+#            required expectations.
+#
+#        Returns
+#        -------
+#        waic2 : float
+#            The Watanable-Akaike information criterion.
+#
+#        References
+#        ----------
+#        Gelman et al, 'Bayesian Data Analysis, 3rd Edition'
+#        """        
+#        self.cast_to_torch()
+#        accum = np.zeros([self.N_, self.K_, S])
+#        selector = np.zeros([self.N_, self.K_, S], dtype=bool)
+#        
+#        inc = 0
+#        for gg in self.gb_.groups:
+#            indices = self.gb_.get_group(gg).index
+#
+#            traj_probs = self.R_[self.gb_.get_group(gg).index[0], :]
+#            selector[indices, :] = \
+#                np.random.multinomial(1, traj_probs, size=S).astype(bool).T
+#
+#            inc = inc + 1
+#            for ii, k in enumerate(np.where(self.sig_trajs_)[0]):
+#                probs = np.ones([S, indices.shape[0]])
+#                for d in range(0, self.D_):
+#                    co = multivariate_normal(self.w_mu_.numpy()[:, d, k],
+#                        diag(self.w_var_.numpy()[:, d, k]), S)
+#
+#                    mu = dot(co, self.X_[indices, :].T)
+#
+#                    scale = 1./self.lambda_b_.numpy()[d, k]
+#                    shape = self.lambda_a_.numpy()[d, k]
+#                    var = 1./gamma(shape, scale, size=S)
+#                    
+#                    probs = probs*((1/sqrt(2*np.pi*var))[:, newaxis]*\
+#                            exp(-(1/(2*var))[:, newaxis]*\
+#                                (mu - self.Y_[indices, d].numpy())**2))
+#                accum[indices, k, :] = probs.T
+#                
+#        masked = np.sum(accum*selector, 1)
+#
+#        lppd = np.sum(np.log(np.nanmean(masked, 1).clip(1e-320, 1e320)))
+#        p_waic = np.sum(np.nanvar(np.log(masked.clip(1e-320, 1e320)), 1))
+#        waic2 = -2*(lppd - p_waic)
+#        
+#        return waic2
+
     def compute_waic2(self, S=100):
         """Computes the Watanabe-Akaike (aka widely available) information
         criterion, using the variance of individual terms in the log predictive
@@ -1401,45 +1469,125 @@ class MultDPRegression:
         References
         ----------
         Gelman et al, 'Bayesian Data Analysis, 3rd Edition'
-        """        
-        self.cast_to_torch()
-        accum = np.zeros([self.N_, self.K_, S])
-        selector = np.zeros([self.N_, self.K_, S], dtype=bool)
+        """
+        if 'N_to_G_index_map_' not in dir(self):
+            self._set_N_to_G_index_map()            
         
-        inc = 0
-        for gg in self.gb_.groups:
-            indices = self.gb_.get_group(gg).index
+        num_trajs = torch.sum(self.sig_trajs_)
+    
+        #-----------------------------------------------------------------------
+        # Get samples of trajectory assignments. We'll one-hot code these. We
+        # sample the traj assignments outside the loop over the target
+        # dimensions because the model assumes conditional independenc.
+        #-----------------------------------------------------------------------
+        traj_samples = torch.multinomial(\
+                        self.R_[:, self.sig_trajs_][self.group_first_index_, :],
+                    num_samples=S, replacement=True)[self.N_to_G_index_map_, :]
+            
+        traj_samples_one_hot = torch.zeros(self.N_, S, num_trajs,
+                                           dtype=torch.float32)
+        traj_samples_one_hot.scatter_(2, traj_samples.unsqueeze(-1), 1)
+    
+        #-----------------------------------------------------------------------
+        # Loop over the target dimensions and accumulate samples in
+        # 'likelihood_samples'
+        #-----------------------------------------------------------------------
+        likelihood_samples = torch.zeros(self.N_, self.D_, S)
+        for dd in range(self.D_):
+            co_x_preds = torch.zeros(self.N_, S, num_trajs)
+            for ii, kk in enumerate(np.where(self.sig_trajs_)[0]):
+                #---------------------------------------------------------------
+                # Get samples from the coefficients
+                #--------------------------------------------------------------
+                mus = torch.normal(mean=self.w_mu_[:, dd, kk].expand(S, -1),
+                    std=torch.sqrt(self.w_var_[:, dd, kk].expand(S, -1)))
+            
+                w_samples = \
+                    torch.normal(mean=self.w_mu_[:, dd, kk].expand(S, -1),
+                    std=torch.sqrt(self.w_var_[:, dd, kk].expand(S, -1)))
+            
+                #---------------------------------------------------------------
+                # Get samples from the random effects if specified
+                #---------------------------------------------------------------
+                if self.ranef_indices_ is not None and \
+                   self.target_type_[dd] == 'gaussian':
+                    u_mu_tmp = \
+                        self.u_mu_[:, dd, kk, self.ranef_indices_].unsqueeze(1)
+                    u_Sig_tmp = self.u_Sig_[:, dd, kk, self.ranef_indices_, :]\
+                        [:, :, self.ranef_indices_].unsqueeze(1)
+            
+                    mvn = MultivariateNormal(u_mu_tmp.expand(-1, S, -1),
+                                             u_Sig_tmp.expand(-1, S, -1, -1))
+                    ranef_samples = mvn.sample()[self.N_to_G_index_map_, :, :]
+                    ranef_samples_holder = torch.zeros(self.N_, S, self.M_)
+                    ranef_samples_holder[:, :, self.ranef_indices_] = \
+                        ranef_samples
+            
+                    #-----------------------------------------------------------
+                    # Combine the fixed effect and random effect samples
+                    #-----------------------------------------------------------
+                    co_samples = w_samples + ranef_samples_holder
+                else:
+                    co_samples = w_samples.unsqueeze(0).repeat(self.N_, 1, 1)
 
-            traj_probs = self.R_[self.gb_.get_group(gg).index[0], :]
-            selector[indices, :] = \
-                np.random.multinomial(1, traj_probs, size=S).astype(bool).T
-
-            inc = inc + 1
-            for ii, k in enumerate(np.where(self.sig_trajs_)[0]):
-                probs = np.ones([S, indices.shape[0]])
-                for d in range(0, self.D_):
-                    co = multivariate_normal(self.w_mu_.numpy()[:, d, k],
-                        diag(self.w_var_.numpy()[:, d, k]), S)
-
-                    mu = dot(co, self.X_[indices, :].T)
-
-                    scale = 1./self.lambda_b_.numpy()[d, k]
-                    shape = self.lambda_a_.numpy()[d, k]
-                    var = 1./gamma(shape, scale, size=S)
-                    
-                    probs = probs*((1/sqrt(2*np.pi*var))[:, newaxis]*\
-                            exp(-(1/(2*var))[:, newaxis]*\
-                                (mu - self.Y_[indices, d].numpy())**2))
-                accum[indices, k, :] = probs.T
-                
-        masked = np.sum(accum*selector, 1)
-
-        lppd = np.sum(np.log(np.nanmean(masked, 1).clip(1e-320, 1e320)))
-        p_waic = np.sum(np.nanvar(np.log(masked.clip(1e-320, 1e320)), 1))
-        waic2 = -2*(lppd - p_waic)
+                assert co_samples.shape == (self.N_, S, self.M_)
+            
+                #---------------------------------------------------------------
+                # Now populate the co_x_preds tensor
+                #---------------------------------------------------------------
+                co_x_preds[:, :, ii] = \
+                    torch.einsum('nsm,nm->ns', co_samples, self.X_)        
+            
+            #-------------------------------------------------------------------
+            # Now mask the samples of co_x_preds based on the randomly chosen
+            # trajectory to get the actual predictions. Note that at this point,
+            # sanity-checking shows that the diffence between these predictions
+            # and the actual observed values is indeed normally distributed
+            # around 0.
+            #-------------------------------------------------------------------
+            pred_samples = (co_x_preds * traj_samples_one_hot).sum(dim=2) # NxS
+            
+            #-------------------------------------------------------------------
+            # Get samples from the gamma distribution over the precisions
+            #-------------------------------------------------------------------
+            lambda_b_ = \
+                self.lambda_b_[dd, np.where(self.sig_trajs_)[0]].unsqueeze(0)
+            lambda_a_ = \
+                self.lambda_a_[dd, np.where(self.sig_trajs_)[0]].unsqueeze(0)
+            samples_tmp = \
+                (torch.distributions.Gamma(lambda_a_, lambda_b_).sample((S,))).\
+                squeeze(1)
+            
+            prec_samples = \
+                (samples_tmp.unsqueeze(0) * traj_samples_one_hot).sum(dim=2) # 
+            
+            #-------------------------------------------------------------------
+            # Compute likelihood samples
+            #-------------------------------------------------------------------
+            if self.target_type_[dd] == 'gaussian':
+                likelihood_samples[:, dd, :] = \
+                ((prec_samples/(2*torch.pi))**0.5)*\
+                torch.exp(-0.5*prec_samples*(self.Y_[:, dd].unsqueeze(-1) - \
+                                             pred_samples)**2)
+            elif self.target_type_[dd] == 'binary':
+                likelihood_samples[:, dd, :] = \
+                    (torch.exp(pred_samples)**self.Y_[:, dd].unsqueeze(-1))/\
+                    (1+torch.exp(pred_samples))
+            else:
+                raise AttributeError('Unknown target type')
         
-        return waic2 
+        #-----------------------------------------------------------------------
+        # Tally. Clip the likelihodd_samples to avoid infs
+        #-----------------------------------------------------------------------
+        likelihood_samples_clipped = torch.clamp(likelihood_samples, min=1e-45)
         
+        lppd = \
+            torch.sum(torch.log(torch.nanmean(likelihood_samples_clipped, 2)))
+        pwaic = \
+            np.sum(np.nanvar(torch.log(likelihood_samples_clipped).numpy(), 2))
+        waic2 = -2*(lppd-pwaic)
+
+        return waic2        
 
     def init_traj_params(self, traj_probs=None):
         """Initializes trajectory parameters.

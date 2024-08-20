@@ -211,6 +211,7 @@ def test_get_group_likelihood_samples_2():
 
 def test_compute_waic2():
     mm = get_gt_model()
+
     waic2_ref = compute_waic2(mm)
     print(waic2_ref)
     
@@ -229,6 +230,7 @@ def test_compute_waic2():
 
     # Modify R
     mm = get_gt_model()
+
     for gg in mm.gb_.groups:
         mm.R_[mm.gb_.get_group(gg).index, :] = \
             mm.R_[mm.gb_.get_group(gg).index, :] + \
@@ -236,6 +238,7 @@ def test_compute_waic2():
 
     row_sums = mm.R_.sum(dim=1, keepdim=True)
     mm.R_ = mm.R_/row_sums
+
     waic2_test = compute_waic2(mm)
     print("{} should be bigger than {}".format(waic2_test, waic2_ref))    
     if waic2_test <= waic2_ref:
