@@ -1056,168 +1056,168 @@ class MultDPRegression:
                    torch.bmm(right_term,
                     left_term[:, self.ranef_indices_].unsqueeze(-1)).squeeze(-1)
 
-    def sample(self, index=None, x=None):
-        """sample from the posterior distribution using the input data.
+#    def sample(self, index=None, x=None):
+#        """sample from the posterior distribution using the input data.
+#
+#        Parameters
+#        ----------
+#        index : int, optional
+#            The data sample index at which to sample. If none specified, samples
+#            will be drawn for all of the 'N' sample points.
+#
+#        x : torch.Tensor, shape ( M ), optional
+#            Only relevant if 'index' is also specified. If both 'index' and 'x'
+#            are specified, a sample will be drawn for the data point specified
+#            by 'index', using the predictor values specified by 'x'.  If 'x' is
+#            not specified, the original predictor values for the 'index' data
+#            point will be used to draw the sample. Here, 'M' is the dimension of
+#            the predictors.
+#
+#        Returns
+#        -------
+#        y_rep : torch.Tensor, shape ( N, M ) or ( M )
+#            The sample(s) randomly drawn from the posterior distribution
+#        """
+#        if index is None:
+#            indices = range(0, self.N_)
+#            y_rep = torch.zeros([self.N_, self.D_])
+#            X = self.X_
+#        else:
+#            if not isinstance(index, int) and not isinstance(index, np.int64):
+#                raise ValueError('index must be an integer if specified')
+#
+#            indices = range(index, index+1)
+#            y_rep = torch.zeros([1, self.D_])
+#
+#            if x is not None:
+#                if len(x.shape) != 1:
+#                    raise ValueError('x must be a vector')
+#
+#                if x.shape[0] != self.M_:
+#                    raise ValueError('x has incorrect dimension')
+#                    
+#        for n in indices:
+#            z = torch.multinomial(self.R_[n, :]/torch.sum(self.R_[n, :]), 1)
+#            for d in range(0, self.D_):
+#                if self.target_type_[d] == 'gaussian':
+#
+#                    scale = 1./self.lambda_b_[d, z]
+#                    shape = self.lambda_a_[d, z]
+#                    var = 1./torch.distributions.Gamma(shape, scale).sample()
+#
+#                    mean = self.w_mu_[:, d, z][:, 0]
+#                    covariance_matrix = torch.diag(self.w_var_[:, d, z][:, 0])
+#                    dist = torch.distributions.\
+#                        MultivariateNormal(mean, covariance_matrix)
+#                    co = dist.sample()
+#
+#                    mu = torch.matmul(co, x if x is not None else self.X_[n, :])
+#
+#                    y_rep[n if index is None else 0, d] = \
+#                        torch.sqrt(var)*torch.randn(1) + mu
+#
+#                else:
+#                    # Target assumed to be binary
+#                    mean = self.w_mu_[:, d, z][:, 0]
+#                    covariance_matrix = self.w_covmat_[:, :, d, z][:, 0]
+#                    dist = torch.distributions.\
+#                        MultivariateNormal(mean, covariance_matrix)
+#                    co = dist.sample()
+#
+#                    mu = torch.matmul(co, x if x is not None else self.X_[n, :])
+#                    p = torch.exp(mu)/(1 + torch.exp(mu))
+#                    y_rep[n if index is None else 0, d] = \
+#                        torch.distributions.Binomial(1, p).sample()
+#
+#        return y_rep
 
-        Parameters
-        ----------
-        index : int, optional
-            The data sample index at which to sample. If none specified, samples
-            will be drawn for all of the 'N' sample points.
-
-        x : torch.Tensor, shape ( M ), optional
-            Only relevant if 'index' is also specified. If both 'index' and 'x'
-            are specified, a sample will be drawn for the data point specified
-            by 'index', using the predictor values specified by 'x'.  If 'x' is
-            not specified, the original predictor values for the 'index' data
-            point will be used to draw the sample. Here, 'M' is the dimension of
-            the predictors.
-
-        Returns
-        -------
-        y_rep : torch.Tensor, shape ( N, M ) or ( M )
-            The sample(s) randomly drawn from the posterior distribution
-        """
-        if index is None:
-            indices = range(0, self.N_)
-            y_rep = torch.zeros([self.N_, self.D_])
-            X = self.X_
-        else:
-            if not isinstance(index, int) and not isinstance(index, np.int64):
-                raise ValueError('index must be an integer if specified')
-
-            indices = range(index, index+1)
-            y_rep = torch.zeros([1, self.D_])
-
-            if x is not None:
-                if len(x.shape) != 1:
-                    raise ValueError('x must be a vector')
-
-                if x.shape[0] != self.M_:
-                    raise ValueError('x has incorrect dimension')
-                    
-        for n in indices:
-            z = torch.multinomial(self.R_[n, :]/torch.sum(self.R_[n, :]), 1)
-            for d in range(0, self.D_):
-                if self.target_type_[d] == 'gaussian':
-
-                    scale = 1./self.lambda_b_[d, z]
-                    shape = self.lambda_a_[d, z]
-                    var = 1./torch.distributions.Gamma(shape, scale).sample()
-
-                    mean = self.w_mu_[:, d, z][:, 0]
-                    covariance_matrix = torch.diag(self.w_var_[:, d, z][:, 0])
-                    dist = torch.distributions.\
-                        MultivariateNormal(mean, covariance_matrix)
-                    co = dist.sample()
-
-                    mu = torch.matmul(co, x if x is not None else self.X_[n, :])
-
-                    y_rep[n if index is None else 0, d] = \
-                        torch.sqrt(var)*torch.randn(1) + mu
-
-                else:
-                    # Target assumed to be binary
-                    mean = self.w_mu_[:, d, z][:, 0]
-                    covariance_matrix = self.w_covmat_[:, :, d, z][:, 0]
-                    dist = torch.distributions.\
-                        MultivariateNormal(mean, covariance_matrix)
-                    co = dist.sample()
-
-                    mu = torch.matmul(co, x if x is not None else self.X_[n, :])
-                    p = torch.exp(mu)/(1 + torch.exp(mu))
-                    y_rep[n if index is None else 0, d] = \
-                        torch.distributions.Binomial(1, p).sample()
-
-        return y_rep
-
-    def lppd(self, y, index, S=20, x=None):
-        """Compute the log pointwise predictive density (lppd) at a specified
-        point.
-
-        # TODO: test binary implementation
-
-        This function implements equation 7.5 of 'Bayesian Data Analysis, Third
-        Edition' for a single point.
-
-        Parameters
-        ----------
-        y : torch.Tensor, shape ( D )
-            The vector of target values at which to compute the log pointwise
-            predictive density.
-
-        index : int, optional
-            The data sample index at which to sample.
-
-        S : int, optional
-            The number of samples to draw in order to compute the lppd.
-
-        x : torch.Tensor, shape ( M ), optional
-            If specified, a sample will be drawn for the data point specified
-            by 'index', using the predictor values specified by 'x'.  If 'x' is
-            not specified, the original predictor values for the 'index' data
-            point will be used to draw the sample. Here, 'M' is the dimension of
-            the predictors.
-
-        Returns
-        -------
-        log_dens : float
-            The computed lppd.
-
-        References
-        ----------
-        Gelman et al, 'Bayesian Data Analysis, 3rd Edition'
-        """        
-        if not isinstance(index, int):
-            raise ValueError('index must be an integer')
-    
-        if x is not None:
-            if len(x.shape) != 1:
-                raise ValueError('x must be a vector')
-    
-            if x.shape[0] != self.M_:
-                raise ValueError('x has incorrect dimension')
-    
-        y = torch.from_numpy(y).float()
-        accums = torch.zeros([self.D_, S])
-        
-        for s in range(0, S):  
-            z = torch.multinomial(self.R_[index, :], 1)
-            for d in range(0, self.D_):
-                if self.target_type_[d] == 'gaussian':
-                    mu = self.w_mu_[:, d, z][0]
-                    var = self.w_var_[:, d, z][0]
-                    co = MultivariateNormal(mu, torch.diag(var)).sample()
-    
-                    if x is not None:
-                        mu = torch.dot(co, x)
-                    else:
-                        mu = torch.dot(co, self.X_[index, :])
-    
-                    shape = self.lambda_a_[d, z]
-                    scale = 1./self.lambda_b_[d, z]
-                    var = 1./Gamma(shape, scale).sample()
-    
-                    accums[d, s] = torch.clamp((1/torch.sqrt(var*2*torch.pi))*\
-                      torch.exp((-(0.5/var)*(y[d] - mu)**2).float()),
-                      1e-300, 1e300) 
-                else:
-                    mu = self.w_mu_[:, d, z][0]
-                    cov = self.w_covmat_[:, :, d, z]
-                    co = MultivariateNormal(mu, cov).sample()
-    
-                    if x is not None:
-                        mu = torch.dot(co, x)
-                    else:
-                        mu = torch.dot(co, self.X_[index, :])
-    
-                    accums[d, s] = \
-                        torch.clamp((torch.exp(mu)**y[d])/(1 + torch.exp(mu)),
-                                    1e-300, 1e300)
-    
-        log_dens = torch.sum(torch.log(torch.mean(accums, 1)))
-    
-        return log_dens.item()
+#    def lppd(self, y, index, S=20, x=None):
+#        """Compute the log pointwise predictive density (lppd) at a specified
+#        point.
+#
+#        # TODO: test binary implementation
+#
+#        This function implements equation 7.5 of 'Bayesian Data Analysis, Third
+#        Edition' for a single point.
+#
+#        Parameters
+#        ----------
+#        y : torch.Tensor, shape ( D )
+#            The vector of target values at which to compute the log pointwise
+#            predictive density.
+#
+#        index : int, optional
+#            The data sample index at which to sample.
+#
+#        S : int, optional
+#            The number of samples to draw in order to compute the lppd.
+#
+#        x : torch.Tensor, shape ( M ), optional
+#            If specified, a sample will be drawn for the data point specified
+#            by 'index', using the predictor values specified by 'x'.  If 'x' is
+#            not specified, the original predictor values for the 'index' data
+#            point will be used to draw the sample. Here, 'M' is the dimension of
+#            the predictors.
+#
+#        Returns
+#        -------
+#        log_dens : float
+#            The computed lppd.
+#
+#        References
+#        ----------
+#        Gelman et al, 'Bayesian Data Analysis, 3rd Edition'
+#        """        
+#        if not isinstance(index, int):
+#            raise ValueError('index must be an integer')
+#    
+#        if x is not None:
+#            if len(x.shape) != 1:
+#                raise ValueError('x must be a vector')
+#    
+#            if x.shape[0] != self.M_:
+#                raise ValueError('x has incorrect dimension')
+#    
+#        y = torch.from_numpy(y).float()
+#        accums = torch.zeros([self.D_, S])
+#        
+#        for s in range(0, S):  
+#            z = torch.multinomial(self.R_[index, :], 1)
+#            for d in range(0, self.D_):
+#                if self.target_type_[d] == 'gaussian':
+#                    mu = self.w_mu_[:, d, z][0]
+#                    var = self.w_var_[:, d, z][0]
+#                    co = MultivariateNormal(mu, torch.diag(var)).sample()
+#    
+#                    if x is not None:
+#                        mu = torch.dot(co, x)
+#                    else:
+#                        mu = torch.dot(co, self.X_[index, :])
+#    
+#                    shape = self.lambda_a_[d, z]
+#                    scale = 1./self.lambda_b_[d, z]
+#                    var = 1./Gamma(shape, scale).sample()
+#    
+#                    accums[d, s] = torch.clamp((1/torch.sqrt(var*2*torch.pi))*\
+#                      torch.exp((-(0.5/var)*(y[d] - mu)**2).float()),
+#                      1e-300, 1e300) 
+#                else:
+#                    mu = self.w_mu_[:, d, z][0]
+#                    cov = self.w_covmat_[:, :, d, z]
+#                    co = MultivariateNormal(mu, cov).sample()
+#    
+#                    if x is not None:
+#                        mu = torch.dot(co, x)
+#                    else:
+#                        mu = torch.dot(co, self.X_[index, :])
+#    
+#                    accums[d, s] = \
+#                        torch.clamp((torch.exp(mu)**y[d])/(1 + torch.exp(mu)),
+#                                    1e-300, 1e300)
+#    
+#        log_dens = torch.sum(torch.log(torch.mean(accums, 1)))
+#    
+#        return log_dens.item()
     
 
     def cast_to_torch(self):
