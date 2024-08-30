@@ -74,6 +74,8 @@ class PriorGenerator:
         self.M_ = len(preds)
         self.K_ = None
         self.N_ = None
+
+        self.estimate_ranef_covmat_ = False
         
         self.prior_info_ = {}
         self.prior_info_['w_mu0'] = {}
@@ -89,8 +91,8 @@ class PriorGenerator:
         self.prior_info_['traj_probs'] = None
         self.prior_info_['Sig0'] = None
         self.prior_info_['ranefs'] = None
-        self.prior_info_['ranef_indices'] = None
-
+        self.prior_info_['ranef_indices'] = None        
+        
         # The following maps a predictor name to the covariance matrix index
         # location
         self.prior_info_['pred_to_ranef_index'] = {}
@@ -328,7 +330,8 @@ class PriorGenerator:
             self.prior_info_['w_var'][m][target][traj] = \
                 self.mm_.w_var_[pred_index, target_index, traj]
 
-        if self.prior_info_['ranefs'] is not None:
+        if self.prior_info_['ranefs'] is not None and \
+           self.estimate_ranef_covmat_:
             self.prior_info_['Sig0'] = \
                 self.ranef_covmat_from_model(self.mm_,
                         self.prior_info_['ranefs'])
@@ -385,7 +388,8 @@ class PriorGenerator:
             self.prior_info_['w_mu0'][target][m] = res_tmp.params.values[i]
             self.prior_info_['w_var0'][target][m] = vars[i]
 
-        if self.prior_info_['ranefs'] is not None:
+        if self.prior_info_['ranefs'] is not None and \
+           self.estimate_ranef_covmat_:
             self.prior_info_['Sig0'] = \
                 self.ranef_covmat_from_df(self.df_data_,
                         self.prior_info_['ranefs'])            
@@ -681,6 +685,13 @@ def main():
         predictor_name2,covariance. By default, variances will be 1 and \
         covariances will be 0.',
         type=str, default=None, action='append', nargs='+')
+    parser.add_argument('--est_ranefs', help='This flag will estimate the \
+        random effect covariance matrix from the input data or model. Note that \
+        this procedure may take several minutes. If random effects are not \
+        specified (using the --ranefs flag) this flag will have no effect. \
+        Note that by default, random effect covariance matrices will be set to \
+        the identify matrix.',
+        action="store_true")
     parser.add_argument('--num_trajs', help='Estimate of the number of \
         trajectories expected in the data set. Can be specified as a single \
         value or as a dash-separated range, such as 4-6. If a single value is \
@@ -733,6 +744,11 @@ def main():
     else:
         pg.min_num_trajs_ = 1
         pg.max_num_trajs_ = 2*int(tmp[0]) - 1
+
+    # Indicate whether or not to estimate random effect covariance matrix from
+    # input data or input model. Has no effect if random effects have not been
+    # specified.
+    pg.estimate_ranef_covmat_ = op.est_ranefs
         
     #---------------------------------------------------------------------------
     # Read in and process data and models as availabe
