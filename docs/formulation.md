@@ -1,6 +1,9 @@
+Here we describe our Bayesian formulation, beginning with a brief review of
+Dirichlet process mixtures, a key element of our model.
 
 # Dirichlet Process Mixtures
-Ferguson [@Ferguson1973] first introduced the Dirichlet process (DP) as a
+[Ferguson (1973)](https://www.jstor.org/stable/pdf/2958008.pdf?casa_token=tzi5CgijJnAAAAAA:P1JvaSlGmHtc9-8jJSib5nzt3lO_GgOBi5iiZth2bg-sbyMotPV7flSvBsIxiLTmYXdXAJSVA6qWIgLAbdvWtTOJiw9VNjGOUWy9vTzIhVgNRjCl6zA)
+first introduced the Dirichlet process (DP) as a
 measure on measures. It is parameterized by a base measure,
 \\(\mathit{G}\_0\\), and a positive scaling parameter \\( \alpha \\):
 $$
@@ -8,12 +11,16 @@ $$
 $$
 The notion of a Dirichlet process mixture (DPM) arises if we treat the
 \\( k^{th} \\) draw from \\( \mathit{G} \\) as a parameter of the distribution over some
-observation [@Antoniak1974]. DPMs can be interpreted as mixture models with an
+observation ([Antoniak (1974)](https://www.jstor.org/stable/pdf/2958336.pdf?casa_token=JDOSeMgW_a4AAAAA:sYAU_MBeUgA113mrQnVM2SNbRjqMGvzBHMT8PUDGH-LQlliLQRlWbXKtD5Gl4ycRfCiTH4ABRPJnaY-UV-sA7HhwJzLT39QrVKWLRVPr2NeZRnLX-O4)).
+DPMs can be interpreted as mixture models with an
 infinite number of mixture components.
 
-More recently, Blei and Jordan [@Blei2006] described a variational inference
+More recently,
+[Blei and Jordan (2006)](https://www.cs.princeton.edu/courses/archive/fall07/cos597C/readings/BleiJordan2005.pdf)
+described a variational inference
 algorithm for DPMs using the stick-breaking construction introduced in
-[@Sethuraman1991]. The stick-breaking construction represents \\( G \\) as
+[Sethuraman (1991)](https://groups.seas.harvard.edu/courses/cs281/papers/sethuraman-1994.pdf).
+The stick-breaking construction represents \\( G \\) as
 $$
   \pi\_{k}( \mathbf{v} ) = \mathbf{v}\_{k}\prod^{k-1}_{j=1}\left( 1-\mathbf{v}\_{j}\right)
 $$
@@ -25,12 +32,10 @@ where \\( \delta\_{\eta\_{i}^{\ast}}   \\) is the Kronecker delta, and the
 \\( \mathbf{v}\_{i} \\) are distributed according to a beta distribution:
 \\( \mathbf{v}\_{i} \sim \text{Beta}\left( 1, \alpha \right) \\), and 
 \\( \eta_{i}^{\ast} \sim \mathit{G}\_0 \\). We use a DPM in our model to
-automatically identify the number of disease trajectories that best explain
-our data.
+automatically identify the number of trajectories that best explain our data.
 
 
 # Model Formulation
-Here we provide our Bayesian nonparametric model formulation. 
 We consider a collection of multiple longitudinally observed target variables,
 which can be continuous, binary, or a combination.
 We let \\(y_{g,i,d}\\) represent the observation for individual \\(g\\)
@@ -68,10 +73,11 @@ p(\mathbf{Y}_b\mid \mathbf{Z}, \mathbf{W}_b)=\prod\_{k=1}^{\infty}\prod\_{g=1}^{
 $$
 
 We formulate our model as a DPMM, which can be interpreted as a mixture model
-with a potentially infinite number of mixture components ([@antoniak1974mixtures]).
+with a potentially infinite number of mixture components
+([Antoniak (1974)](https://www.jstor.org/stable/pdf/2958336.pdf?casa_token=JDOSeMgW_a4AAAAA:sYAU_MBeUgA113mrQnVM2SNbRjqMGvzBHMT8PUDGH-LQlliLQRlWbXKtD5Gl4ycRfCiTH4ABRPJnaY-UV-sA7HhwJzLT39QrVKWLRVPr2NeZRnLX-O4)).
 The \\(G \times \infty\\) binary indicator matrix, \\(\mathbf{Z}\\), represents
 the association between subjects and the potentially infinite number of latent
-regression functions, and \\(k\\) represents the group membership for each individual.
+regression functions (trajectories), and \\(k\\) represents the group membership for each individual.
 In the case of \\(\mathbf{Y}_c\\) this formulation can be see as mixture of linear
 regressors, and in the case of \\(\mathbf{Y}_b\\) it can be seen as an infinite
 mixture of logistic regressors.  
@@ -119,7 +125,10 @@ $$
 
 (Note that the dimension length of random effect vectors is generally less than
 \\( \mathbf{M} \\), the number of predictors. Elements of \\( \mathbf{u}\_{g, d\_c, k} \\)
-corresponding to predictors with no random effects are set to 0.)
+corresponding to predictors with no random effects are set to 0.) Here we assume that
+the random effects have mean \\( \mathbf{0} \\), and the unstructured covariance
+matrix \\( \boldsymbol{\Sigma}_0\\) captures prior believe about predictor
+variability within a trajectory subgroup.
 
 
 We learn the residual precisions, \\( \boldsymbol{\lambda} \\), for each of the
@@ -138,7 +147,9 @@ p(\mathbf{Z} \mid \mathbf{v})=
 $$
 This can be considered a \\( G\times \infty \\) multinomial distribution with
 parameters drawn for a DP using the stick-breaking construction
-[@blei2006variational,@sethuraman1994constructive], where the elements
+(see [Blei 2006](http://www.cs.princeton.edu/courses/archive/fall11/cos597C/reading/BleiJordan2005.pdf)
+and [Sethuraman 1994](https://www.jstor.org/stable/pdf/24305538.pdf?casa_token=Os5nKQ7AeAMAAAAA:BbFJcPpxB-O10ntvO7ii9ruY3oeIAeTiAoQZ2X5rF9BhnaXIAV2rLqcx78Vji-vqRtOCJAeB1kWw_kcV1NvhmHssQamAxLb87mz0o_9oilKInFy_K80) for details),
+where the elements
 of \\(\mathbf{v}\\) are drawn from a beta distribution with concentration parameter \\(\alpha\\):
 $$
 p(\mathbf{v})=
@@ -153,7 +164,7 @@ A benefit of the non-parametric framework is that the number of components
 that best describe the observed data is automatically determined conditioned on
 this value.
 
-With these terms defined, the joint density is given as
+With these terms defined, the joint density is given as:
 $$
 p\left(\mathbf{Y}\_c, 
 \mathbf{Y}\_b, 
@@ -182,595 +193,3 @@ p(\boldsymbol{\lambda} \mid \mathbf{a}\_0, \mathbf{b}\_0)
 p(\mathbf{Z} \mid \mathbf{v}) 
 p(\mathbf{v} \mid \alpha)
 $$
-
-# Variational Inference
-Frequently with complex models, obtaining the exact posterior distribution can
-be intractable. While Markov Chain Monte Carlo (MCMC) 
-methods offer a systematic approach to sample from the posterior distribution,
-they can be slow in high-dimensional parameter spaces [@hastings1970monte]. 
-An alternative is variational inference [@jordan1999introduction], a form
-of Bayesian approximate inference that tends to be fast and scales well to large
-data sets. It typically makes a factorization assumption over the approximate
-posterior distribution of interest, and it turns an inference problem into an
-optimization problem by finding the
-approximate posterior that minimizes the Kullback-Leibler divergence to the true
-posterior distribution [@jordan1999introduction, @jaakkola200110,
-@blei2017variational].
-
-In the case of conjugate priors (a prior is conjugate when the posterior
-distribution belongs to the same family of probability distributions as the
-prior distribution given a specific likelihood function), there is a straightforward
-procedure for deriving variational update eqautions. In the case of
-non-conjugate priors, alternative approaches are needed.
-
-
-complexities from
-non-conjugate priors for coefficients estimation in infinite DP mixture of logistic regression. 
-
-For our model, the posterior distribution we wish to estimate is given by:
-$$
-p\left(\mathbf{W}\_c,
-\mathbf{W}\_b,
-\boldsymbol{\lambda},
-\mathbf{Z},
-\mathbf{v},
-\mathbf{U}
-\mid
-\mathbf{Y}\_c,
-\mathbf{Y}\_b,
-\mathbf{X},
-\boldsymbol{\mu}\_{0_c},
-\boldsymbol{\lambda}\_{0_c},
-\boldsymbol{\mu}\_{0_b},
-\boldsymbol{\lambda}\_{0_b},
-\mathbf{a}\_0,
-\mathbf{b}\_0,
-\alpha,
-\boldsymbol{\Sigma}_0
-\right)
-$$
-This posterior probability is approximated using variational inference. The
-standard mean field variational inference approach is to assume a factorized
-approximation of this distribution, in our case:
-$$
-p^\*(\mathbf{W}\_{c})
-p^\*(\mathbf{W}\_{b})
-p^\*(\boldsymbol{\lambda})
-p^\*(\mathbf{Z})
-p^\*(\mathbf{v})
-p^\*(\mathbf{U})
-$$
-In order to derive the expression for each of these factors, the expectation
-with respect to the other factors is considered. Derivation of the variational
-distributions begins with the following expressions:
-$$
-\text{ln}p^\*(\mathbf{W}\_c) =
-\mathbb{E}\_{\mathbf{W}\_b,
-\mathbf{\lambda},
-\mathbf{Z},
-\mathbf{v},
-\mathbf{U}
-}\\{\text{ln}p(\mathbf{Y}\_c,
-\mathbf{Y}\_b,
-\mathbf{W}_c,
-\mathbf{W}\_b,
-\boldsymbol{\lambda},
-\mathbf{Z},
-\mathbf{v},
-\mathbf{U}
-) \\} +
-\text{const}
-$$
-
-$$
-\text{ln}p^\*(\mathbf{U}) =
-\mathbb{E}\_{
-\mathbf{W}\_c,
-\mathbf{W}\_b,
-\mathbf{\lambda},
-\mathbf{Z},
-\mathbf{v}
-}\\{\text{ln}p(\mathbf{Y}\_c,
-\mathbf{Y}\_b,
-\mathbf{W}_c,
-\mathbf{W}\_b,
-\boldsymbol{\lambda},
-\mathbf{Z},
-\mathbf{v},
-\mathbf{U}
-) \\} +
-\text{const}
-$$
-
-$$
-\text{ln}p^\*(\boldsymbol{\lambda}) =
-\mathbb{E}\_{
-\mathbf{W}_c,
-\mathbf{W}\_b,
-\mathbf{Z},
-\mathbf{v},
-\mathbf{U}
-}\\{ \text{ln}p(\mathbf{Y}\_c,
-\mathbf{Y}\_b,
-\mathbf{W}\_c,
-\mathbf{W}\_b,
-\boldsymbol{\lambda},
-\mathbf{Z},
-\mathbf{v},
-\mathbf{U}
-)\\} +
-\text{const}
-$$
-
-$$
-\text{ln}p^\*(\mathbf{v}) =
-\mathbb{E}\_{
-\mathbf{W}\_c,
-\mathbf{W}\_b,
-\boldsymbol{\lambda},
-\mathbf{Z},
-\mathbf{U}
-}
-\\{\text{ln}p(\mathbf{Y}\_c,
-\mathbf{Y}\_b,
-\mathbf{W}\_c,
-\mathbf{W}\_b,
-\mathbf{\lambda},
-\mathbf{Z},
-\mathbf{v},
-\mathbf{U}
-) \\} + \text{const}
-$$
-
-$$
-\text{ln}p^\*(\mathbf{Z}) =
-\mathbb{E}\_{
-\mathbf{W}\_c,
-\mathbf{W}\_b,
-\boldsymbol{\lambda},
-\mathbf{v},
-\mathbf{U}
-}
-\\{\text{ln}p(\mathbf{Y}\_c,
-\mathbf{Y}\_b,
-\mathbf{W}\_c,
-\mathbf{W}\_b,
-\boldsymbol{\lambda},
-\mathbf{Z},
-\mathbf{v},
-\mathbf{U}
-)\\}
-+ \text{const}
-$$
-
-
-
-A challenge arises, however, if priors in the model are not conditionally
-conjugate – i.e. if factor posteriors are not in the same family as the
-corresponding priors. This is the case with the Gaussian priors for the
-coefficients of logistic regression \\(\mathbf{W}\_b\\), meaning that the
-distribution \\(p^\*(\mathbf{W}\_b) \\) can not be assumed Gaussian unless
-approximations are made to restore conjugacy. We address this challenge
-by integrating the coordinate ascent variational inference algorithm with
-the EM (Expectation-Maximization) algorithm to facilitate updates of
-\\( p^\*(\mathbf{W}\_b) \\).
-
-
-## Variational Distributions
-
-### The variational distribution \\( p^\*(\mathbf{W}_c) \\)
-The variational distribution over the coefficients \\( \mathbf{W}_c \\) is given
-by a multivariate Gaussian distribution that factorizes over the predictors,
-targets, and subtype clusters:
-
-$$
-p^\*(\mathbf{W}_c)=
-\prod\_{m=1}^{M}
-\prod\_{d_c=1}^{D_c}
-\prod\_{k=1}^{K}
-\mathcal{N}
-\left(
-w\_{m, d_c, k} \mid
-\mu\_{m, d_c, k},
-{\lambda^{-1}\_{m, d_c, k}}
-\right)
-$$
-
-$$
-\lambda\_{m, d_c, k}=
-\lambda\_{0\_{c\_{m, d_c}}}+
-\frac{a\_{d_c, k}}{b\_{d_c, k}}
-\sum\_{g=1}^{G}
-\mathbb{E}\_{\mathbf{z}}\\{z\_{g, k}\\}
-\sum\_{i=1}^{n_g}
-x\_{i,m}^2
-$$
-
-$$
-\mu_{m, d_c, k}=
-{\lambda_{m, d_c, k}}^{-1}
-\bigg[
-\mu_{0_{c\_{m, d_c}}} {\lambda\_{0_{c_{m, d_c}}}} -
-\frac{{a\_{d_c, k}}}{{b\_{d_c, k}}}
-\sum\_{g=1}^{G}
-\mathbb{E}\_{\mathbf{z}}\\{z\_{g, k}\\} \times
-$$
-$$
-\sum\_{i=1}^{n_g}x\_{g,i,m}
-\left(\mathbb{E}\_{\mathbf{w}}\\{\mathbf{w}\_{-, d_c, k}\\}^{T} \
-\mathbf{x}\_{g,i,-} +
-\mathbb{E}\\{ \mathbf{u}\_{g,d_c,k} \\}^T \mathbf{x}\_{g,i,.} -
-y\_{g,i, d_c}\right)
-\bigg] 
-\label{Wc_ast}
-$$
-
-The \\(-\\) in \\( \mathbf{w}\_{-,d_c,k} \\) and \\( \mathbf{x}\_{g,i,-} \\)
-indicates all but the \\(m^{th}\\) predictor.
-
-### The variational distribution \\( p^{\*}(\mathbf{U}) \\)
-
-The variational distribution for \\( p^{\*}(\mathbf{U}) \\) is given by
-
-$$
-p^{\*}(\mathbf{U}) =
-\prod\_{g=1}^{G}
-\prod\_{d_c=1}^{D_c}
-\prod\_{k=1}^{K}
-\mathcal{N}
-\left(
-\mathbf{u}\_{g, d_c, k} \mid
-\boldsymbol{\mu}\_{g, d_c, k},
-\boldsymbol{\Sigma}\_{g, d_c, k}
-\right)
-$$
-where
-$$
-\boldsymbol{\Sigma}\_{g, d_c, k} =
-\left[ \boldsymbol{\Sigma}_0^{-1} + 
-\mathbb{E}\\{ z\_{g,k}\\}
-\frac{a\_{d_c,k}}{b\_{d_c,k}}
-\sum\_{i=1}^{n_g}
-\mathbf{x}\_{g,i,d_c}\mathbf{x}\_{g,i,d_c}^T
-\right]^{-1}
-$$
-and
-$$
-\boldsymbol{\mu}\_{g, d_c, k} =
-\left[
-\mathbb{E}\\{ z\_{g,k}\\}
-\frac{a\_{d_c,k}}{b\_{d_c,k}}
-\sum\_{i=1}^{n_g}
-\left(
-\mathbb{E}\\{  w\_{., d, k}  \\}^T
-\mathbf{x}\_{g,i,d_c} - y\_{g, i, d_c}
-\right)\mathbf{x}\_{g,i,d_c}^T
-\right]
-\boldsymbol{\Sigma}\_{g, d_c, k}
-$$
-
-### The variational distribution \\( p^{\*}(\boldsymbol{\lambda}) \\)
-
-The variational distribution over \\( \mathbf{\lambda} \\) is given by a gamma
-distribution with parameters \\( \mathbf{a} \\) and \\( \mathbf{b} \\):
-$$
-p^{\*}(\boldsymbol{\lambda})=
-\prod\_{d_c=1}^{D_c}
-\prod\_{k=1}^{K}
-\operatorname{Gam}
-\left(\lambda\_{d_c, k} \mid a\_{d_c, k}, b\_{d_c, k}
-\right)
-$$
-
-$$
-a_\{d_c, k}=
-a\_{0\_{d_c}}+
-\frac{1}{2}
-\sum\_{g=1}^{G}n_g
-\mathbb{E}\_{\mathbf{z}}\\{z\_{g, k}\\} 
-$$
-
-$$
-b\_{d_c, k}=
-b\_{0_{d_c}}+
-\frac{1}{2}
-\sum\_{g=1}^{G}
-\sum\_{i=1}^{n_g}
-\mathbb{E}\\{z\_{g, k}\\}\left(\mathbb{E}\\{\left({\mathbf{w}^{T}\_{\cdot, d_c, k}} \mathbf{x}\_{g,i, \cdot}\right)^{2}\\}
--2 y\_{g,i,d_c}
-\mathbb{E}\\{\mathbf{w}\_{\cdot,d_c, k}\\}^{T} \mathbf{x}_{g,i,\cdot} +
-{y^{2}\_{g,i, d_c}}\right)
-\label{lambda_ast}
-$$
-
-### The variational distribution \\( p^{\*}(\mathbf{v}) \\)
-
-The variational distribution for \\( p^{\*}(\mathbf{v}) \\) is given by
-$$
-p^{\*}(\mathbf{v})=
-\prod\_{k=1}^{K}
-\text{Beta}
-\left( 
-v_k \mid 1 +
-\sum\_{g=1}^{G}
-\mathbb{E}\\{\mathbf{Z} \\}\_{g, k}, 
-\alpha +
-\sum\_{j=k+1}^{K}
-\sum\_{g=1}^{G}
-\mathbb{E}\\{\mathbf{Z} \\}\_{g, j}
-\right)
-\label{v_ast}
-$$
-where \\( K \\) is an integer (e.g. 20) chosen by the user for the truncated stick-breaking process.
-
-
-### The variational distribution \\( p^{\*}(\mathbf{Z}) \\)
-
-The variational distribution for \\( p^{\*}(\mathbf{Z}) \\) is given by
-
-$$
-p^{*}(\mathbf{Z})=
-\prod_{g=1}^{G}\prod_{k=1}^{K}r_{g,k}^{z_{g,k}}
-\label{pZstar}
-$$
-
-where
-
-$$
-r\_{g,k}=\frac{\rho\_{g,k}}{\sum\_{k=1}^{K}\rho\_{g,k}}
-\label{rnk}
-$$
-
-and
-
-$$
-\ln \rho\_{g, k} = n_g\mathbb{E}\\{\ln v_k\\} +
-n_g\sum\_{j=1}^{k-1}\mathbb{E}\\{\ln (1-v_j)\\} + \\
-$$
-
-$$
-\frac{1}{2}\sum_{d_c=1}^{D_c}
-\bigg[n_g\mathbb{E}\\{\ln \lambda\_{d_c, k}\\}-n_g\ln (2 \pi) -
-$$
-$$
-\mathbb{E}\\{\lambda\_{d_c, k}\\}
-\sum_{i=1}^{n_g}
-\bigg(\mathbb{E}\\{\left({\mathbf{w}^{T}\_{\cdot, d_c, k}} \mathbf{x}\_{g,i,\cdot}\right)^2\\} -
-2 y\_{g,i,d_c} \mathbb{E}\\{{\mathbf{w}\_{\cdot, d_c, k}}\\}^{T} \mathbf{x}\_{g,i,\cdot}+y^2\_{g,i, d_c} +
-$$
-
-$$
--2y\_{g,i,d_c}\mathbb{E}\\{ \mathbf{u}\_{g,d_c,k}\\}^T\mathbf{x}\_{g,i,.} +
-2\mathbb{E}\\{ \mathbf{w}\_{.,d_c,k}\\}^T\mathbf{x}\_{g,i,.}
-\mathbb{E}\\{ \mathbf{u}\_{g,d_c,k}\\}^T\mathbf{x}\_{g,i,.} +
-\mathbb{E}\\{ ( \mathbf{u}\_{g,d_c,k}^T\mathbf{x}\_{g,i,.} )^2 \\}
-\bigg)\bigg] +
-$$
-$$
-\sum\_{d_b=1}^{D_b}
-\sum\_{i=1}^{n_g}
-\left[
-y\_{g,i, d_b} \mathbb{E}\\{
-    {\mathbf{w}\_{\cdot, d_b, k}}\\}^{T}{\mathbf{x}\_{g,i, \cdot}}
-    -\mathbb{E}\\{\ln\left(1+\exp\left(\mathbf{x}\_{g,i, \cdot}\cdot{\mathbf{w}\_{\cdot, d_b, k}}^T\right)\right)\\}
-    \right]
-$$
-
-
-## Update Strategy for \\( \mathbf{W}\_b \\) 
-As mentioned above, the Gaussian priors over the coefficients
-\\( \mathbf{W}\_b \\) are not conjugate concerning the likelihood factor
-\\( p(\mathbf{Y}_b\mid \mathbf{Z}, \mathbf{W}_b) \\).
-When the prior and likelihood are not conjugate, Bayesian inference becomes more
-complex and computationally demanding since the posterior distribution cannot be
-derived analytically. Our methodology lies in enabling variational updates of the
-posterior distribution for \\( \mathbf{W}_b \\) through the use of a tangent
-quadratic lower bound of logistic likelihoods within the framework of variational
-inference for conditionally conjugate exponential family models
-[@durante2019conditionally] for an infinite mixture of logistic regression
-under DPMMs to restore conjugacy between these approximate bounds and the
-Gaussian priors on \\( \mathbf{W}_b \\). 
-
-[@jaakkola2000bayesian] introduced a straightforward variational approach based
-on a family of tangent quadratic lower bounds of logistic log-likelihoods. They
-derived an EM algorithm to iteratively refine the variational parameters of the
-lower bound and the mean and covariance of the Gaussian distribution over the
-predictor coefficients. However, this method was specifically designed for
-simple logistic regression and did not extend to mixtures of logistic
-regressors. To address this, we extend these concepts to Dirichlet Process
-mixture models in our formulation. We can augment the likelihood function
-\\( p(\mathbf{Y}_b\mid \mathbf{Z}, \mathbf{W}_b) \\):
-
-$$
-p(\mathbf{Y}\_b, \boldsymbol{\zeta} \mid \mathbf{Z}, \mathbf{W}\_b)=
-\prod_\{k=1}^{\infty}\prod\_{g=1}^{G} \prod\_{d_b=1}^{D_b} 
-\left[\prod\_{i=1}^{n\_g}
-p\left( y\_{g,i,d_b}\vert \mathbf{w}\_{\cdot,d_b,k} \right)
-p\left(\zeta\_{g,i,d_b,k}\vert \mathbf{w}\_{\cdot,d_b,k} \right)
-\right]^{z_{g,k}},
-$$
-
-where \\(\boldsymbol{\zeta}\_{g,i,d_b,k}\\) are Polya-gamma densities
-\\(\text{PG}(1,\mathbf{w}^{T}\_{\cdot,d_b,k}\mathbf{x}\_{g,i,\cdot}) \\)
-as described in [@durante2019conditionally], except in our case we consider
-a nonparametric mixture of \\(D\_b\\) conditionally independent target
-variables. Importantly, the augmented likelihood is within the exponential
-family of distributions, and the prior over \\(\mathbf{W}\_b\\)
-is now conjugate. 
-
-[@durante2019conditionally] provide coordinate ascent variational inference
-updates for the variational distributions \\(p^\*\left(\mathbf{W}\_b\right) \\)
-and \\(p^\*\left(\boldsymbol{\zeta} \right)\\) (which in turn relate directly
-the the EM algorithm proposed by [@jaakkola2000bayesian]). Extending these
-updates to our model gives the variational distribution over
-\\(\mathbf{W}\_b\\) as
-$$
-    p^\*(\mathbf{W}\_b) = \prod\_{d_b=1}^{D_b}\prod_{k=1}^{K}
-    N(\mathbf{w}\_{\cdot,d_b,k} \vert 
-    \boldsymbol{\mu}\_{d_b,k},\boldsymbol{\lambda}^{-1}\_{d_b,k})
-$$
-where
-$$
-\boldsymbol{\lambda}^{-1}\_{d_b,k} = \left(\boldsymbol{\Sigma}^{-1}\_{d_b} +
-\mathbf{X}^{T}\mathbf{G}\_{k}\mathbf{X} \right)^{-1}
-$$
-and
-
-$$
-    \mathbf{G}\_{k} = \text{diag}\\{  
-    0.5\left[\xi\_{1,d_b,k} \right]^{-1}\text{tanh}\left(0.5 \xi\_{1,d_b,k}\right)r\_{1,k}, \cdots,
-    0.5\left[\xi\_{N,d_b,k} \right]^{-1}\text{tanh}\left(0.5 \xi\_{N,d_b,k}\right)r\_{N,k}
-    \\}
-$$
-
-and
-
-$$
-    \boldsymbol{\mu}\_{d_b,k}=\boldsymbol{\lambda}^{-1}\_{d_b,k}\left[ 
-    \mathbf{X}^{T}\text{diag}\\{r\_{\cdot,k}\\}
-    \left( \mathbf{y}\_{\cdot,d_b}-0.5\mathbf{1}\_{N} \right) +
-    \mathbf{\Sigma}\_{d_b}\boldsymbol{\mu}\_{d_b}
-    \right]
-$$
-
-Note that in order to more easily express the variational distribution
-parameters, we have introduced the index \\(n\\) to refer to individual data
-points: \\((g=1, i=1) \mapsto n=1, (g=1, i=2) \mapsto n=2, \cdots,
-(g=G, i=n_g) \mapsto n=N\\). The vector \\( \boldsymbol{\mu}\_{d_b} \\) is
-the \\(M\\)-dimensional vector of mean prior values for the \\(d\_{b}^{th}\\)
-dimension in Equation \ref{Wbprior}. Similarly, \\(\mathbf{\Sigma}\_{d_b}\\) is
-the \\(M\times M\\) diagonal matrix of variance (inverse precision) values for
-the \\(d\_{b}^{th}\\) dimension in Equation~\ref{Wbprior}. \\(r\_{n,k}\\) is
-the probability that data instance \\(n\\) belongs to component \\(k\\) as
-given in Equation \ref{rnk}.
-
-The variational distribution \\(p^\*\left( \zeta\_{n,d_b,k} \right)\\) is a
-Polya-gamma distribution, \\(\text{PG}(1,\xi\_{n,d_b,k})\\) with
-$$
-    \xi\_{n,d_b,k} = \left[ 
-    \mathbf{x}^{T}\_{n,\cdot}\boldsymbol{\lambda}^{-1}\_{d_b,k}
-    \mathbf{x}\_{n,\cdot} +
-    \left(\mathbf{x}^{T}\_{n,\cdot}\boldsymbol{\mu}_{d_b,k}\right)^{2}
-    \right]^{\frac{1}{2}}.
-$$
-
-Inference proceeds by iteratively updating the parameters for the variational
-distributions \\(p^\*\left( \mathbf{v}\right)\\),
-\\(p^{*}\left(\mathbf{Z} \right)\\), \\(p^\*\left(\mathbf{W}\_c \right)\\),
-\\(p^\*\left( \boldsymbol{\lambda} \right)\\), \\(p^\*\left( \mathbf{W}_b \right)\\),
-and \\p^\*\left(\boldsymbol{\zeta} \right)\\) for a prespecified number of
-iterations or until successive iterations produce a negligible change in the
-variational parameters.
-
-<!--
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-
-
-
-
-\cite{durante2019conditionally} provide coordinate ascent variational inference updates for the variational distributions $p^{*}\left( \mathbf{W}_b \right)$ and $p^{*}\left(\boldsymbol{\zeta} \right)$ (which in turn relate directly the the EM algorithm proposed by \citep{jaakkola2000bayesian}). Extending these updates to our model gives the variational distribution over $\mathbf{W}_b$ as
-\begin{gather}
-    p^{*}(\mathbf{W}_b) = \prod_{d_b=1}^{D_b}\prod_{k=1}^{K}N(\mathbf{w}_{\cdot,d_b,k} \vert 
-    \boldsymbol{\mu}_{d_b,k},\boldsymbol{\lambda}^{-1}_{d_b,k}),
-    \label{Wb_ast}
-\end{gather}
-\noindent where
-\begin{gather}
-    \boldsymbol{\lambda}^{-1}_{d_b,k} = \left(\boldsymbol{\Sigma}^{-1}_{d_b} + \mathbf{X}^{T}\mathbf{G}_{k}\mathbf{X} \right)^{-1}
-\end{gather}
-\noindent and
-\begin{gather}
-    \mathbf{G}_{k} = \text{diag}\left\{  
-    0.5\left[\xi_{1,d_b,k} \right]^{-1}\text{tanh}\left(0.5 \xi_{1,d_b,k}\right)r_{1,k}, \cdots,
-    0.5\left[\xi_{N,d_b,k} \right]^{-1}\text{tanh}\left(0.5 \xi_{N,d_b,k}\right)r_{N,k}
-    \right\}
-\end{gather}
-\noindent and
-\begin{gather}
-    \boldsymbol{\mu}_{d_b,k}=\boldsymbol{\lambda}^{-1}_{d_b,k}\left[ 
-    \mathbf{X}^{T}\text{diag}\left\{r_{\cdot,k}\right\}\left( \mathbf{y}_{\cdot,d_b}-0.5\matbf{1}_{N} \right) + \mathbf{\Sigma}_{d_b}\boldsymbol{\mu}_{d_b}
-    \right].
-\end{gather}
-
-\noindent Note that in order to more easily express the variational distribution parameters, we have introduced the index $n$ to refer to individual data points: $(g=1, i=1) \mapsto n=1, (g=1, i=2) \mapsto n=2, \cdots, (g=G, i=n_g) \mapsto n=N$. The vector $\boldsymbol{\mu}_{d_b}$ is the $M$-dimensional vector of mean prior values for the $d_{b}^{th}$ dimension in Equation \ref{Wbprior}. Similarly, $\mathbf{\Sigma}_{d_b}$ is the $M\times M$ diagonal matrix of variance (inverse precision) values for the $d_{b}^{th}$ dimension in \ref{Wbprior}. $r_{n,k}$ is the probability that data instance $n$ belongs to component $k$ as given in Equation \ref{rnk}.
-
-The variational distribution $p^{*}\left( \zeta_{n,d_b,k} \right)$ is a P\'{o}lya-gamma distribution, $\text{PG}(1,\xi_{n,d_b,k})$ with
-\begin{gather}
-    \xi_{n,d_b,k} = \left[ 
-    \mathbf{x}^{T}_{n,\cdot}\boldsymbol{\lambda}^{-1}_{d_b,k}\mathbf{x}_{n,\cdot} + \left( \mathbf{x}^{T}_{n,\cdot}\boldsymbol{\mu}_{d_b,k}  \right)^{2}
-    \right]^{\frac{1}{2}}
-\end{gather}
-
-Inference proceeds by iteratively updating the parameters for the variational distributions $p^{*}\left( \mathbf{v}\right)$, $p^{*}\left(\mathbf{Z} \right)$, $p^{*}\left(\mathbf{W}_c \right)$, $p^{*}\left( \boldsymbol{\lambda} \right)$, $p^{*}\left( \mathbf{W}_b \right)$, and $p^{*}\left(\boldsymbol{\zeta} \right)$ for a prespecified number of iterations or until successive iterations produce a negligible change in the variational parameters.
-
-
-%&\psZ = \pVV \Bigg[ \frac{1}{\Zpf_{\tV}}  \exp \lp -\sidnv \Hin \rp \nonumber \\
-%&\qquad \qquad \qquad \qquad \qquad \qquad \qquad \qquad \prod_{\itn \in \text{V}} \pKk r_{\itn,\itk}^{\Z_{\itn,\itk}} \Bigg] \label{eq:z_ast}
-%\end{align}
-%where %\vspace{-3mm}
-%\begin{align}
-%  r_{n,k}=\frac{\rho_{n,k}}{\sIk \rho_{n,k}}
-%\end{align}
-%\noindent and %\vspace{-3mm}
-%\begin{gather}
-%  \ln \rho_{n,k}= \Ev\left\{ \ln v_{k}\right\}  + \skj \Ev\left\{ \ln \left( 1-v_{j}\right) \right\} + \nonumber \\
-%  \frac{1}{2}\sDd \left[ \E\{ \text{ln}\boldsymbol\lambda_{d,k}\}  -\text{ln}(2\pi)
-%    - \nonumber \\
-%    \E\{\boldsymbol\lambda_{d,k}\} \left(  \E\bigg\{\left(\W_{\cdot,d,k}^T\X_{n,\cdot}\right)^2 \bigg\}  - \nonumber \\
-%      2\Y_{n,d}\E\{\W_{\cdot,d,k} \}^T\X_{n,\cdot}  + \Y_{n,d}^2\bigg) \bigg] 
-%\end{gather}
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-###### <TMI>
-Let \\( \mathbf{X} = \left[ \mathbf{x}_{1} \cdots \mathbf{x}_M     \right] \\)
-be the \\( N \times M \\) matrix of observed predictors where \\(N\\) is the number of
-instances and \\(M\\) is the dimension of the predictor space.
-Let \\( \mathbf{Y} = \left[ \mathbf{y}_1 \cdots \mathbf{y}_D \right] \\)
-be the \\(N \times D\\) matrix of corresponding target values, where \\(D\\) represents	
-the dimension of the target variables. We introduce the \\(N \times \infty\\) binary
-indicator matrix, \\( \mathbf{Z} \\), to represent the association between the
-data instances and the latent regression functions.
-\\( \mathbf{W} \\) is the \\(M \times D \times \infty\\) matrix of predictor
-coefficients that we wish to learn,
-along with \\( \boldsymbol{\lambda} \\), the \\(D \times \infty\\) matrix of
-precision values on each of \\(D\\) target variables.
-
-
-| **Variable** | **Description** |
-| --- | --- |
-| \( N \) | Number of data instances |
-| \( D \) | Dimension of target variables |
-| \( M \) | Dimension of predictor space |
-| \( \mathbf{Y} \) | \( N \times D \) matrix of target variables |
-| \( \mathbf{X} \) | \( N \times M \) matrix of observed predictors |
-| \( \mathbf{W} \) | \( M \times D \times \infty \) matrix of predictor coefficients |
-| \( \mathbf{Z} \) | \( N \times \infty \) binary indicator matrix |
-| \( \boldsymbol{\lambda} \) | \( D \times \infty \) matrix of precision values |
-| \( \mathcal{C} \) | Set of longitudinal constraints |
-| \( \mathbf{v} \) | Beta-distributed random variable in stick-breaking construction |
-| \( \alpha \) | Hyperparameter for prior over \( \mathbf{v} \) |
-| \( \boldsymbol{\mu_0} \), \( \boldsymbol{\lambda_0} \) | Hyperparameters for prior over \( \mathbf{W} \) |
-| \( \mathbf{a_0} \), \( \mathbf{b_0} \) | Hyperparameters for prior over \( \boldsymbol{\lambda} \) |
-
-*Table 1: Description of variables in our probabilistic model. See text for details.*
-
-######</TMI>
--->
