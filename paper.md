@@ -5,10 +5,9 @@ tags:
   - trajectories
   - Bayesian
 
-author:
-  - name: James C. Ross
-    orcid: 0000-0002-2338-3644
-    affiliation: Department of Radiology, Brigham and Women’s Hospital, Harvard Medical School, Boston, MA, USA
+author: James C. Ross
+orcid: 0000-0002-2338-3644
+affiliation: Department of Radiology, Brigham and Women’s Hospital, Harvard Medical School, Boston, MA, USA
 date: 9 September 2024
 bibliography: paper.bib
 ---
