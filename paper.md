@@ -12,7 +12,8 @@ author:
 date: 9 September 2024
 bibliography: paper.bib
 ---
-# Summary 
+
+# Statement of need 
 
 Trajectory analysis broadly refers to the application of methods to
 longitudinal data to identify distinct patterns of change and assign study
@@ -38,7 +39,7 @@ motivates development and
 application of scalable approaches that can simultaneously model distinct progression
 patterns across multiple health measures, especially in data-limited scenarios.
 
-# Statement of need
+# Summary
 
 **bayes_traj** is a Python package developed to perform Bayesian trajectory analysis.
 Although our primary motivation is to improve understanding of COPD heterogeneity,
@@ -74,7 +75,7 @@ multiple measures of lung function in a cohort of middle-aged and
 older adults, using an informative prior to capture known information
 about lung function in early adulthood [@ross2022dysanapsis].
 
-# State of art
+# State of the field
 
 Van der Nest et al. provide an excellent overview of the various approaches
 and implementations for trajectory analysis [@van2020overview]. The methods
@@ -85,6 +86,8 @@ only other Bayesian approach for modeling trajectories is Zang and Max
 
 # Acknowledgements
 
+Continued development of **bayes_traj** is supported by the US National Heart,
+Lung, and Blood Institute (1R01-HL164380-01).
 **bayes_traj** would not be possible without numerous other open-source
 Python packages, especially numpy [@harris2020array], scipy [@2020SciPy-NMeth],
 matplotlib [@Hunter_2007], PyTorch [@NEURIPS2019_9015], and
