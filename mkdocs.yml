@@ -1,4 +1,5 @@
 site_name: bayes_traj Documentation
+site_url: https://github.com/acil-bwh/bayes_traj
 theme:
   name: material
   features:
@@ -11,7 +12,8 @@ nav:
   - Tutorial: bayes_traj_tutorial.md  
 plugins:
   - search
+  - git-revision-date
   - bibtex:
-      bib_file: "references.bib"
+      bib_file: "references.bib"      			
 extra_javascript:
   - https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/MathJax.js?config=TeX-MML-AM_CHTML
