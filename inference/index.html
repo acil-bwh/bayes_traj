@@ -1,0 +1,1134 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://github.com/acil-bwh/bayes_traj/inference/">
+      
+      
+        <link rel="prev" href="../formulation/">
+      
+      
+        <link rel="next" href="../bayes_traj_tutorial/">
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.0, mkdocs-material-9.5.20">
+    
+    
+      
+        <title>Inference - bayes_traj Documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.66ac8b77.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce((e,_)=>(e<<5)-e+_.charCodeAt(0),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#variational-inference" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="bayes_traj Documentation" class="md-header__button md-logo" aria-label="bayes_traj Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54Z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3V6m0 5h18v2H3v-2m0 5h18v2H3v-2Z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            bayes_traj Documentation
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Inference
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var media,input,key,value,palette=__md_get("__palette");if(palette&&palette.color){"(prefers-color-scheme)"===palette.color.media&&(media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']"),palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent"));for([key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      <label class="md-header__button md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.516 6.516 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5Z"/></svg>
+      </label>
+      <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.516 6.516 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5Z"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11h12Z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41Z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="bayes_traj Documentation" class="md-nav__button md-logo" aria-label="bayes_traj Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54Z"/></svg>
+
+    </a>
+    bayes_traj Documentation
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Home
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../formulation/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Formulation
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  <span class="md-ellipsis">
+    Inference
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  <span class="md-ellipsis">
+    Inference
+  </span>
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#background" class="md-nav__link">
+    <span class="md-ellipsis">
+      Background
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#variational-distributions" class="md-nav__link">
+    <span class="md-ellipsis">
+      Variational Distributions
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Variational Distributions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-variational-distribution-pmathbfw_c" class="md-nav__link">
+    <span class="md-ellipsis">
+      The variational distribution \( p^*(\mathbf{W}_c) \)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-variational-distribution-pmathbfu" class="md-nav__link">
+    <span class="md-ellipsis">
+      The variational distribution \( p^{*}(\mathbf{U}) \)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-variational-distribution-pboldsymbollambda" class="md-nav__link">
+    <span class="md-ellipsis">
+      The variational distribution \( p^{*}(\boldsymbol{\lambda}) \)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-variational-distribution-pmathbfv" class="md-nav__link">
+    <span class="md-ellipsis">
+      The variational distribution \( p^{*}(\mathbf{v}) \)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-variational-distribution-pmathbfz" class="md-nav__link">
+    <span class="md-ellipsis">
+      The variational distribution \( p^{*}(\mathbf{Z}) \)
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#update-strategy-for-mathbfw_b" class="md-nav__link">
+    <span class="md-ellipsis">
+      Update Strategy for \( \mathbf{W}_b \)
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../bayes_traj_tutorial/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Tutorial
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#background" class="md-nav__link">
+    <span class="md-ellipsis">
+      Background
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#variational-distributions" class="md-nav__link">
+    <span class="md-ellipsis">
+      Variational Distributions
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Variational Distributions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-variational-distribution-pmathbfw_c" class="md-nav__link">
+    <span class="md-ellipsis">
+      The variational distribution \( p^*(\mathbf{W}_c) \)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-variational-distribution-pmathbfu" class="md-nav__link">
+    <span class="md-ellipsis">
+      The variational distribution \( p^{*}(\mathbf{U}) \)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-variational-distribution-pboldsymbollambda" class="md-nav__link">
+    <span class="md-ellipsis">
+      The variational distribution \( p^{*}(\boldsymbol{\lambda}) \)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-variational-distribution-pmathbfv" class="md-nav__link">
+    <span class="md-ellipsis">
+      The variational distribution \( p^{*}(\mathbf{v}) \)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-variational-distribution-pmathbfz" class="md-nav__link">
+    <span class="md-ellipsis">
+      The variational distribution \( p^{*}(\mathbf{Z}) \)
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#update-strategy-for-mathbfw_b" class="md-nav__link">
+    <span class="md-ellipsis">
+      Update Strategy for \( \mathbf{W}_b \)
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+<h1 id="variational-inference">Variational Inference</h1>
+<h2 id="background">Background</h2>
+<p>Frequently with complex models, obtaining the exact posterior distribution can
+be intractable. While Markov Chain Monte Carlo (MCMC) 
+methods offer a systematic approach to sample from the posterior distribution,
+they can be slow in high-dimensional parameter spaces
+(<a href="https://www.jstor.org/stable/pdf/2334940.pdf?casa_token=ZEcTsBtCLZkAAAAA:-f5zD4VUydXnjBQe5ErtLRajoF6QScZsOTatDPDjQiawsV_HAjdiNI6T4HmdnmuEbXq8oWXF6DXvQUKrZbNCgc3laLqrW0NWEtyhSS3LMmZa96Odlw">Hastings (1970)</a>).
+An alternative is variational inference, a form
+of Bayesian approximate inference that tends to be fast and scales well to large
+data sets (<a href="https://citeseerx.ist.psu.edu/document?repid=rep1&amp;type=pdf&amp;doi=642dba1a71033b9587e4cbcb993a8016f012dc00">Jordan (1999)</a>).
+It typically makes a factorization assumption over the approximate
+posterior distribution of interest, and it turns an inference problem into an
+optimization problem by finding the
+approximate posterior that minimizes the Kullback-Leibler divergence to the true
+posterior distribution 
+(see <a href="https://citeseerx.ist.psu.edu/document?repid=rep1&amp;type=pdf&amp;doi=642dba1a71033b9587e4cbcb993a8016f012dc00">Jordan (1999)</a>,
+<a href="http://people.csail.mit.edu/people/tommi/papers/Jaa-nips00-tutorial.pdf">Jaakkola (2001)</a>, and
+<a href="http://www.cs.columbia.edu/~blei/fogm/2018F/materials/BleiKucukelbirMcAuliffe2017.pdf">Blei 2017</a>).</p>
+<p>In the case of conjugate priors (a prior is conjugate when the posterior
+distribution belongs to the same family of probability distributions as the
+prior distribution given a specific likelihood function), there is a straightforward
+procedure for deriving variational update eqautions. In the case of
+non-conjugate priors, alternative approaches are needed.</p>
+<p>complexities from
+non-conjugate priors for coefficients estimation in infinite DP mixture of logistic regression. </p>
+<p>For our model, the posterior distribution we wish to estimate is given by:
+$$
+p\left(\mathbf{W}_c,
+\mathbf{W}_b,
+\boldsymbol{\lambda},
+\mathbf{Z},
+\mathbf{v},
+\mathbf{U}
+\mid
+\mathbf{Y}_c,
+\mathbf{Y}_b,
+\mathbf{X},
+\boldsymbol{\mu}_{0_c},
+\boldsymbol{\lambda}_{0_c},
+\boldsymbol{\mu}_{0_b},
+\boldsymbol{\lambda}_{0_b},
+\mathbf{a}_0,
+\mathbf{b}_0,
+\alpha,
+\boldsymbol{\Sigma}_0
+\right)
+$$
+This posterior probability is approximated using variational inference. The
+standard mean field variational inference approach is to assume a factorized
+approximation of this distribution, in our case:
+$$
+p^*(\mathbf{W}_{c})
+p^*(\mathbf{W}_{b})
+p^*(\boldsymbol{\lambda})
+p^*(\mathbf{Z})
+p^*(\mathbf{v})
+p^*(\mathbf{U})
+$$
+In order to derive the expression for each of these factors, the expectation
+with respect to the other factors is considered. Derivation of the variational
+distributions begins with the following expressions:
+$$
+\text{ln}p^*(\mathbf{W}_c) =
+\mathbb{E}_{\mathbf{W}_b,
+\mathbf{\lambda},
+\mathbf{Z},
+\mathbf{v},
+\mathbf{U}
+}\{\text{ln}p(\mathbf{Y}_c,
+\mathbf{Y}_b,
+\mathbf{W}_c,
+\mathbf{W}_b,
+\boldsymbol{\lambda},
+\mathbf{Z},
+\mathbf{v},
+\mathbf{U}
+) \} +
+\text{const}
+$$</p>
+<p>$$
+\text{ln}p^*(\mathbf{U}) =
+\mathbb{E}_{
+\mathbf{W}_c,
+\mathbf{W}_b,
+\mathbf{\lambda},
+\mathbf{Z},
+\mathbf{v}
+}\{\text{ln}p(\mathbf{Y}_c,
+\mathbf{Y}_b,
+\mathbf{W}_c,
+\mathbf{W}_b,
+\boldsymbol{\lambda},
+\mathbf{Z},
+\mathbf{v},
+\mathbf{U}
+) \} +
+\text{const}
+$$</p>
+<p>$$
+\text{ln}p^*(\boldsymbol{\lambda}) =
+\mathbb{E}_{
+\mathbf{W}_c,
+\mathbf{W}_b,
+\mathbf{Z},
+\mathbf{v},
+\mathbf{U}
+}\{ \text{ln}p(\mathbf{Y}_c,
+\mathbf{Y}_b,
+\mathbf{W}_c,
+\mathbf{W}_b,
+\boldsymbol{\lambda},
+\mathbf{Z},
+\mathbf{v},
+\mathbf{U}
+)\} +
+\text{const}
+$$</p>
+<p>$$
+\text{ln}p^*(\mathbf{v}) =
+\mathbb{E}_{
+\mathbf{W}_c,
+\mathbf{W}_b,
+\boldsymbol{\lambda},
+\mathbf{Z},
+\mathbf{U}
+}
+\{\text{ln}p(\mathbf{Y}_c,
+\mathbf{Y}_b,
+\mathbf{W}_c,
+\mathbf{W}_b,
+\mathbf{\lambda},
+\mathbf{Z},
+\mathbf{v},
+\mathbf{U}
+) \} + \text{const}
+$$</p>
+<p>$$
+\text{ln}p^*(\mathbf{Z}) =
+\mathbb{E}_{
+\mathbf{W}_c,
+\mathbf{W}_b,
+\boldsymbol{\lambda},
+\mathbf{v},
+\mathbf{U}
+}
+\{\text{ln}p(\mathbf{Y}_c,
+\mathbf{Y}_b,
+\mathbf{W}_c,
+\mathbf{W}_b,
+\boldsymbol{\lambda},
+\mathbf{Z},
+\mathbf{v},
+\mathbf{U}
+)\}
++ \text{const}
+$$</p>
+<p>A challenge arises, however, if priors in the model are not conditionally
+conjugate – i.e. if factor posteriors are not in the same family as the
+corresponding priors. This is the case with the Gaussian priors for the
+coefficients of logistic regression \(\mathbf{W}_b\), meaning that the
+distribution \(p^*(\mathbf{W}_b) \) can not be assumed Gaussian unless
+approximations are made to restore conjugacy. We address this challenge
+by integrating the coordinate ascent variational inference algorithm with
+the EM (Expectation-Maximization) algorithm to facilitate updates of
+\( p^*(\mathbf{W}_b) \).</p>
+<h2 id="variational-distributions">Variational Distributions</h2>
+<p>Here we provide expressions for each of the variational distributions.
+Inference proceeds by iteratively updating these equations until a predefined
+stopping criterion is met (in practice, this is generally a specified number
+of iterations). </p>
+<h3 id="the-variational-distribution-pmathbfw_c">The variational distribution \( p^*(\mathbf{W}_c) \)</h3>
+<p>The variational distribution over the coefficients \( \mathbf{W}_c \) is given
+by a multivariate Gaussian distribution that factorizes over the predictors,
+targets, and subtype clusters:</p>
+<p>$$
+p^*(\mathbf{W}_c)=
+\prod_{m=1}^{M}
+\prod_{d_c=1}^{D_c}
+\prod_{k=1}^{K}
+\mathcal{N}
+\left(
+w_{m, d_c, k} \mid
+\mu_{m, d_c, k},
+{\lambda^{-1}_{m, d_c, k}}
+\right)
+$$</p>
+<p>$$
+\lambda_{m, d_c, k}=
+\lambda_{0_{c_{m, d_c}}}+
+\frac{a_{d_c, k}}{b_{d_c, k}}
+\sum_{g=1}^{G}
+\mathbb{E}_{\mathbf{z}}\{z_{g, k}\}
+\sum_{i=1}^{n_g}
+x_{i,m}^2
+$$</p>
+<p>$$
+\mu_{m, d_c, k}=
+{\lambda_{m, d_c, k}}^{-1}
+\bigg[
+\mu_{0_{c_{m, d_c}}} {\lambda_{0_{c_{m, d_c}}}} -
+\frac{{a_{d_c, k}}}{{b_{d_c, k}}}
+\sum_{g=1}^{G}
+\mathbb{E}_{\mathbf{z}}\{z_{g, k}\} \times
+$$
+$$
+\sum_{i=1}^{n_g}x_{g,i,m}
+\left(\mathbb{E}_{\mathbf{w}}\{\mathbf{w}_{-, d_c, k}\}^{T} \
+\mathbf{x}_{g,i,-} +
+\mathbb{E}\{ \mathbf{u}_{g,d_c,k} \}^T \mathbf{x}_{g,i,.} -
+y_{g,i, d_c}\right)
+\bigg] 
+\label{Wc_ast}
+$$</p>
+<p>The \(-\) in \( \mathbf{w}_{-,d_c,k} \) and \( \mathbf{x}_{g,i,-} \)
+indicates all but the \(m^{th}\) predictor.</p>
+<h3 id="the-variational-distribution-pmathbfu">The variational distribution \( p^{*}(\mathbf{U}) \)</h3>
+<p>The variational distribution for \( p^{*}(\mathbf{U}) \) is given by</p>
+<p>$$
+p^{*}(\mathbf{U}) =
+\prod_{g=1}^{G}
+\prod_{d_c=1}^{D_c}
+\prod_{k=1}^{K}
+\mathcal{N}
+\left(
+\mathbf{u}_{g, d_c, k} \mid
+\boldsymbol{\mu}_{g, d_c, k},
+\boldsymbol{\Sigma}_{g, d_c, k}
+\right)
+$$
+where
+$$
+\boldsymbol{\Sigma}_{g, d_c, k} =
+\left[ \boldsymbol{\Sigma}_0^{-1} + 
+\mathbb{E}\{ z_{g,k}\}
+\frac{a_{d_c,k}}{b_{d_c,k}}
+\sum_{i=1}^{n_g}
+\mathbf{x}_{g,i,d_c}\mathbf{x}_{g,i,d_c}^T
+\right]^{-1}
+$$
+and
+$$
+\boldsymbol{\mu}_{g, d_c, k} =
+\left[
+\mathbb{E}\{ z_{g,k}\}
+\frac{a_{d_c,k}}{b_{d_c,k}}
+\sum_{i=1}^{n_g}
+\left(
+\mathbb{E}\{  w_{., d, k}  \}^T
+\mathbf{x}_{g,i,d_c} - y_{g, i, d_c}
+\right)\mathbf{x}_{g,i,d_c}^T
+\right]
+\boldsymbol{\Sigma}_{g, d_c, k}
+$$</p>
+<h3 id="the-variational-distribution-pboldsymbollambda">The variational distribution \( p^{*}(\boldsymbol{\lambda}) \)</h3>
+<p>The variational distribution over \( \mathbf{\lambda} \) is given by a gamma
+distribution with parameters \( \mathbf{a} \) and \( \mathbf{b} \):
+$$
+p^{*}(\boldsymbol{\lambda})=
+\prod_{d_c=1}^{D_c}
+\prod_{k=1}^{K}
+\operatorname{Gam}
+\left(\lambda_{d_c, k} \mid a_{d_c, k}, b_{d_c, k}
+\right)
+$$</p>
+<p>$$
+a_{d_c, k}=
+a_{0_{d_c}}+
+\frac{1}{2}
+\sum_{g=1}^{G}n_g
+\mathbb{E}_{\mathbf{z}}\{z_{g, k}\} 
+$$</p>
+<p>$$
+b_{d_c, k}=
+b_{0_{d_c}}+
+\frac{1}{2}
+\sum_{g=1}^{G}
+\sum_{i=1}^{n_g}
+\mathbb{E}\{z_{g, k}\}\left(\mathbb{E}\{\left({\mathbf{w}^{T}_{\cdot, d_c, k}} \mathbf{x}_{g,i, \cdot}\right)^{2}\}
+-2 y_{g,i,d_c}
+\mathbb{E}\{\mathbf{w}_{\cdot,d_c, k}\}^{T} \mathbf{x}_{g,i,\cdot} +
+{y^{2}_{g,i, d_c}}\right)
+\label{lambda_ast}
+$$</p>
+<h3 id="the-variational-distribution-pmathbfv">The variational distribution \( p^{*}(\mathbf{v}) \)</h3>
+<p>The variational distribution for \( p^{*}(\mathbf{v}) \) is given by
+$$
+p^{*}(\mathbf{v})=
+\prod_{k=1}^{K}
+\text{Beta}
+\left( 
+v_k \mid 1 +
+\sum_{g=1}^{G}
+\mathbb{E}\{\mathbf{Z} \}_{g, k}, 
+\alpha +
+\sum_{j=k+1}^{K}
+\sum_{g=1}^{G}
+\mathbb{E}\{\mathbf{Z} \}_{g, j}
+\right)
+\label{v_ast}
+$$
+where \( K \) is an integer (e.g. 20) chosen by the user for the truncated stick-breaking process.</p>
+<h3 id="the-variational-distribution-pmathbfz">The variational distribution \( p^{*}(\mathbf{Z}) \)</h3>
+<p>The variational distribution for \( p^{*}(\mathbf{Z}) \) is given by</p>
+<p>$$
+p^{*}(\mathbf{Z})=
+\prod_{g=1}^{G}\prod_{k=1}^{K}r_{g,k}^{z_{g,k}}
+\label{pZstar}
+$$</p>
+<p>where</p>
+<p>$$
+r_{g,k}=\frac{\rho_{g,k}}{\sum_{k=1}^{K}\rho_{g,k}}
+\label{rnk}
+$$</p>
+<p>and</p>
+<p>$$
+\ln \rho_{g, k} = n_g\mathbb{E}\{\ln v_k\} +
+n_g\sum_{j=1}^{k-1}\mathbb{E}\{\ln (1-v_j)\} + \
+$$</p>
+<p>$$
+\frac{1}{2}\sum_{d_c=1}^{D_c}
+\bigg[n_g\mathbb{E}\{\ln \lambda_{d_c, k}\}-n_g\ln (2 \pi) -
+$$
+$$
+\mathbb{E}\{\lambda_{d_c, k}\}
+\sum_{i=1}^{n_g}
+\bigg(\mathbb{E}\{\left({\mathbf{w}^{T}_{\cdot, d_c, k}} \mathbf{x}_{g,i,\cdot}\right)^2\} -
+2 y_{g,i,d_c} \mathbb{E}\{{\mathbf{w}_{\cdot, d_c, k}}\}^{T} \mathbf{x}_{g,i,\cdot}+y^2_{g,i, d_c} +
+$$</p>
+<p>$$
+-2y_{g,i,d_c}\mathbb{E}\{ \mathbf{u}_{g,d_c,k}\}^T\mathbf{x}_{g,i,.} +
+2\mathbb{E}\{ \mathbf{w}_{.,d_c,k}\}^T\mathbf{x}_{g,i,.}
+\mathbb{E}\{ \mathbf{u}_{g,d_c,k}\}^T\mathbf{x}_{g,i,.} +
+\mathbb{E}\{ ( \mathbf{u}_{g,d_c,k}^T\mathbf{x}_{g,i,.} )^2 \}
+\bigg)\bigg] +
+$$
+$$
+\sum_{d_b=1}^{D_b}
+\sum_{i=1}^{n_g}
+\left[
+y_{g,i, d_b} \mathbb{E}\{
+    {\mathbf{w}_{\cdot, d_b, k}}\}^{T}{\mathbf{x}_{g,i, \cdot}}
+    -\mathbb{E}\{\ln\left(1+\exp\left(\mathbf{x}_{g,i, \cdot}\cdot{\mathbf{w}_{\cdot, d_b, k}}^T\right)\right)\}
+    \right]
+$$</p>
+<h2 id="update-strategy-for-mathbfw_b">Update Strategy for \( \mathbf{W}_b \)</h2>
+<p>As mentioned above, the Gaussian priors over the coefficients
+\( \mathbf{W}_b \) are not conjugate concerning the likelihood factor
+\( p(\mathbf{Y}_b\mid \mathbf{Z}, \mathbf{W}_b) \).
+When the prior and likelihood are not conjugate, Bayesian inference becomes more
+complex and computationally demanding since the posterior distribution cannot be
+derived analytically. Our methodology lies in enabling variational updates of the
+posterior distribution for \( \mathbf{W}_b \) through the use of a tangent
+quadratic lower bound of logistic likelihoods within the framework of variational
+inference for conditionally conjugate exponential family models
+[^1] for an infinite mixture of logistic regression
+under DPMMs to restore conjugacy between these approximate bounds and the
+Gaussian priors on \( \mathbf{W}_b \). </p>
+<p>[^2] introduced a straightforward variational approach based
+on a family of tangent quadratic lower bounds of logistic log-likelihoods. They
+derived an EM algorithm to iteratively refine the variational parameters of the
+lower bound and the mean and covariance of the Gaussian distribution over the
+predictor coefficients. However, this method was specifically designed for
+simple logistic regression and did not extend to mixtures of logistic
+regressors. To address this, we extend these concepts to Dirichlet Process
+mixture models in our formulation. We can augment the likelihood function
+\( p(\mathbf{Y}_b\mid \mathbf{Z}, \mathbf{W}_b) \):</p>
+<p>$$
+p(\mathbf{Y}_b, \boldsymbol{\zeta} \mid \mathbf{Z}, \mathbf{W}_b)=
+\prod_{k=1}^{\infty}\prod_{g=1}^{G} \prod_{d_b=1}^{D_b} 
+\left[\prod_{i=1}^{n_g}
+p\left( y_{g,i,d_b}\vert \mathbf{w}_{\cdot,d_b,k} \right)
+p\left(\zeta_{g,i,d_b,k}\vert \mathbf{w}_{\cdot,d_b,k} \right)
+\right]^{z_{g,k}},
+$$</p>
+<p>where \(\boldsymbol{\zeta}_{g,i,d_b,k}\) are Polya-gamma densities
+\(\text{PG}(1,\mathbf{w}^{T}_{\cdot,d_b,k}\mathbf{x}_{g,i,\cdot}) \)
+as described in [^1], except in our case we consider
+a nonparametric mixture of \(D_b\) conditionally independent target
+variables. Importantly, the augmented likelihood is within the exponential
+family of distributions, and the prior over \(\mathbf{W}_b\)
+is now conjugate. </p>
+<p>[^1] provide coordinate ascent variational inference
+updates for the variational distributions \(p^*\left(\mathbf{W}_b\right) \)
+and \(p^*\left(\boldsymbol{\zeta} \right)\) (which in turn relate directly
+the the EM algorithm proposed by [^2]). Extending these
+updates to our model gives the variational distribution over
+\(\mathbf{W}_b\) as
+$$
+    p^*(\mathbf{W}_b) = \prod_{d_b=1}^{D_b}\prod_{k=1}^{K}
+    N(\mathbf{w}_{\cdot,d_b,k} \vert 
+    \boldsymbol{\mu}_{d_b,k},\boldsymbol{\lambda}^{-1}_{d_b,k})
+$$
+where
+$$
+\boldsymbol{\lambda}^{-1}_{d_b,k} = \left(\boldsymbol{\Sigma}^{-1}_{d_b} +
+\mathbf{X}^{T}\mathbf{G}_{k}\mathbf{X} \right)^{-1}
+$$
+and</p>
+<p>$$
+    \mathbf{G}_{k} = \text{diag}\{<br />
+    0.5\left[\xi_{1,d_b,k} \right]^{-1}\text{tanh}\left(0.5 \xi_{1,d_b,k}\right)r_{1,k}, \cdots,
+    0.5\left[\xi_{N,d_b,k} \right]^{-1}\text{tanh}\left(0.5 \xi_{N,d_b,k}\right)r_{N,k}
+    \}
+$$</p>
+<p>and</p>
+<p>$$
+    \boldsymbol{\mu}_{d_b,k}=\boldsymbol{\lambda}^{-1}_{d_b,k}\left[ 
+    \mathbf{X}^{T}\text{diag}\{r_{\cdot,k}\}
+    \left( \mathbf{y}_{\cdot,d_b}-0.5\mathbf{1}_{N} \right) +
+    \mathbf{\Sigma}_{d_b}\boldsymbol{\mu}_{d_b}
+    \right]
+$$</p>
+<p>Note that in order to more easily express the variational distribution
+parameters, we have introduced the index \(n\) to refer to individual data
+points: \((g=1, i=1) \mapsto n=1, (g=1, i=2) \mapsto n=2, \cdots,
+(g=G, i=n_g) \mapsto n=N\). The vector \( \boldsymbol{\mu}_{d_b} \) is
+the \(M\)-dimensional vector of mean prior values for the \(d_{b}^{th}\)
+dimension in Equation \ref{Wbprior}. Similarly, \(\mathbf{\Sigma}_{d_b}\) is
+the \(M\times M\) diagonal matrix of variance (inverse precision) values for
+the \(d_{b}^{th}\) dimension in Equation~\ref{Wbprior}. \(r_{n,k}\) is
+the probability that data instance \(n\) belongs to component \(k\) as
+given in Equation \ref{rnk}.</p>
+<p>The variational distribution \(p^*\left( \zeta_{n,d_b,k} \right)\) is a
+Polya-gamma distribution, \(\text{PG}(1,\xi_{n,d_b,k})\) with
+$$
+    \xi_{n,d_b,k} = \left[ 
+    \mathbf{x}^{T}_{n,\cdot}\boldsymbol{\lambda}^{-1}_{d_b,k}
+    \mathbf{x}_{n,\cdot} +
+    \left(\mathbf{x}^{T}_{n,\cdot}\boldsymbol{\mu}_{d_b,k}\right)^{2}
+    \right]^{\frac{1}{2}}.
+$$</p>
+<p>Inference proceeds by iteratively updating the parameters for the variational
+distributions \(p^*\left( \mathbf{v}\right)\),
+\(p^{*}\left(\mathbf{Z} \right)\), \(p^*\left(\mathbf{W}_c \right)\),
+\(p^*\left( \boldsymbol{\lambda} \right)\), \(p^*\left( \mathbf{W}_b \right)\),
+and \p^*\left(\boldsymbol{\zeta} \right)\) for a prespecified number of
+iterations or until successive iterations produce a negligible change in the
+variational parameters.</p>
+<!--
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+
+
+
+\cite{durante2019conditionally} provide coordinate ascent variational inference updates for the variational distributions $p^{*}\left( \mathbf{W}_b \right)$ and $p^{*}\left(\boldsymbol{\zeta} \right)$ (which in turn relate directly the the EM algorithm proposed by \citep{jaakkola2000bayesian}). Extending these updates to our model gives the variational distribution over $\mathbf{W}_b$ as
+\begin{gather}
+    p^{*}(\mathbf{W}_b) = \prod_{d_b=1}^{D_b}\prod_{k=1}^{K}N(\mathbf{w}_{\cdot,d_b,k} \vert 
+    \boldsymbol{\mu}_{d_b,k},\boldsymbol{\lambda}^{-1}_{d_b,k}),
+    \label{Wb_ast}
+\end{gather}
+\noindent where
+\begin{gather}
+    \boldsymbol{\lambda}^{-1}_{d_b,k} = \left(\boldsymbol{\Sigma}^{-1}_{d_b} + \mathbf{X}^{T}\mathbf{G}_{k}\mathbf{X} \right)^{-1}
+\end{gather}
+\noindent and
+\begin{gather}
+    \mathbf{G}_{k} = \text{diag}\left\{  
+    0.5\left[\xi_{1,d_b,k} \right]^{-1}\text{tanh}\left(0.5 \xi_{1,d_b,k}\right)r_{1,k}, \cdots,
+    0.5\left[\xi_{N,d_b,k} \right]^{-1}\text{tanh}\left(0.5 \xi_{N,d_b,k}\right)r_{N,k}
+    \right\}
+\end{gather}
+\noindent and
+\begin{gather}
+    \boldsymbol{\mu}_{d_b,k}=\boldsymbol{\lambda}^{-1}_{d_b,k}\left[ 
+    \mathbf{X}^{T}\text{diag}\left\{r_{\cdot,k}\right\}\left( \mathbf{y}_{\cdot,d_b}-0.5\matbf{1}_{N} \right) + \mathbf{\Sigma}_{d_b}\boldsymbol{\mu}_{d_b}
+    \right].
+\end{gather}
+
+\noindent Note that in order to more easily express the variational distribution parameters, we have introduced the index $n$ to refer to individual data points: $(g=1, i=1) \mapsto n=1, (g=1, i=2) \mapsto n=2, \cdots, (g=G, i=n_g) \mapsto n=N$. The vector $\boldsymbol{\mu}_{d_b}$ is the $M$-dimensional vector of mean prior values for the $d_{b}^{th}$ dimension in Equation \ref{Wbprior}. Similarly, $\mathbf{\Sigma}_{d_b}$ is the $M\times M$ diagonal matrix of variance (inverse precision) values for the $d_{b}^{th}$ dimension in \ref{Wbprior}. $r_{n,k}$ is the probability that data instance $n$ belongs to component $k$ as given in Equation \ref{rnk}.
+
+The variational distribution $p^{*}\left( \zeta_{n,d_b,k} \right)$ is a P\'{o}lya-gamma distribution, $\text{PG}(1,\xi_{n,d_b,k})$ with
+\begin{gather}
+    \xi_{n,d_b,k} = \left[ 
+    \mathbf{x}^{T}_{n,\cdot}\boldsymbol{\lambda}^{-1}_{d_b,k}\mathbf{x}_{n,\cdot} + \left( \mathbf{x}^{T}_{n,\cdot}\boldsymbol{\mu}_{d_b,k}  \right)^{2}
+    \right]^{\frac{1}{2}}
+\end{gather}
+
+Inference proceeds by iteratively updating the parameters for the variational distributions $p^{*}\left( \mathbf{v}\right)$, $p^{*}\left(\mathbf{Z} \right)$, $p^{*}\left(\mathbf{W}_c \right)$, $p^{*}\left( \boldsymbol{\lambda} \right)$, $p^{*}\left( \mathbf{W}_b \right)$, and $p^{*}\left(\boldsymbol{\zeta} \right)$ for a prespecified number of iterations or until successive iterations produce a negligible change in the variational parameters.
+
+
+%&\psZ = \pVV \Bigg[ \frac{1}{\Zpf_{\tV}}  \exp \lp -\sidnv \Hin \rp \nonumber \\
+%&\qquad \qquad \qquad \qquad \qquad \qquad \qquad \qquad \prod_{\itn \in \text{V}} \pKk r_{\itn,\itk}^{\Z_{\itn,\itk}} \Bigg] \label{eq:z_ast}
+%\end{align}
+%where %\vspace{-3mm}
+%\begin{align}
+%  r_{n,k}=\frac{\rho_{n,k}}{\sIk \rho_{n,k}}
+%\end{align}
+%\noindent and %\vspace{-3mm}
+%\begin{gather}
+%  \ln \rho_{n,k}= \Ev\left\{ \ln v_{k}\right\}  + \skj \Ev\left\{ \ln \left( 1-v_{j}\right) \right\} + \nonumber \\
+%  \frac{1}{2}\sDd \left[ \E\{ \text{ln}\boldsymbol\lambda_{d,k}\}  -\text{ln}(2\pi)
+%    - \nonumber \\
+%    \E\{\boldsymbol\lambda_{d,k}\} \left(  \E\bigg\{\left(\W_{\cdot,d,k}^T\X_{n,\cdot}\right)^2 \bigg\}  - \nonumber \\
+%      2\Y_{n,d}\E\{\W_{\cdot,d,k} \}^T\X_{n,\cdot}  + \Y_{n,d}^2\bigg) \bigg] 
+%\end{gather}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+###### <TMI>
+Let \\( \mathbf{X} = \left[ \mathbf{x}_{1} \cdots \mathbf{x}_M     \right] \\)
+be the \\( N \times M \\) matrix of observed predictors where \\(N\\) is the number of
+instances and \\(M\\) is the dimension of the predictor space.
+Let \\( \mathbf{Y} = \left[ \mathbf{y}_1 \cdots \mathbf{y}_D \right] \\)
+be the \\(N \times D\\) matrix of corresponding target values, where \\(D\\) represents 
+the dimension of the target variables. We introduce the \\(N \times \infty\\) binary
+indicator matrix, \\( \mathbf{Z} \\), to represent the association between the
+data instances and the latent regression functions.
+\\( \mathbf{W} \\) is the \\(M \times D \times \infty\\) matrix of predictor
+coefficients that we wish to learn,
+along with \\( \boldsymbol{\lambda} \\), the \\(D \times \infty\\) matrix of
+precision values on each of \\(D\\) target variables.
+
+
+| **Variable** | **Description** |
+| --- | --- |
+| \( N \) | Number of data instances |
+| \( D \) | Dimension of target variables |
+| \( M \) | Dimension of predictor space |
+| \( \mathbf{Y} \) | \( N \times D \) matrix of target variables |
+| \( \mathbf{X} \) | \( N \times M \) matrix of observed predictors |
+| \( \mathbf{W} \) | \( M \times D \times \infty \) matrix of predictor coefficients |
+| \( \mathbf{Z} \) | \( N \times \infty \) binary indicator matrix |
+| \( \boldsymbol{\lambda} \) | \( D \times \infty \) matrix of precision values |
+| \( \mathcal{C} \) | Set of longitudinal constraints |
+| \( \mathbf{v} \) | Beta-distributed random variable in stick-breaking construction |
+| \( \alpha \) | Hyperparameter for prior over \( \mathbf{v} \) |
+| \( \boldsymbol{\mu_0} \), \( \boldsymbol{\lambda_0} \) | Hyperparameters for prior over \( \mathbf{W} \) |
+| \( \mathbf{a_0} \), \( \mathbf{b_0} \) | Hyperparameters for prior over \( \boldsymbol{\lambda} \) |
+
+*Table 1: Description of variables in our probabilistic model. See text for details.*
+
+######</TMI>
+-->
+<p>[^1]: Daniele Durante and Tommaso Rigon. Conditionally conjugate mean-field variational bayes for logistic models. <em>Statistical science</em>, 34(3):472–485, 2019.
+[^2]: Tommi S Jaakkola and Michael I Jordan. Bayesian parameter estimation via variational methods. <em>Statistics and Computing</em>, 10(1):25–37, 2000.</p>
+
+
+
+
+
+
+
+  
+    
+  
+  
+
+
+  <aside class="md-source-file">
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Last update">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1-2.1-2M12.5 7v5.2l4 2.4-1 1L11 13V7h1.5M11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2v1.8Z"/></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date">September 9, 2024</span>
+  </span>
+
+    
+    
+    
+    
+  </aside>
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    <script id="__config" type="application/json">{"base": "..", "features": ["navigation.instant", "search.highlight"], "search": "../assets/javascripts/workers/search.b8dbb3d2.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.dd8806f2.min.js"></script>
+      
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/MathJax.js?config=TeX-MML-AM_CHTML"></script>
+      
+    
+  </body>
+</html>
