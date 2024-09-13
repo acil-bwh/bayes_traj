@@ -1,6 +1,6 @@
 
 # Variational Inference
-## Background
+## Overview
 Frequently with complex models, obtaining the exact posterior distribution can
 be intractable. While Markov Chain Monte Carlo (MCMC) 
 methods offer a systematic approach to sample from the posterior distribution,
@@ -16,7 +16,7 @@ approximate posterior that minimizes the Kullback-Leibler divergence to the true
 posterior distribution 
 (see [Jordan (1999)](https://citeseerx.ist.psu.edu/document?repid=rep1&type=pdf&doi=642dba1a71033b9587e4cbcb993a8016f012dc00),
 [Jaakkola (2001)](http://people.csail.mit.edu/people/tommi/papers/Jaa-nips00-tutorial.pdf), and
-[Blei 2017](http://www.cs.columbia.edu/~blei/fogm/2018F/materials/BleiKucukelbirMcAuliffe2017.pdf)).
+[Blei (2017)](http://www.cs.columbia.edu/~blei/fogm/2018F/materials/BleiKucukelbirMcAuliffe2017.pdf)).
 
 In the case of conjugate priors (a prior is conjugate when the posterior
 distribution belongs to the same family of probability distributions as the
@@ -183,7 +183,7 @@ Inference proceeds by iteratively updating these equations until a predefined
 stopping criterion is met (in practice, this is generally a specified number
 of iterations). 
 
-### The variational distribution \\( p^\*(\mathbf{W}_c) \\)
+### Variational distribution \\( p^\*(\mathbf{W}_c) \\)
 The variational distribution over the coefficients \\( \mathbf{W}_c \\) is given
 by a multivariate Gaussian distribution that factorizes over the predictors,
 targets, and subtype clusters:
@@ -233,7 +233,7 @@ $$
 The \\(-\\) in \\( \mathbf{w}\_{-,d_c,k} \\) and \\( \mathbf{x}\_{g,i,-} \\)
 indicates all but the \\(m^{th}\\) predictor.
 
-### The variational distribution \\( p^{\*}(\mathbf{U}) \\)
+### Variational distribution \\( p^{\*}(\mathbf{U}) \\)
 
 The variational distribution for \\( p^{\*}(\mathbf{U}) \\) is given by
 
@@ -274,7 +274,7 @@ $$
 \boldsymbol{\Sigma}\_{g, d_c, k}
 $$
 
-### The variational distribution \\( p^{\*}(\boldsymbol{\lambda}) \\)
+### Variational distribution \\( p^{\*}(\boldsymbol{\lambda}) \\)
 
 The variational distribution over \\( \mathbf{\lambda} \\) is given by a gamma
 distribution with parameters \\( \mathbf{a} \\) and \\( \mathbf{b} \\):
@@ -301,14 +301,24 @@ b\_{0_{d_c}}+
 \frac{1}{2}
 \sum\_{g=1}^{G}
 \sum\_{i=1}^{n_g}
-\mathbb{E}\\{z\_{g, k}\\}\left(\mathbb{E}\\{\left({\mathbf{w}^{T}\_{\cdot, d_c, k}} \mathbf{x}\_{g,i, \cdot}\right)^{2}\\}
+\mathbb{E}\\{z\_{g, k}\\}
+\bigg(\mathbb{E}\\{
+\left({\mathbf{w}^{T}\_{\cdot, d_c, k}} \mathbf{x}\_{g,i, \cdot}
+\right)^{2}\\}
 -2 y\_{g,i,d_c}
 \mathbb{E}\\{\mathbf{w}\_{\cdot,d_c, k}\\}^{T} \mathbf{x}_{g,i,\cdot} +
-{y^{2}\_{g,i, d_c}}\right)
+{y^{2}\_{g,i, d_c}}
+$$
+$$
+-2y\_{g,i,d_c}\mathbb{E}\\{ \mathbf{u}\_{g,d_c,k}\\}^T\mathbf{x}\_{g,i,.} +
+2\mathbb{E}\\{ \mathbf{w}\_{.,d_c,k}\\}^T\mathbf{x}\_{g,i,.}
+\mathbb{E}\\{ \mathbf{u}\_{g,d_c,k}\\}^T\mathbf{x}\_{g,i,.} +
+\mathbb{E}\\{ ( \mathbf{u}\_{g,d_c,k}^T\mathbf{x}\_{g,i,.} )^2 \\}
+\bigg)
 \label{lambda_ast}
 $$
 
-### The variational distribution \\( p^{\*}(\mathbf{v}) \\)
+### Variational distribution \\( p^{\*}(\mathbf{v}) \\)
 
 The variational distribution for \\( p^{\*}(\mathbf{v}) \\) is given by
 $$
@@ -329,7 +339,7 @@ $$
 where \\( K \\) is an integer (e.g. 20) chosen by the user for the truncated stick-breaking process.
 
 
-### The variational distribution \\( p^{\*}(\mathbf{Z}) \\)
+### Variational distribution \\( p^{\*}(\mathbf{Z}) \\)
 
 The variational distribution for \\( p^{\*}(\mathbf{Z}) \\) is given by
 
@@ -342,8 +352,7 @@ $$
 where
 
 $$
-r\_{g,k}=\frac{\rho\_{g,k}}{\sum\_{k=1}^{K}\rho\_{g,k}}
-\label{rnk}
+r\_{g,k}=\frac{\rho\_{g,k}}{\sum\_{k=1}^{K}\rho\_{g,k}} \label{eq:rnk}
 $$
 
 and
@@ -388,15 +397,16 @@ As mentioned above, the Gaussian priors over the coefficients
 \\( p(\mathbf{Y}_b\mid \mathbf{Z}, \mathbf{W}_b) \\).
 When the prior and likelihood are not conjugate, Bayesian inference becomes more
 complex and computationally demanding since the posterior distribution cannot be
-derived analytically. Our methodology lies in enabling variational updates of the
-posterior distribution for \\( \mathbf{W}_b \\) through the use of a tangent
-quadratic lower bound of logistic likelihoods within the framework of variational
-inference for conditionally conjugate exponential family models
-[@durante2019conditionally] for an infinite mixture of logistic regression
-under DPMMs to restore conjugacy between these approximate bounds and the
-Gaussian priors on \\( \mathbf{W}_b \\). 
+derived analytically. 
+Our methodology applies a tangent quadratic lower bound to the logistic
+likelihoods within the framework of variational inference for conditionally
+conjugate exponential family models 
+(see [Durante (2019)](https://www.jstor.org/stable/pdf/26874191.pdf?acceptTC=true&coverpage=false&addFooter=false&casa_token=5tSjE7iYI8wAAAAA:9UYtJvE_cGh2930jPcoCnSuWlK7-scKaCRwS1LwsRrF2_Uwq5qGsA-PcU4P_QAlJWwI8-M86kfGTfdCwFjYGZ39HW1SGCbGA_RYGk9iDog3yZgYJxQ)).
+This approach restores conjugacy between the approximate bounds and the
+Gaussian priors on \\( \mathbf{W}_b \\).
 
-[@jaakkola2000bayesian] introduced a straightforward variational approach based
+[Jaakkola and Jordan (2000)](http://www2.stat.duke.edu/homeweb/scs/Courses/Stat376/Papers/Variational/JaakkolaJordan2000.pdf)
+introduced a straightforward variational approach based
 on a family of tangent quadratic lower bounds of logistic log-likelihoods. They
 derived an EM algorithm to iteratively refine the variational parameters of the
 lower bound and the mean and covariance of the Gaussian distribution over the
@@ -417,18 +427,21 @@ $$
 
 where \\(\boldsymbol{\zeta}\_{g,i,d_b,k}\\) are Polya-gamma densities
 \\(\text{PG}(1,\mathbf{w}^{T}\_{\cdot,d_b,k}\mathbf{x}\_{g,i,\cdot}) \\)
-as described in [@durante2019conditionally], except in our case we consider
-a nonparametric mixture of \\(D\_b\\) conditionally independent target
-variables. Importantly, the augmented likelihood is within the exponential
-family of distributions, and the prior over \\(\mathbf{W}\_b\\)
-is now conjugate. 
+as described in
+[Durante (2019)](https://www.jstor.org/stable/pdf/26874191.pdf?acceptTC=true&coverpage=false&addFooter=false&casa_token=5tSjE7iYI8wAAAAA:9UYtJvE_cGh2930jPcoCnSuWlK7-scKaCRwS1LwsRrF2_Uwq5qGsA-PcU4P_QAlJWwI8-M86kfGTfdCwFjYGZ39HW1SGCbGA_RYGk9iDog3yZgYJxQ),
+except in our case we consider a nonparametric mixture of \\(D\_b\\)
+conditionally independent target variables. Importantly, the augmented
+likelihood is within the exponential family of distributions, and the prior
+over \\(\mathbf{W}\_b\\) is now conjugate. 
 
-[@durante2019conditionally] provide coordinate ascent variational inference
+[Durante and Rigon (2019)](https://www.jstor.org/stable/pdf/26874191.pdf?acceptTC=true&coverpage=false&addFooter=false&casa_token=5tSjE7iYI8wAAAAA:9UYtJvE_cGh2930jPcoCnSuWlK7-scKaCRwS1LwsRrF2_Uwq5qGsA-PcU4P_QAlJWwI8-M86kfGTfdCwFjYGZ39HW1SGCbGA_RYGk9iDog3yZgYJxQ)
+provide coordinate ascent variational inference
 updates for the variational distributions \\(p^\*\left(\mathbf{W}\_b\right) \\)
 and \\(p^\*\left(\boldsymbol{\zeta} \right)\\) (which in turn relate directly
-the the EM algorithm proposed by [@jaakkola2000bayesian]). Extending these
-updates to our model gives the variational distribution over
-\\(\mathbf{W}\_b\\) as
+the the EM algorithm proposed by
+[Jaakkola and Jordan (2000)](http://www2.stat.duke.edu/homeweb/scs/Courses/Stat376/Papers/Variational/JaakkolaJordan2000.pdf)).
+Extending these updates to our model gives the variational distribution over
+\\(\mathbf{W}\_b\\) as:
 $$
     p^\*(\mathbf{W}\_b) = \prod\_{d_b=1}^{D_b}\prod_{k=1}^{K}
     N(\mathbf{w}\_{\cdot,d_b,k} \vert 
@@ -463,11 +476,12 @@ parameters, we have introduced the index \\(n\\) to refer to individual data
 points: \\((g=1, i=1) \mapsto n=1, (g=1, i=2) \mapsto n=2, \cdots,
 (g=G, i=n_g) \mapsto n=N\\). The vector \\( \boldsymbol{\mu}\_{d_b} \\) is
 the \\(M\\)-dimensional vector of mean prior values for the \\(d\_{b}^{th}\\)
-dimension in Equation \ref{Wbprior}. Similarly, \\(\mathbf{\Sigma}\_{d_b}\\) is
-the \\(M\times M\\) diagonal matrix of variance (inverse precision) values for
-the \\(d\_{b}^{th}\\) dimension in Equation~\ref{Wbprior}. \\(r\_{n,k}\\) is
-the probability that data instance \\(n\\) belongs to component \\(k\\) as
-given in Equation \ref{rnk}.
+dimension for the prior over \\( \mathbf{W}_b \\). Similarly,
+\\(\mathbf{\Sigma}\_{d_b}\\) is the \\(M\times M\\) diagonal matrix of variance
+(inverse precision) values for
+the \\(d\_{b}^{th}\\) dimension. \\(r\_{n,k}\\) is
+the probability that data instance \\(n\\) belongs to component \\(k\\)
+(see above).
 
 The variational distribution \\(p^\*\left( \zeta\_{n,d_b,k} \right)\\) is a
 Polya-gamma distribution, \\(\text{PG}(1,\xi\_{n,d_b,k})\\) with

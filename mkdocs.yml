@@ -3,17 +3,48 @@ site_url: https://github.com/acil-bwh/bayes_traj
 theme:
   name: material
   features:
-    - navigation.instant
+    - navigation.instant  # Instant navigation enabled for smooth transitions
     - search.highlight
+
 nav:
   - Home: index.md
+  - Tutorial: bayes_traj_tutorial.md  
   - Formulation: formulation.md
   - Inference: inference.md
-  - Tutorial: bayes_traj_tutorial.md  
+
 plugins:
   - search
   - git-revision-date-localized
   - bibtex:
       bib_file: "references.bib"
+  - autorefs  # For automatic cross-referencing between files
+
 extra_javascript:
-  - https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/MathJax.js?config=TeX-MML-AM_CHTML
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+  - inline: |
+      window.MathJax = {
+        tex: {
+          tags: 'ams',  # Enable AMS-style numbering for equations
+          processRefs: true  # Enable \label{} and \ref{}
+        },
+        options: {
+          // Delay startup until MathJax is loaded
+          skipStartupTypeset: true  # We control when to typeset
+        }
+      };
+
+  # Custom script to trigger MathJax on page load and navigation
+  - inline: |
+      document.addEventListener("DOMContentLoaded", function () {
+        // Manually typeset after content is loaded
+        if (typeof MathJax !== "undefined") {
+          MathJax.typeset();  // Process math on the initial page load
+        }
+
+        // Re-trigger MathJax typesetting on every page navigation (for instant navigation)
+        document$.subscribe(() => {
+          if (typeof MathJax !== "undefined") {
+            MathJax.typesetPromise();  // Promise-based version for dynamic content
+          }
+        });
+      });
