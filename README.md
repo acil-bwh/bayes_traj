@@ -35,9 +35,7 @@ In order to install the package, type the folowing in the terminal:
 
 Each of these tools can be run with the -h flag for additional usage information.
 
-<!--
-For additional documentation, see https://TODO
--->
+For additional documentation, see https://acil-bwh.github.io/bayes_traj/index.html
 
 # Tests
 
