@@ -11,7 +11,7 @@
         <link rel="canonical" href="https://github.com/acil-bwh/bayes_traj/formulation/">
       
       
-        <link rel="prev" href="..">
+        <link rel="prev" href="../bayes_traj_tutorial/">
       
       
         <link rel="next" href="../inference/">
@@ -193,11 +193,31 @@
   
   
     <li class="md-nav__item">
-      <a href=".." class="md-nav__link">
+      <a href="../index.html" class="md-nav__link">
         
   
   <span class="md-ellipsis">
     Home
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../bayes_traj_tutorial/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Tutorial
   </span>
   
 
@@ -248,26 +268,6 @@
   
   <span class="md-ellipsis">
     Inference
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../bayes_traj_tutorial/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Tutorial
   </span>
   
 
@@ -478,15 +478,22 @@ p\left(\mathbf{Y}_c,
 \mathbf{b}_0, 
 \alpha,
 \mathbf{\Sigma}_0, 
-\right) = \\
+\right) =
+$$
+$$
 p(\mathbf{Y}_c \mid \mathbf{Z}, \mathbf{W}_c, \boldsymbol{\lambda}, \mathbf{U})
 p(\mathbf{Y}_b \mid \mathbf{Z}, \mathbf{W}_b)
 p\left(\mathbf{W}_c \mid \boldsymbol{\mu}_c, \boldsymbol{\lambda}_c\right)
-p\left(\mathbf{W}_b \mid \boldsymbol{\mu}_b, \boldsymbol{\lambda}_{b}\right) \\
+p\left(\mathbf{W}_b \mid \boldsymbol{\mu}_b, \boldsymbol{\lambda}_{b}\right)
+$$
+$$
 p(\boldsymbol{\lambda} \mid \mathbf{a}_0, \mathbf{b}_0)
 p(\mathbf{Z} \mid \mathbf{v}) 
 p(\mathbf{v} \mid \alpha)
 $$</p>
+<p>In the <a href="../inference/">Inference</a> section, we describe how the posterior
+distribution over the latent variables is estimated using
+coordinate ascent variational inference.</p>
 
 
 
@@ -559,7 +566,11 @@ $$</p>
     
       <script src="../assets/javascripts/bundle.dd8806f2.min.js"></script>
       
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/MathJax.js?config=TeX-MML-AM_CHTML"></script>
+        <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+        <script src=".."></script>
+      
+        <script src=".."></script>
       
     
   </body>

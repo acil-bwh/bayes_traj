@@ -12,8 +12,6 @@
       
       
       
-        <link rel="next" href="formulation/">
-      
       
       <link rel="icon" href="assets/images/favicon.png">
       <meta name="generator" content="mkdocs-1.6.0, mkdocs-material-9.5.20">
@@ -62,7 +60,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#homepage" class="md-skip">
+        <a href="#welcome-to-bayes_traj-documentation" class="md-skip">
           Skip to content
         </a>
       
@@ -98,7 +96,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Home
+              Welcome to bayes_traj documentation!
             
           </span>
         </div>
@@ -188,30 +186,10 @@
       
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  <span class="md-ellipsis">
-    Home
-  </span>
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="." class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="index.html" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -220,59 +198,26 @@
   
 
       </a>
-      
-        
+    </li>
+  
 
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
     
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
-        <li class="md-nav__item">
-  <a href="#getting-started" class="md-nav__link">
-    <span class="md-ellipsis">
-      Getting Started
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Getting Started">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#installation" class="md-nav__link">
-    <span class="md-ellipsis">
-      Installation
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#examples" class="md-nav__link">
-    <span class="md-ellipsis">
-      Examples
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
       
-    </ul>
   
-</nav>
-      
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="bayes_traj_tutorial/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Tutorial
+  </span>
+  
+
+      </a>
     </li>
   
 
@@ -317,26 +262,6 @@
   
 
     
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="bayes_traj_tutorial/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Tutorial
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
   </ul>
 </nav>
                   </div>
@@ -364,16 +289,6 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#getting-started" class="md-nav__link">
-    <span class="md-ellipsis">
-      Getting Started
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Getting Started">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
   <a href="#installation" class="md-nav__link">
     <span class="md-ellipsis">
       Installation
@@ -381,18 +296,13 @@
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
-  <a href="#examples" class="md-nav__link">
+      
+        <li class="md-nav__item">
+  <a href="#documentation-contents" class="md-nav__link">
     <span class="md-ellipsis">
-      Examples
+      Documentation Contents
     </span>
   </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -411,13 +321,54 @@
                   
 
 
-<h1 id="homepage">Homepage</h1>
-<h3 id="getting-started">Getting Started</h3>
-<h4 id="installation">Installation</h4>
-<p>To get started using bayes_traj, simply install it using pip by running the following in your terminal:</p>
+<h1 id="welcome-to-bayes_traj-documentation">Welcome to <strong>bayes_traj</strong> documentation!</h1>
+<p><strong>bayes_traj</strong> is a Python package developed to perform Bayesian trajectory
+analysis, and it has several features that distinguish it from other
+trajectory approaches:</p>
+<ul>
+<li>It is fully Bayesian, so it supports incorporation of prior knowledge into
+the modeling process.</li>
+<li>It can simultaneously model multiple continuous and binary target
+variables as a functions of predictor variables.</li>
+<li>It uses Bayesian nonparametrics to identify the number of trajectories best
+supported by the data.</li>
+<li>Inference is performed using coordinate ascent variational inference, so
+it is fast and scales well to large data sets.</li>
+<li>Independantly estimates residual variance for each trajectory and
+each target variable.</li>
+<li>Can we used without random effects (group-based trajectory modeling, or
+GBTM), or with random effects (growth mixture modeling, or GMM).</li>
+<li>Provides a suite of tools to facilitate prior specification, model
+visualization, and summary statistic computation. </li>
+</ul>
+<h3 id="installation">Installation</h3>
+<p>To get started using bayes_traj, simply install it using pip by running the
+following in your terminal:</p>
 <pre><code class="language-bash">pip install bayes_traj
 </code></pre>
-<h4 id="examples">Examples</h4>
+<p><strong>bayes_traj</strong> provides several command-line tools: </p>
+<ul>
+<li><code>generate_prior</code> -- used to speficy Bayesian priors for use the trajectory
+  modeling</li>
+<li><code>viz_data_prior_draws</code> -- provides visualization of random draws from the
+  prior</li>
+<li><code>bayes_traj_main</code> -- performs Bayesian trajectory modeling using a prior file</li>
+<li><code>viz_model_trajs</code> -- provides visualization of trajectories fit using
+  <code>bayes_traj_main</code></li>
+<li><code>sumarize_traj_model</code> -- prints model summary and fit statistics given a model
+  file produce by <code>bayes_traj_main</code></li>
+<li><code>assign_trajectory</code> -- writes a data file with appended trajectory assignment
+  information given an input data file and a model file generated by the
+  <code>bayes_traj_main</code> tool         </li>
+</ul>
+<p>Each of these tools can be run with the -h flag for additional usage information.</p>
+<h3 id="documentation-contents">Documentation Contents</h3>
+<ul>
+<li><a href="bayes_traj_tutorial/">Tutorial</a> -- provides a walk-through of basic usage</li>
+<li><a href="formulation/">Formulation</a> -- states the Bayesian model assumptions and
+formulation</li>
+<li><a href="inference/">Inference</a> -- details the variational inference update equations</li>
+</ul>
 
 
 
@@ -438,7 +389,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1-2.1-2M12.5 7v5.2l4 2.4-1 1L11 13V7h1.5M11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2v1.8Z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date">September 3, 2024</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date">September 13, 2024</span>
   </span>
 
     
@@ -490,7 +441,11 @@
     
       <script src="assets/javascripts/bundle.dd8806f2.min.js"></script>
       
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/MathJax.js?config=TeX-MML-AM_CHTML"></script>
+        <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+      
+        <script src="."></script>
+      
+        <script src="."></script>
       
     
   </body>
