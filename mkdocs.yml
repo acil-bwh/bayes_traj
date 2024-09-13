@@ -7,8 +7,8 @@ theme:
     - search.highlight
 
 nav:
-  - Home: index.md
-  - Tutorial: bayes_traj_tutorial.md  
+  - Home: index.html
+  - Tutorial: bayes_traj_tutorial.md
   - Formulation: formulation.md
   - Inference: inference.md
 

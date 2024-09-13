@@ -184,12 +184,20 @@ p\left(\mathbf{Y}\_c,
 \mathbf{b}\_0, 
 \alpha,
 \mathbf{\Sigma}\_0, 
-\right) = \\\
+\right) =
+$$
+$$
 p(\mathbf{Y}\_c \mid \mathbf{Z}, \mathbf{W}\_c, \boldsymbol{\lambda}, \mathbf{U})
 p(\mathbf{Y}\_b \mid \mathbf{Z}, \mathbf{W}\_b)
 p\left(\mathbf{W}\_c \mid \boldsymbol{\mu}\_c, \boldsymbol{\lambda}\_c\right)
-p\left(\mathbf{W}\_b \mid \boldsymbol{\mu}\_b, \boldsymbol{\lambda}\_{b}\right) \\\
+p\left(\mathbf{W}\_b \mid \boldsymbol{\mu}\_b, \boldsymbol{\lambda}\_{b}\right)
+$$
+$$
 p(\boldsymbol{\lambda} \mid \mathbf{a}\_0, \mathbf{b}\_0)
 p(\mathbf{Z} \mid \mathbf{v}) 
 p(\mathbf{v} \mid \alpha)
 $$
+
+In the [Inference](inference.md) section, we describe how the posterior
+distribution over the latent variables is estimated using
+coordinate ascent variational inference.
