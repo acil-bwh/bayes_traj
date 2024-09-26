@@ -72,7 +72,7 @@ individuals in another cohort to their most likely trajectory for further
 analysis [@ross2018longitudinal]. Recently, we applied **bayes_traj** to
 multiple measures of lung function in a cohort of middle-aged and
 older adults, using an informative prior to capture known information
-about lung function in early adulthood [@ross2022dysanapsis].
+about lung function in early adulthood [@ross2024dysanapsis].
 
 # State of the field
 
