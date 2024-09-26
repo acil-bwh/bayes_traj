@@ -1,3 +1,4 @@
+<!--
 ---
 title: 'bayes_traj: A Python package for Bayesian trajectory analysis'
 tags:
@@ -11,6 +12,7 @@ affiliation: Department of Radiology, Brigham and Women’s Hospital, Harvard Me
 date: 9 September 2024
 bibliography: paper.bib
 ---
+-->
 
 # Statement of need 
 
