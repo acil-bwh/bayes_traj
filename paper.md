@@ -1,124 +1,21 @@
 ---
-title: 'alchemlyb: the simple alchemistry library'
-tags:
-  - Python
-  - alchemistry
-  - molecular dynamics
-  - free energy
-authors:
-  - name: Zhiyi Wu
-    orcid: 0000-0002-7615-7851
-    equal-contrib: true
-    affiliation: 1
-  - name: David L. Dotson
-    orcid: 0000-0001-5879-2942
-    equal-contrib: true
-    affiliation: "2, 3"
-  - name: Irfan Alibay
-    orcid: 0000-0001-5787-9130
-    affiliation: 4
-  - name: Bryce K. Allen
-    orcid: 0000-0002-0804-8127
-    affiliation: 5
-  - name: Mohammad Soroush Barhaghi
-    orcid: 0000-0001-8226-7347
-    affiliation: 6
-  - name: Jérôme Hénin
-    orcid: 0000-0003-2540-4098
-    affiliation: 7
-  - name: Thomas T. Joseph
-    orcid: 0000-0003-1323-3244
-    affiliation: 8
-  - name: Ian M. Kenney
-    orcid: 0000-0002-9749-8866
-    affiliation: 2
-  - name: Hyungro Lee
-    orcid: 0000-0002-4221-7094
-    affiliation: 9
-  - name: Haoxi Li
-    orcid: 0009-0004-8369-1042	
-    affiliation: 10
-  - name: Victoria Lim
-    orcid: 0000-0003-4030-9312
-    affiliation: 11
-  - name: Shuai Liu
-    orcid: 0000-0002-8632-633X
-    affiliation: 12
-  - name: Domenico Marson
-    orcid: 0000-0003-1839-9868
-    affiliation: 13
-  - name: Pascal T. Merz
-    orcid: 0000-0002-7045-8725
-    affiliation: 14
-  - name: Alexander Schlaich
-    orcid: 0000-0002-4250-363X
-    affiliation: 15
-  - name: David Mobley
-    orcid: 0000-0002-1083-5533
-    affiliation: 11
-  - name: Michael R. Shirts
-    orcid: 0000-0003-3249-1097
-    affiliation: 16
-  - name: Oliver Beckstein
-    orcid: 0000-0003-1340-0831
-    corresponding: true
-    affiliation: "2,17"
-affiliations:
- - name: Exscientia plc, Schroedinger Building, Oxford, United Kingdom
-   index: 1
- - name: Department of Physics, Arizona State University, Tempe, Arizona, United States of America
-   index: 2
- - name: Datryllic LLC, Phoenix, Arizona, United States of America (present affiliation)
-   index: 3
- - name: Open Free Energy, Open Molecular Software Foundation, Davis, California, United States
-   index: 4
- - name: Differentiated Therapeutics, San Diego, CA
-   index: 5
- - name: Department of Chemical Engineering and Materials Science, Wayne State University, Detroit, Michigan, United States of America
-   index: 6
- - name: Université Paris Cité, CNRS, Laboratoire de Biochimie Théorique, Paris, France
-   index: 7
- - name: Department of Anesthesiology and Critical Care, Perelman School of Medicine, University of Pennsylvania, Philadelphia, Pennsylvania, United States of America
-   index: 8
- - name: Pacific Northwest National Laboratory, Richland, Washington, United States of America
-   index: 9
- - name: UNC Eshelman School of Pharmacy, University of North Carolina, Chapel Hill, NC, United States of America
-   index: 10
- - name: Departments of Pharmaceutical Sciences and Chemistry, University of California Irvine, Irvine, California, United States of America
-   index: 11
- - name: Silicon Therapeutics LLC, Boston, United States of America
-   index: 12
- - name: Molecular Biology and Nanotechnology Laboratory (MolBNL@UniTS), DEA, University of Trieste, Trieste, Italy
-   index: 13
- - name: PM Scientific Consulting, Basel, Switzerland
-   index: 14
- - name: Stuttgart Center for Simulation Science (SC SimTech) & Institute for Computational Physics, University of Stuttgart, Stuttgart, Germany 
-   index: 15
- - name: University of Colorado Boulder, Boulder, Colorado, United States of America
-   index: 16
- - name: Center for Biological Physics, Arizona State University, Tempe, AZ, United States of America
-   index: 17
-
-date: 4 June 2024
-bibliography: paper.bib
-
----
-
-<!--
----
 title: 'bayes_traj: A Python package for Bayesian trajectory analysis'
 tags:
   - Python
   - trajectories
   - Bayesian
+authors:
+  - name: James C. Ross
+    orcid: 0000-0002-2338-3644
+    affiliation: 1
+affiliations:
+ - name: Department of Radiology, Brigham and Women’s Hospital, Harvard Medical School, Boston, MA, USA
+   index: 1
 
-author: James C. Ross
-orcid: 0000-0002-2338-3644
-affiliation: Department of Radiology, Brigham and Women’s Hospital, Harvard Medical School, Boston, MA, USA
-date: 9 September 2024
+date: 26 Septembe 2024
 bibliography: paper.bib
+
 ---
--->
 
 # Statement of need 
 
