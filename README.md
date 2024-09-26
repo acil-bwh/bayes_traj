@@ -43,10 +43,8 @@ To run all unit tests, type the following in the package root directory:
 
     $ pytest
 
-# Contact
 
-**bayes_traj** is developed and maintained by
-[James C. Ross](mailto:jcross186@gmail.com). Please contact if
-you are interested in contributing.
+# Contribute
 
+Please read our [contribution guidelines](./CONTRIBUTING.md).
 
