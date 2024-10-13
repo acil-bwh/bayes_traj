@@ -274,10 +274,12 @@ def main():
             if op.out_model is not None:
                 torch.save(model, op.out_model)
 
+        waic2 = compute_waic2(mm)
+                
         if False: #op.use_pyro:
             pass
         elif r == 0:
-            if op.out_model is not None:
+            if (op.out_model is not None) and (waic2 < op.waic2_thresh):
                 print("Saving model...")
                 pickle.dump({'MultDPRegression': mm}, open(op.out_model, 'wb'))
 
@@ -298,9 +300,8 @@ def main():
                                       module_name='bayes_traj')
                 
             if repeats > 1:
-                best_waic2 = compute_waic2(mm)
-        else:
-            waic2 = compute_waic2(mm)
+                best_waic2 = waic2
+        else:            
             print(f"Current WAIC2: {waic2}")
             if (waic2 < best_waic2) and (waic2 < op.waic2_thresh):
                 best_waic2 = waic2
