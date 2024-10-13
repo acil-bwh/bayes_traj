@@ -78,10 +78,10 @@ def main():
         initialization procedure will attempt to ensure that the number of \
         initial trajectories in the fitting routine equals the specified \
         number.', metavar='<int>', type=int, default=None)        
-#    parser.add_argument('--waic2_thresh', help='Model will only be written to \
-#        file provided that the WAIC2 value is below this threshold',
-#        dest='waic2_thresh', metavar='<float>', type=float,
-#        default=sys.float_info.max)
+    parser.add_argument('--waic2_thresh', help='Model will only be written to \
+        file provided that the WAIC2 value is below this threshold',
+        dest='waic2_thresh', metavar='<float>', type=float,
+        default=sys.float_info.max)
 #    parser.add_argument('--bic_thresh', help='Model will only be written to \
 #        file provided that BIC values are above this threshold',
 #        dest='bic_thresh', metavar='<float>', type=float,
@@ -302,7 +302,7 @@ def main():
         else:
             waic2 = compute_waic2(mm)
             print(f"Current WAIC2: {waic2}")
-            if waic2 < best_waic2:
+            if (waic2 < best_waic2) and (waic2 < op.waic2_thresh):
                 best_waic2 = waic2
         
                 if op.out_model is not None:
