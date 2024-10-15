@@ -110,6 +110,8 @@ def main():
         subgroups differs. By using this flag, the proportions of previously \
         determined trajectory subgroups will be determined for the current \
         data set.', action='store_true')
+    parser.add_argument('-s', help='Number of samples to use when computing \
+        WAIC2', type=int, default=100)
 #    parser.add_argument('--use_pyro', help='Use Pyro for inference',
 #        action='store_true')
     
@@ -274,7 +276,7 @@ def main():
             if op.out_model is not None:
                 torch.save(model, op.out_model)
 
-        waic2 = compute_waic2(mm)
+        waic2 = mm.compute_waic2(op.s)
                 
         if False: #op.use_pyro:
             pass
