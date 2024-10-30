@@ -585,6 +585,7 @@ class MultDPRegression:
                 self.num_binary_targets_ += 1
             else:
                 self.target_type_[d] = 'gaussian'
+
         print("Initializing parameters...")
         self.init_traj_params(traj_probs)
 
@@ -677,8 +678,8 @@ class MultDPRegression:
 
             if verbose:
                 torch.set_printoptions(precision=2)
+                #print(self.w_mu_[:, 0, 0])
                 print(f"iter {inc}, {torch.sum(self.R_, dim=0).numpy()}")
-
                 
     def update_v(self):
         """Updates the parameters of the Beta distributions for latent
@@ -1571,11 +1572,20 @@ class MultDPRegression:
                     self.w_var_[:, :, kk][ids] = \
                         torch.tensor(self.w_var0_[ids])
 
+        w_mu_tmp = torch.from_numpy(sample_cos(self.w_mu0_, self.w_var0_,
+                                               num_samples=self.K_)).double()
+        
         if self.w_mu_ is not None:
             if torch.isnan(torch.sum(self.w_mu_)):
                 ids = torch.isnan(self.w_mu_)
-                self.w_mu_[ids] = 0
+                self.w_mu_[ids] = w_mu_tmp[ids]
 
+        if self.w_mu_ is None:
+            self.w_mu_ = w_mu_tmp
+        else:
+            self.w_mu_[:, :, traj_probs==0] = \
+                w_mu_tmp[:, :, traj_probs==0].double()
+            
         if self.lambda_a_ is None and self.lambda_b_ is None:
             if self.gb_ is not None:
                 scale_factor = self.gb_.ngroups
@@ -1602,14 +1612,6 @@ class MultDPRegression:
                         shape = self.lambda_a0_[dd]                     
                         self.lambda_a_[dd, kk] = \
                             torch.distributions.Gamma(shape, scale).sample()
-
-        w_mu_tmp = torch.from_numpy(sample_cos(self.w_mu0_, self.w_var0_,
-                                               num_samples=self.K_)).double()
-        if self.w_mu_ is None:
-            self.w_mu_ = w_mu_tmp
-        else:
-            self.w_mu_[:, :, traj_probs==0] = \
-                w_mu_tmp[:, :, traj_probs==0].double()
 
         #-----------------------------------------------------------------------
         # Initialize xi if needed
