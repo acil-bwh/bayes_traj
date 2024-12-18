@@ -19,35 +19,57 @@ bibliography: paper.bib
 
 # Statement of need 
 
-Trajectory analysis broadly refers to the application of methods to
-longitudinal data to identify distinct patterns of change and assign study
-subjects to their most likely trajectory group.
+Trajectory analysis broadly refers to techniques and modeling paradigms that
+explain heterogeneity in longitudinal data. These methods identify
+the most suitable number of subgroups (trajectories) in the data, the distinct
+patterns of change characterizing each trajectory, and the most likely assignment of
+study participants to trajectories. Methods of trajectory analysis have
+been applied to a wide range of fields including pyschology, criminology,
+behavioral research, and epidemiology. (These methods are distinct from those that
+track people, animials, vehicles,
+and natural phenomena -- also referred to as trajectory analysis -- and which
+have their own dedicated set of techniques and frameworks. See, e.g., 
+[@shenk2021traja] and [@viera2023pactus]).
+
 Although trajectory analysis has been applied in mutiple
 domains, the motivation for developing **bayes_traj** has been to improve our
 understanding of
 heterogeneity in the context of chronic obstructive pulmonary disease (COPD), a
 leading cause of death worldwide. Research has shown that there are multiple
 patterns of lung function development and decline, with some patterns associated
-with greater risk of developing COPD [@lange2015lung]. Researchers have applied techniques
+with greater risk of developing COPD [@lange2015lung]. Furthermore, there
+is a growing recognition that COPD is better conceived of as a multi-faceted syndrome,
+requiring consideration of other disease facets (such as clinical presentation
+and structural assesment from medical images) [@lowe2019copdgene].
+Researchers have applied techniques
 of trajectory analysis to longitudinal measures of lung function to delineate
 distinct patterns of progression for further analysis [@agusti2019lung].
 Existing trajectory approaches
 are predominantly frequentist in nature and use maximum likelihood to identify point
-estimates of unknown parameters. These approaches do not permit incorporation of prior informaiton.
+estimates of unknown parameters. These approaches do not permit incorporation of
+prior informaiton.
 Challenges arise when study cohorts lack sufficient longitudinal data characteristics
-to adequately power frequentist-based trajectory algorithms. Furthermore, there
-is a growing recognition that COPD is better conceived of as a multi-faceted syndrome,
-requiring consideration of other disease facets (such as clinical presentation
-and structural assesment from medical images) [@lowe2019copdgene]. This
-motivates development and
-application of scalable approaches that can simultaneously model distinct progression
-patterns across multiple health measures, especially in data-limited scenarios.
+to adequately power frequentist-based trajectory algorithms.
+Bayesian approaches are well-suited for data-limited scenarios given their ability
+to incorporate prior knowledge in the model fitting process, though existing
+Bayesian trajectory approaches
+use sampling-based inference (i.e. Markov chain Monte Carlo)
+which can be slow to converge and can suffer from the so-called "lable-switching" problem.
+There is thus a need for scalable approaches that can simultaneously model distinct
+progression patterns across multiple health measures, especially in data-limited scenarios.
 
 # Summary
 
 **bayes_traj** is a Python package developed to perform Bayesian trajectory analysis.
-Although our primary motivation is to improve understanding of COPD heterogeneity,
-the package makes no domain-specific assumptions and is generally applicable.
+While its development was initially motivated by the need to better understand
+chronic obstructive pulmonary disease (COPD) heterogeneity, the package is
+domain-agnostic and can be applied to a wide range of disciplines.
+The package is designed for researchers who need scalable methods for trajectory
+analysis, especially in settings where traditional frequentist methods may fail
+due to limited data or when incorporating prior knowledge is critical.
+By providing a scalable Bayesian approach to trajectory analysis,
+**bayes_traj** complements existing tools and broadens the range of
+methodologies available for trajectory analysis.
 
 **bayes_traj** has several distinguishing features:
 * It can simultaneously model multiple continuous and binary target
@@ -79,23 +101,56 @@ multiple measures of lung function in a cohort of middle-aged and
 older adults, using an informative prior to capture known information
 about lung function in early adulthood [@ross2024dysanapsis].
 
+While **bayes_traj** offers several advantages over existing trajectory analysis
+tools, it also has some limitations. The underlying model assumes conditional
+independence of target variables given trajectory assignments and predictors,
+which, although common, may not always hold in real-world data. Additionally,
+while variational inference is scalable, provides computational efficiency, and is
+less susceptible to label-switching, it may not capture
+posterior characteristics as accurately as sampling-based methods. The model also
+assumes that errors are uncorrelated, a simplification that may not be appropriate
+for all use cases. Finally, although **bayes_traj** supports both continuous and
+binary target variables, it does not currently handle count data.
+
+
 # State of the field
 
-Van der Nest et al. provide an excellent overview of the various approaches
-and implementations for trajectory analysis [@van2020overview]. The methods
-covered in that paper are all frequentist in nature. To our knowledge, the
-only other Bayesian approach for modeling trajectories is Zang and Max 
-[@zang2022bayesian]; they implement a form of group-based trajectory modeling
-(GBTM) and use MCMC for approximate Bayesian inference.
+There are numerous approaches to trajectory analysis that make different modeling
+assumptions and use different inference strategies, and implementations are available
+in R, SAS, Stata, and MpLus.
+Van der Nest et al. [@van2020overview], Lu [@lu2024clustering], and
+Lu et al. [@lu2023joint] provide excellent reviews of the state of the art.
+Two broad and commonly used model-based approaches are group-based trajectory modeling
+(GBTM) and latent class mixed effect modeling (LCMM). GBTM assumes identical
+trajectories within clusters, while LCMM generalizes this by allowing individual
+trajectories to deviate from the cluster mean.
+Zang and Max describe a Bayesian group-based trajectory modeling approach
+that relies on MCMC for inference with an implementation available in R [@zang2022bayesian].
+Other Bayesian approaches
+to trajectory analysis such as Bayesian mixture modeling [@komarek2013clustering]
+and Bayesian consensus clustering [@lock2013bayesian] have implementations in
+R [@komarek2014capabilities, @tan2022bcclong] and fall within the LCMM category.
+These methods also rely on MCMC for inference. The model implemented in
+**bayes_traj** can be considered a Bayesian nonparametric version of LCMM
+that is capable of modeling multiple longitudinal markers.
+To our knowledge, **bayes_traj** is the only full-featured Python package for
+Bayesian nonparametric trajectory analysis that uses variational inference for
+model fitting across multiple target variables, making it a scalable and
+versatile tool for researchers across disciplines that complements the collection
+of existing trajectory analysis approaches.
 
 # Acknowledgements
 
+Special thanks to Tingting Zhao for developing
+variational update equations for inference over binary target variables. Special
+thanks also to Fritz Obermeyer for contributing code toward incorporating Pyro
+probabilistic programming language capabilities into the **bayes_traj**
+environment as part of a subcontract funded through NIH R01-HL164380.
 Continued development of **bayes_traj** is supported by the US National Heart,
-Lung, and Blood Institute (1R01-HL164380-01).
+Lung, and Blood Institute (R01-HL164380).
 **bayes_traj** would not be possible without numerous other open-source
 Python packages, especially numpy [@harris2020array], scipy [@2020SciPy-NMeth],
 matplotlib [@Hunter_2007], PyTorch [@NEURIPS2019_9015], and
-pandas [@reback2020pandas]. Special thanks also to Tinting Zhao for developing
-variational update equations for inference over binary target variables.
+pandas [@reback2020pandas]. 
 
 # References
