@@ -24,14 +24,14 @@ explain heterogeneity in longitudinal data. These methods identify
 the most suitable number of subgroups (trajectories) in the data, the distinct
 patterns of change characterizing each trajectory, and the most likely assignment of
 study participants to trajectories. Methods of trajectory analysis have
-been applied to a wide range of fields including pyschology, criminology,
+been applied to a wide range of fields including psychology, criminology,
 behavioral research, and epidemiology. (These methods are distinct from those that
-track people, animials, vehicles,
+track people, animals, vehicles,
 and natural phenomena -- also referred to as trajectory analysis -- and which
 have their own dedicated set of techniques and frameworks. See, e.g., 
 [@shenk2021traja] and [@viera2023pactus]).
 
-Although trajectory analysis has been applied in mutiple
+Although trajectory analysis has been applied in multiple
 domains, the motivation for developing **bayes_traj** has been to improve our
 understanding of
 heterogeneity in the context of chronic obstructive pulmonary disease (COPD), a
@@ -40,21 +40,21 @@ patterns of lung function development and decline, with some patterns associated
 with greater risk of developing COPD [@lange2015lung]. Furthermore, there
 is a growing recognition that COPD is better conceived of as a multi-faceted syndrome,
 requiring consideration of other disease facets (such as clinical presentation
-and structural assesment from medical images) [@lowe2019copdgene].
+and structural assessment from medical images) [@lowe2019copdgene].
 Researchers have applied techniques
 of trajectory analysis to longitudinal measures of lung function to delineate
 distinct patterns of progression for further analysis [@agusti2019lung].
 Existing trajectory approaches
 are predominantly frequentist in nature and use maximum likelihood to identify point
 estimates of unknown parameters. These approaches do not permit incorporation of
-prior informaiton.
+prior information.
 Challenges arise when study cohorts lack sufficient longitudinal data characteristics
 to adequately power frequentist-based trajectory algorithms.
 Bayesian approaches are well-suited for data-limited scenarios given their ability
 to incorporate prior knowledge in the model fitting process, though existing
 Bayesian trajectory approaches
 use sampling-based inference (i.e. Markov chain Monte Carlo)
-which can be slow to converge and can suffer from the so-called "lable-switching" problem.
+which can be slow to converge and can suffer from the so-called "label switching" problem.
 There is thus a need for scalable approaches that can simultaneously model distinct
 progression patterns across multiple health measures, especially in data-limited scenarios.
 
@@ -82,7 +82,7 @@ given trajectory assignments, enabling the algorithm to scale well to multiple
 targets.
 * Bayesian approximate inference is performed using coordinate ascent variational
 inference, which is fast as scales well to large data sets.
-* Independantly estimates residual variance posteriors for each trajectory and
+* Independently estimates residual variance posteriors for each trajectory and
 each target variable
 * Allows specification of random effects for continuous target variables using
 unstructured covariance matrices
@@ -90,7 +90,7 @@ unstructured covariance matrices
 visualization, and summary statistic computation. 
 
 These features make **bayes_traj** a great fit for investigating COPD
-heterogeniety, and we have used it in several publications. In an early
+heterogeneity, and we have used it in several publications. In an early
 implementation, we used it to identify disease subtypes using five measures
 of emphysema computed from medical images [@ross2016bayesian]. Later we used
 it to identify distinct lung
