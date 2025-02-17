@@ -6,6 +6,7 @@ from setuptools import setup, find_packages
 # To use a consistent encoding
 from codecs import open
 from os import path
+import os, re
 
 here = path.abspath(path.dirname(__file__))
 
@@ -24,9 +25,20 @@ with open(path.join(here, 'README.md'), encoding='utf-8') as f:
 packages = find_packages()
 packages.append('bayes_traj')
 
+# Read version from the package __init__.py file
+def get_version():
+    init_path = os.path.join(here, "bayes_traj", "__init__.py")
+    with open(init_path, "r", encoding="utf-8") as f:
+        for line in f:
+            match = re.match(r"__version__\s*=\s*['\"]([^'\"]+)['\"]", line)
+            if match:
+                return match.group(1)
+    raise RuntimeError("Unable to find version string in bayes_traj/__init__.py")
+
+
 setup(
     name='bayes_traj',
-    version='1.0.1',
+    version=get_version(),
     description='bayes_traj',
     long_description=long_description,
     long_description_content_type='text/markdown',
