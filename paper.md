@@ -63,8 +63,7 @@ progression patterns across multiple health measures, especially in data-limited
 **bayes_traj** is a Python package for Bayesian trajectory analysis,
 offering a suite of command-line tools for prior specification, model fitting,
 and posterior evaluation.
-![Workflow of bayes_traj command-line tools](bayes_traj_flow_diagram.png){ width=80% } **(Figure 1)**
-illustrates the key tools and their role within the workflow. The package is
+ **Figure 1** illustrates the key tools and their role within the workflow. The package is
 domain-agnostic and applicable across various disciplines.
 It is particularly suited for researchers who require scalable trajectory analysis
 methods, especially in scenarios where traditional frequentist approaches struggle
@@ -72,6 +71,7 @@ due to limited data or the need to incorporate prior knowledge. By providing a s
 Bayesian alternative, **bayes_traj** complements existing tools and broadens
 the range of methodologies available for trajectory analysis.
 
+![Workflow of bayes_traj command-line tools](bayes_traj_flow_diagram.png){ width=90% }
 **Figure 1**: Workflow of **bayes_traj** command-line tools (orange). The process begins
 with an input **data file**, which informs prior specification using the 
 `generate_prior` routine. (`viz_data_prior_draws` and `viz_gamma_dists` provide feedback
