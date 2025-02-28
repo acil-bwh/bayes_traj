@@ -71,7 +71,7 @@ due to limited data or the need to incorporate prior knowledge. By providing a s
 Bayesian alternative, **bayes_traj** complements existing tools and broadens
 the range of methodologies available for trajectory analysis.
 
-![**Figure 1**: Workflow of **bayes_traj** command-line tools (orange). The process begins
+![Workflow of **bayes_traj** command-line tools (orange). The process begins
 with an input **data file**, which informs prior specification using the 
 `generate_prior` routine. (`viz_data_prior_draws` and `viz_gamma_dists` provide feedback
 for prior evaluation.)
