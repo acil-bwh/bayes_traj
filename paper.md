@@ -72,21 +72,22 @@ By providing a scalable Bayesian approach to trajectory analysis,
 methodologies available for trajectory analysis.
 
 **bayes_traj** has several distinguishing features:
-* It can simultaneously model multiple continuous and binary target
-variables as a functions of predictor variables.
-* Given an estimate of the number of trajectories, it uses
+
+- It can simultaneously model multiple continuous and binary target
+variables as functions of predictor variables.
+- Given an estimate of the number of trajectories, it uses
 Bayesian nonparametrics (Dirichlet Process mixture modeling) to automatically
 identify the number of groups in a data set. 
-* It makes the assumption that target variables are conditionally independent
+- It makes the assumption that target variables are conditionally independent
 given trajectory assignments, enabling the algorithm to scale well to multiple
 targets.
-* Bayesian approximate inference is performed using coordinate ascent variational
+- Bayesian approximate inference is performed using coordinate ascent variational
 inference, which is fast as scales well to large data sets.
-* Independently estimates residual variance posteriors for each trajectory and
+- Independently estimates residual variance posteriors for each trajectory and
 each target variable
-* Allows specification of random effects for continuous target variables using
+- Allows specification of random effects for continuous target variables using
 unstructured covariance matrices
-* Provides a suite of tools to facilitate prior specification, model
+- Provides a suite of tools to facilitate prior specification, model
 visualization, and summary statistic computation. 
 
 These features make **bayes_traj** a great fit for investigating COPD
