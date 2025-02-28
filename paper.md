@@ -71,8 +71,7 @@ due to limited data or the need to incorporate prior knowledge. By providing a s
 Bayesian alternative, **bayes_traj** complements existing tools and broadens
 the range of methodologies available for trajectory analysis.
 
-![Workflow of bayes_traj command-line tools](bayes_traj_flow_diagram.png){ width=90% }
-**Figure 1**: Workflow of **bayes_traj** command-line tools (orange). The process begins
+![**Figure 1**: Workflow of **bayes_traj** command-line tools (orange). The process begins
 with an input **data file**, which informs prior specification using the 
 `generate_prior` routine. (`viz_data_prior_draws` and `viz_gamma_dists` provide feedback
 for prior evaluation.)
@@ -81,7 +80,8 @@ Bayesian inference. The fitted model is evaluated through visualization
 (`viz_model_trajs`) and quantitative summary (`summarize_traj_model`).
 Finally, `assign_trajectory` applies the fitted model to assign individuals
 to trajectory groups. Each command-line tool
-supports the `-h` flag for detailed usage instructions.
+supports the `-h` flag for detailed usage instructions.](bayes_traj_flow_diagram.png){ width=90% }
+
 
 **bayes_traj** has several distinguishing features:
 
