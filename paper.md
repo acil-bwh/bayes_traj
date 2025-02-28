@@ -60,16 +60,28 @@ progression patterns across multiple health measures, especially in data-limited
 
 # Summary
 
-**bayes_traj** is a Python package developed to perform Bayesian trajectory analysis.
-While its development was initially motivated by the need to better understand
-chronic obstructive pulmonary disease (COPD) heterogeneity, the package is
-domain-agnostic and can be applied to a wide range of disciplines.
-The package is designed for researchers who need scalable methods for trajectory
-analysis, especially in settings where traditional frequentist methods may fail
-due to limited data or when incorporating prior knowledge is critical.
-By providing a scalable Bayesian approach to trajectory analysis,
-**bayes_traj** complements existing tools and broadens the range of
-methodologies available for trajectory analysis.
+**bayes_traj** is a Python package for Bayesian trajectory analysis,
+offering a suite of command-line tools for prior specification, model fitting,
+and posterior evaluation.
+![Workflow of bayes_traj command-line tools](bayes_traj_flow_diagram.png){ width=80% } **(Figure 1)**
+illustrates the key tools and their role within the workflow. The package is
+domain-agnostic and applicable across various disciplines.
+It is particularly suited for researchers who require scalable trajectory analysis
+methods, especially in scenarios where traditional frequentist approaches struggle
+due to limited data or the need to incorporate prior knowledge. By providing a scalable
+Bayesian alternative, **bayes_traj** complements existing tools and broadens
+the range of methodologies available for trajectory analysis.
+
+**Figure 1**: Workflow of **bayes_traj** command-line tools (orange). The process begins
+with an input **data file**, which informs prior specification using the 
+`generate_prior` routine. (`viz_data_prior_draws` and `viz_gamma_dists` provide feedback
+for prior evaluation.)
+Model fitting (`bayes_traj_main`) take a prior and input data to perform
+Bayesian inference. The fitted model is evaluated through visualization
+(`viz_model_trajs`) and quantitative summary (`summarize_traj_model`).
+Finally, `assign_trajectory` applies the fitted model to assign individuals
+to trajectory groups. Each command-line tool
+supports the `-h` flag for detailed usage instructions.
 
 **bayes_traj** has several distinguishing features:
 
