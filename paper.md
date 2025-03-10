@@ -7,14 +7,18 @@ tags:
 authors:
   - name: James C. Ross
     orcid: 0000-0002-2338-3644
-    affiliation: 1
+    affiliation: "1, 3"
+  - name: Tingting Zhao
+    affiliation: 2
 affiliations:
  - name: Department of Radiology, Brigham and Women’s Hospital, Harvard Medical School, Boston, MA, USA
    index: 1
-
-date: 26 Septembe 2024
+ - name: College of Business, University of Rhode Island, Kingston, RI, USA
+   index: 2  
+ - name: For correspondence, contact jcross186@gmail.com
+   index: 3
+date: 26 September 2024
 bibliography: paper.bib
-
 ---
 
 # Statement of need 
@@ -154,9 +158,7 @@ of existing trajectory analysis approaches.
 
 # Acknowledgements
 
-Special thanks to Tingting Zhao for developing
-variational update equations for inference over binary target variables. Special
-thanks also to Fritz Obermeyer for contributing code toward incorporating Pyro
+Special thanks to Fritz Obermeyer for contributing code toward incorporating Pyro
 probabilistic programming language capabilities into the **bayes_traj**
 environment as part of a subcontract funded through NIH R01-HL164380.
 Continued development of **bayes_traj** is supported by the US National Heart,
