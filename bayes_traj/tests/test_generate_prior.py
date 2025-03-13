@@ -452,31 +452,31 @@ def test_compute_prior_info_5():
          'v_b': np.array([0.74102343, 50.74102343]),         
          'traj_probs': np.array([0.5, 0.5]),
          'alpha': 0.5}
-    pdb.set_trace()
-    assert pg.prior_info_['w_mu0']['y']['intercept'] == \
-        prior_info_gt['w_mu0']['y']['intercept'], "Error in prior"
-    assert pg.prior_info_['w_mu0']['y']['age'] == \
-        prior_info_gt['w_mu0']['y']['age'], "Error in prior"
-    assert pg.prior_info_['w_mu0']['y']['age^2'] == \
-        prior_info_gt['w_mu0']['y']['age^2'], "Error in prior"
-    assert pg.prior_info_['w_mu0']['y2']['intercept'] == \
-        prior_info_gt['w_mu0']['y2']['intercept'], "Error in prior"
-    assert pg.prior_info_['w_mu0']['y2']['age'] == \
-        prior_info_gt['w_mu0']['y2']['age'], "Error in prior"
-    assert pg.prior_info_['w_mu0']['y2']['age^2'] == \
-        prior_info_gt['w_mu0']['y2']['age^2'], "Error in prior"
-    assert pg.prior_info_['w_var0']['y']['intercept'] == \
-        prior_info_gt['w_var0']['y']['intercept'], "Error in prior"
-    assert pg.prior_info_['w_var0']['y']['age'] == \
-        prior_info_gt['w_var0']['y']['age'], "Error in prior"
-    assert pg.prior_info_['w_var0']['y']['age^2'] == \
-        prior_info_gt['w_var0']['y']['age^2'], "Error in prior"
-    assert pg.prior_info_['w_var0']['y2']['intercept'] == \
-        prior_info_gt['w_var0']['y2']['intercept'], "Error in prior"
-    assert pg.prior_info_['w_var0']['y2']['age'] == \
-        prior_info_gt['w_var0']['y2']['age'], "Error in prior"
-    assert pg.prior_info_['w_var0']['y2']['age^2'] == \
-        prior_info_gt['w_var0']['y2']['age^2'], "Error in prior"
+    
+    assert np.isclose(pg.prior_info_['w_mu0']['y']['intercept'], \
+        prior_info_gt['w_mu0']['y']['intercept']), "Error in prior"
+    assert np.isclose(pg.prior_info_['w_mu0']['y']['age'], \
+        prior_info_gt['w_mu0']['y']['age']), "Error in prior"
+    assert np.isclose(pg.prior_info_['w_mu0']['y']['age^2'], \
+        prior_info_gt['w_mu0']['y']['age^2']), "Error in prior"
+    assert np.isclose(pg.prior_info_['w_mu0']['y2']['intercept'], \
+        prior_info_gt['w_mu0']['y2']['intercept']), "Error in prior"
+    assert np.isclose(pg.prior_info_['w_mu0']['y2']['age'], \
+        prior_info_gt['w_mu0']['y2']['age']), "Error in prior"
+    assert np.isclose(pg.prior_info_['w_mu0']['y2']['age^2'], \
+        prior_info_gt['w_mu0']['y2']['age^2']), "Error in prior"
+    assert np.isclose(pg.prior_info_['w_var0']['y']['intercept'], \
+        prior_info_gt['w_var0']['y']['intercept']), "Error in prior"
+    assert np.isclose(pg.prior_info_['w_var0']['y']['age'], \
+        prior_info_gt['w_var0']['y']['age']), "Error in prior"
+    assert np.isclose(pg.prior_info_['w_var0']['y']['age^2'], \
+        prior_info_gt['w_var0']['y']['age^2']), "Error in prior"
+    assert np.isclose(pg.prior_info_['w_var0']['y2']['intercept'], \
+        prior_info_gt['w_var0']['y2']['intercept']), "Error in prior"
+    assert np.isclose(pg.prior_info_['w_var0']['y2']['age'], \
+        prior_info_gt['w_var0']['y2']['age']), "Error in prior"
+    assert np.isclose(pg.prior_info_['w_var0']['y2']['age^2'], \
+        prior_info_gt['w_var0']['y2']['age^2']), "Error in prior"
     assert np.isclose(pg.prior_info_['lambda_a0']['y'], \
         prior_info_gt['lambda_a0']['y']), "Error in prior"
     assert np.isclose(pg.prior_info_['lambda_a0']['y2'], \

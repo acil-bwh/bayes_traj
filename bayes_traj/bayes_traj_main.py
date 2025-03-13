@@ -78,10 +78,10 @@ def main():
         initialization procedure will attempt to ensure that the number of \
         initial trajectories in the fitting routine equals the specified \
         number.', metavar='<int>', type=int, default=None)        
-#    parser.add_argument('--waic2_thresh', help='Model will only be written to \
-#        file provided that the WAIC2 value is below this threshold',
-#        dest='waic2_thresh', metavar='<float>', type=float,
-#        default=sys.float_info.max)
+    parser.add_argument('--waic2_thresh', help='Model will only be written to \
+        file provided that the WAIC2 value is below this threshold',
+        dest='waic2_thresh', metavar='<float>', type=float,
+        default=sys.float_info.max)
 #    parser.add_argument('--bic_thresh', help='Model will only be written to \
 #        file provided that BIC values are above this threshold',
 #        dest='bic_thresh', metavar='<float>', type=float,
@@ -110,6 +110,8 @@ def main():
         subgroups differs. By using this flag, the proportions of previously \
         determined trajectory subgroups will be determined for the current \
         data set.', action='store_true')
+    parser.add_argument('-s', help='Number of samples to use when computing \
+        WAIC2', type=int, default=100)
 #    parser.add_argument('--use_pyro', help='Use Pyro for inference',
 #        action='store_true')
     
@@ -274,10 +276,12 @@ def main():
             if op.out_model is not None:
                 torch.save(model, op.out_model)
 
+        waic2 = mm.compute_waic2(op.s)
+                
         if False: #op.use_pyro:
             pass
         elif r == 0:
-            if op.out_model is not None:
+            if (op.out_model is not None) and (waic2 < op.waic2_thresh):
                 print("Saving model...")
                 pickle.dump({'MultDPRegression': mm}, open(op.out_model, 'wb'))
 
@@ -298,11 +302,10 @@ def main():
                                       module_name='bayes_traj')
                 
             if repeats > 1:
-                best_waic2 = compute_waic2(mm)
-        else:
-            waic2 = compute_waic2(mm)
+                best_waic2 = waic2
+        else:            
             print(f"Current WAIC2: {waic2}")
-            if waic2 < best_waic2:
+            if (waic2 < best_waic2) and (waic2 < op.waic2_thresh):
                 best_waic2 = waic2
         
                 if op.out_model is not None:
