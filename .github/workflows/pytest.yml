@@ -1,0 +1,36 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10"]
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install package dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .  # Install the package
+
+    - name: Install testing dependencies
+      run: |
+        pip install pytest pytest-cov  # Only install testing-related dependencies
+
+    - name: Run tests with coverage
+      run: |
+        pytest --cov --cov-report term  # Show coverage in logs
