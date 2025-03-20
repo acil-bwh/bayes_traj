@@ -57,8 +57,9 @@ to adequately power frequentist-based trajectory algorithms.
 Bayesian approaches are well-suited for data-limited scenarios given their ability
 to incorporate prior knowledge in the model fitting process, though existing
 Bayesian trajectory approaches
-use sampling-based inference (i.e. Markov chain Monte Carlo)
-which can be slow to converge and can suffer from the so-called "label switching" problem.
+use sampling-based inference (i.e., Markov chain Monte Carlo)
+which can be slow to converge and can suffer from the so-called "label switching" problem
+(the unidentifiability of the permutation of latent variables).
 There is thus a need for scalable approaches that can simultaneously model distinct
 progression patterns across multiple health measures, especially in data-limited scenarios.
 
@@ -89,16 +90,15 @@ supports the `-h` flag for detailed usage instructions.](bayes_traj_flow_diagram
 
 **bayes_traj** has several distinguishing features:
 
-- It can simultaneously model multiple continuous and binary target
+- Simultaneously models multiple continuous and binary target
 variables as functions of predictor variables.
-- Given an estimate of the number of trajectories, it uses
-Bayesian nonparametrics (Dirichlet Process mixture modeling) to automatically
-identify the number of groups in a data set. 
-- It makes the assumption that target variables are conditionally independent
+- Uses Bayesian nonparametrics (Dirichlet Process mixture modeling) to automatically
+identify the number of groups in a data set given an estimate of the number of trajectories.
+- Makes the assumption that target variables are conditionally independent
 given trajectory assignments, enabling the algorithm to scale well to multiple
 targets.
-- Bayesian approximate inference is performed using coordinate ascent variational
-inference, which is fast as scales well to large data sets.
+- Performs Bayesian approximate inference using coordinate ascent variational
+inference, which is fast and scales well to large data sets.
 - Independently estimates residual variance posteriors for each trajectory and
 each target variable
 - Allows specification of random effects for continuous target variables using
@@ -146,7 +146,7 @@ that relies on MCMC for inference with an implementation available in R [@zang20
 Other Bayesian approaches
 to trajectory analysis such as Bayesian mixture modeling [@komarek2013clustering]
 and Bayesian consensus clustering [@lock2013bayesian] have implementations in
-R [@komarek2014capabilities, @tan2022bcclong] and fall within the LCMM category.
+R [@komarek2014capabilities,@tan2022bcclong] and fall within the LCMM category.
 These methods also rely on MCMC for inference. The model implemented in
 **bayes_traj** can be considered a Bayesian nonparametric version of LCMM
 that is capable of modeling multiple longitudinal markers.
