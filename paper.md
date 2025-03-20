@@ -146,7 +146,7 @@ that relies on MCMC for inference with an implementation available in R [@zang20
 Other Bayesian approaches
 to trajectory analysis such as Bayesian mixture modeling [@komarek2013clustering]
 and Bayesian consensus clustering [@lock2013bayesian] have implementations in
-R [@komarek2014capabilities,@tan2022bcclong] and fall within the LCMM category.
+R [@komarek2014capabilities;@tan2022bcclong] and fall within the LCMM category.
 These methods also rely on MCMC for inference. The model implemented in
 **bayes_traj** can be considered a Bayesian nonparametric version of LCMM
 that is capable of modeling multiple longitudinal markers.
