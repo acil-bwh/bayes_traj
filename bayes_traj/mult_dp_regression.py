@@ -1398,7 +1398,7 @@ class MultDPRegression:
         else:
             return bic_obs
 
-    def compute_waic2(self, S=100):
+    def compute_waic2(self, S=100, seed=None):
         """Computes the Watanabe-Akaike (aka widely available) information
         criterion, using the variance of individual terms in the log predictive
         density summed over the n data points.
@@ -1410,6 +1410,9 @@ class MultDPRegression:
         S : integer, optional
             The number of draws from the posterior to use when computing the
             required expectations.
+        seed : int, optional
+            The seed to use for reproducibility. If None, the default
+            random seed will be used.
 
         Returns
         -------
@@ -1420,6 +1423,10 @@ class MultDPRegression:
         ----------
         Gelman et al, 'Bayesian Data Analysis, 3rd Edition'
         """
+        if seed is not None:
+            torch.manual_seed(seed)
+            np.random.seed(seed)
+
         if 'N_to_G_index_map_' not in dir(self):
             self._set_N_to_G_index_map()            
         

@@ -112,6 +112,8 @@ def main():
         data set.', action='store_true')
     parser.add_argument('-s', help='Number of samples to use when computing \
         WAIC2', type=int, default=100)
+    parser.add_argument('--seed', help='Seed to use for WAIC2 \
+        sampling', type=int, default=None)
 #    parser.add_argument('--use_pyro', help='Use Pyro for inference',
 #        action='store_true')
     
@@ -276,7 +278,7 @@ def main():
             if op.out_model is not None:
                 torch.save(model, op.out_model)
 
-        waic2 = mm.compute_waic2(op.s)
+        waic2 = mm.compute_waic2(op.s, op.seed)
                 
         if False: #op.use_pyro:
             pass
