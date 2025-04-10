@@ -51,8 +51,8 @@ def main():
     df = pd.read_csv(op.in_csv)
 
     print("Reading model...")
-    mm = pickle.load(open(op.model, 'rb'))['MultDPRegression']
-
+    mm = pd.read_pickle(op.model)['MultDPRegression']
+    
     traj_map = {}
     if op.traj_map is not None:
         for ii in np.where(mm.sig_trajs_)[0]:
