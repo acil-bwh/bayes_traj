@@ -11,9 +11,9 @@ authors:
   - name: Tingting Zhao
     affiliation: 2
 affiliations:
- - name: Department of Radiology, Brigham and Women’s Hospital, Harvard Medical School, Boston, MA, USA
+ - name: Department of Radiology, Brigham and Women’s Hospital, Harvard Medical School, Boston, MA, United States of America
    index: 1
- - name: College of Business, University of Rhode Island, Kingston, RI, USA
+ - name: College of Business, University of Rhode Island, Kingston, RI, United States of America
    index: 2  
  - name: For correspondence, contact jcross186@gmail.com
    index: 3
