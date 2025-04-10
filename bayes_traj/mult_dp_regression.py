@@ -1,4 +1,5 @@
 import torch
+from torch.linalg import eigvalsh
 from torch.distributions import Normal, Gamma, Beta, constraints
 from torch.distributions import MultivariateNormal, Bernoulli
 import pyro
@@ -169,7 +170,7 @@ class MultDPRegression:
             if 'Sig0' in kwargs.keys():
                 self.Sig0_ = kwargs['Sig0']
             if 'ranef_indices' in kwargs.keys():
-                self.ranef_indices_ = kwargs['ranef_indices']                
+                self.ranef_indices_ = kwargs['ranef_indices'].astype(bool)
             if 'prob_thresh' in kwargs.keys():
                 self.prob_thresh_ = kwargs['prob_thresh']                
                 
@@ -543,12 +544,12 @@ class MultDPRegression:
         # If ranefs specified, precompute necessary quantities for speed
         #-----------------------------------------------------------------------
         if self.ranef_indices_ is not None:
-            num_ranefs = np.sum(self.ranef_indices_)
+            num_ranefs = int(np.sum(self.ranef_indices_))
             
             # Precompute the outer product of the predictors, which will be reused
             if self.G_ == self.N_:
                 raise RuntimeError("Specified random effects, but no groups")
-    
+
             X_outer = torch.einsum('ij,ik->ijk', self.X_[:, self.ranef_indices_],
                                    self.X_[:, self.ranef_indices_])
             self.G_r_r_ = torch.zeros([self.G_, num_ranefs, num_ranefs])
@@ -565,8 +566,8 @@ class MultDPRegression:
         # inference. If not, it will remain zero.
         self.u_mu_ = torch.zeros((self.G_, self.D_, self.K_, self.M_))
         self.u_Sig_ = \
-            torch.zeros((self.G_, self.D_, self.K_, self.M_, self.M_), \
-                    dtype=torch.float64)
+            1e-20*torch.ones((self.G_, self.D_, self.K_, self.M_, self.M_), \
+                             dtype=torch.float64)
         
         # w_covmat_ is used for binary target variables. The EM algorithm
         # that is used to estimate w_mu_ and w_var_ for binary targets
@@ -614,7 +615,7 @@ class MultDPRegression:
                     self.init_R_mat(traj_probs, traj_probs_weight)
                     if torch.sum(self.sig_trajs_).item() == num_init_trajs:
                         break
-                
+
         self.fit_coordinate_ascent(iters, verbose, weights_only)
 
 
@@ -658,28 +659,25 @@ class MultDPRegression:
         inc = 0
         while inc < iters:
             inc += 1
-
+            
             self.update_v()
+            if (self.ranef_indices_ is not None):
+                if np.sum(self.ranef_indices_) > 0:
+                    self.update_u()            
             if self.num_binary_targets_ > 0:
                 self.update_w_logistic(em_iters=1)
             if (self.D_ - self.num_binary_targets_ > 0) and \
                (not weights_only):
                 self.update_w_gaussian()
-                self.update_lambda() 
-
+                self.update_lambda()
             self.R_ = self.update_z(self.X_, self.Y_)
 
-            if self.ranef_indices_ is not None:
-                if np.sum(self.ranef_indices_) > 0:
-                    self.update_u()
-            
-            self.sig_trajs_ = \
-                torch.max(self.R_, dim=0).values > self.prob_thresh_
+            self.sig_trajs_ = torch.max(self.R_, dim=0).values > self.prob_thresh_
 
             if verbose:
                 torch.set_printoptions(precision=2)
-                #print(self.w_mu_[:, 0, 0])
                 print(f"iter {inc}, {torch.sum(self.R_, dim=0).numpy()}")
+
                 
     def update_v(self):
         """Updates the parameters of the Beta distributions for latent
@@ -697,7 +695,10 @@ class MultDPRegression:
                      test_data=False):
         """For each individual, computes the probability that he/she belongs to
         each of the trajectories.
-        """        
+        """
+        if not hasattr(self, 'ranef_indices_'):
+            self.ranef_indices_ = None
+        
         expec_ln_v = psi(self.v_a_) - psi(self.v_a_ + self.v_b_)
         expec_ln_1_minus_v = psi(self.v_b_) - psi(self.v_a_ + self.v_b_)
     
@@ -785,6 +786,7 @@ class MultDPRegression:
                      2*Y[non_nan_ids, d, None]*torch.matmul(X[non_nan_ids, :], \
                     self.w_mu_[:, d, :]) + \
                      Y[non_nan_ids, d, None]**2))
+
             elif self.target_type_[d] == 'binary':
                 for k in range(self.K_):
                     dist = MultivariateNormal(self.w_mu_[:, d, k],
@@ -1002,8 +1004,8 @@ class MultDPRegression:
                              2*self.Y_[non_nan_ids, d, None]*\
                              torch.mm(self.X_[non_nan_ids, :], \
                                     self.w_mu_[:, d, self.sig_trajs_]) + \
-                             self.Y_[non_nan_ids, d, None]**2), 0)                    
-
+                             self.Y_[non_nan_ids, d, None]**2), 0)
+                
     def update_u(self):
         """Updates the variational distribution over the random effects
         """    
@@ -1013,15 +1015,14 @@ class MultDPRegression:
                #----------------------------------------------------------------
                # Compute the left part
                #----------------------------------------------------------------
-               tmp_vec = (self.R_[:, kk]*\
-                   np.dot(self.X_, self.w_mu_[:,dd,kk]) - \
-                          self.Y_[:, dd]).numpy()
+               tmp_vec = self.R_[:, kk]*(-np.dot(self.X_, self.w_mu_[:,dd,kk]) \
+                                         + self.Y_[:, dd].numpy())
     
                tmp_mat = (self.df_[self.predictor_names_].values.T*\
-                          tmp_vec[np.newaxis, :]).T
+                          tmp_vec[np.newaxis, :].numpy()).T
     
                df_tmp = pd.DataFrame(tmp_mat, columns=col_names)
-               groupby_col = self.gb_.grouper.names[0]
+               groupby_col = self.gb_.keys
                df_tmp['id'] = self.df_[groupby_col].values
     
                left_term = (self.lambda_a_[dd, kk]/self.lambda_b_[dd, kk])*\
@@ -1049,14 +1050,16 @@ class MultDPRegression:
                u_Sig_slice = self.u_Sig_[:, dd, kk, self.ranef_indices_, :]
                u_Sig_slice[:, :, self.ranef_indices_] = right_term
                self.u_Sig_[:, dd, kk, self.ranef_indices_, :] = u_Sig_slice
-
+        
                #----------------------------------------------------------------
                # Compute the left-right product
                #----------------------------------------------------------------
-               self.u_mu_[:, dd, kk, self.ranef_indices_] = \
-                   torch.bmm(right_term,
+               dot_products = torch.bmm(right_term, \
                     left_term[:, self.ranef_indices_].unsqueeze(-1)).squeeze(-1)
+               for ii, ri in enumerate(np.where(self.ranef_indices_)[0]):
+                   self.u_mu_[:, dd, kk, int(ri)] = dot_products[:, ii]
 
+               
 #    def sample(self, index=None, x=None):
 #        """sample from the posterior distribution using the input data.
 #
@@ -1465,7 +1468,7 @@ class MultDPRegression:
                         self.u_mu_[:, dd, kk, self.ranef_indices_].unsqueeze(1)
                     u_Sig_tmp = self.u_Sig_[:, dd, kk, self.ranef_indices_, :]\
                         [:, :, self.ranef_indices_].unsqueeze(1)
-            
+
                     mvn = MultivariateNormal(u_mu_tmp.expand(-1, S, -1),
                                              u_Sig_tmp.expand(-1, S, -1, -1))
                     ranef_samples = mvn.sample()[self.N_to_G_index_map_, :, :]
@@ -1574,7 +1577,7 @@ class MultDPRegression:
 
         w_mu_tmp = torch.from_numpy(sample_cos(self.w_mu0_, self.w_var0_,
                                                num_samples=self.K_)).double()
-        
+
         if self.w_mu_ is not None:
             if torch.isnan(torch.sum(self.w_mu_)):
                 ids = torch.isnan(self.w_mu_)
