@@ -141,7 +141,11 @@ def main():
         
         D = len(targets)
         M = len(preds)
-        K = int(op.k)
+        
+        if 'w_mu' in prior_file_info.keys():
+            K = prior_file_info['w_mu'][preds[0]][targets[0]].shape[0]
+        else:
+            K = int(op.k)
         
         prior_data = {}
         for i in ['v_a', 'v_b', 'w_mu', 'w_var', 'lambda_a', 'lambda_b',
