@@ -41,7 +41,6 @@ def main():
         saved', type=str, default=None)
     
     op = parser.parse_args()
-    
     df = pd.read_csv(op.data_file)
 
     nonnan_ids = ~np.isnan(df[op.y_axis].values)
@@ -109,8 +108,8 @@ def main():
             elif len(tmp_int) > 1:
                 if op.x_axis in tmp_int:                
                     X_tmp[:, inc] = \
-                        x_dom**np.mean(df[tmp_int[np.where(np.array(tmp_int) \
-                                    != op.x_axis)[0][0]]].values)
+                        x_dom*np.mean(df[tmp_int[np.where(np.array(tmp_int) \
+                            != op.x_axis)[0][0]]].values)
                 else:
                     X_tmp[:, inc] = np.mean(df[tmp_int[0]])*\
                         np.mean(df[tmp_int[1]])
@@ -124,7 +123,7 @@ def main():
         elif target_type == 'binary':
             y_tmp = np.exp(np.dot(co, X_tmp.T))/\
                 (1 + np.exp(np.dot(co, X_tmp.T)))
-        
+
         ax.plot(x_dom, y_tmp)
         if target_type == 'gaussian' and not op.hide_resid:
             ax.fill_between(x_dom, y_tmp-2*std, y_tmp+2*std, alpha=0.3)
@@ -134,8 +133,8 @@ def main():
     ax.set_xlabel(x_label, fontsize=16)
     ax.set_ylabel(y_label, fontsize=16)
     if op.ylim is not None:
-        ax.set_ylim(float(op.ylim.strip('--').split(',')[0]),
-                    float(op.ylim.strip('--').split(',')[1]))
+        ax.set_ylim(np.min(np.array(op.ylim.split(','), dtype=float)),
+                    np.max(np.array(op.ylim.split(','), dtype=float)))
     
     if op.fig_file is not None:
         print("Saving figure...")
