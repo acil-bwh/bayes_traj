@@ -26,6 +26,8 @@ def main():
         several moments to compute.', action="store_true")
     parser.add_argument('-s', help='Number of samples to use when computing \
         WAIC2', type=int, default=100)
+    parser.add_argument('--seed', help='Seed to use for WAIC2 \
+            sampling', type=int, default=None)
     
     op = parser.parse_args()
     
@@ -51,7 +53,7 @@ def main():
         bic = mm.bic()
         assert isinstance(op.s, int), 'Number of samples must be an integer.'
         assert op.s > 0, 'Number of samples must be greater than 0.'
-        waic2 = mm.compute_waic2(op.s)
+        waic2 = mm.compute_waic2(op.s, op.seed)
     
     # Compute fit stats
     ave_pps = ave_pp(mm)
