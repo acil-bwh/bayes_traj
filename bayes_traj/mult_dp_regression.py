@@ -170,7 +170,8 @@ class MultDPRegression:
             if 'Sig0' in kwargs.keys():
                 self.Sig0_ = kwargs['Sig0']
             if 'ranef_indices' in kwargs.keys():
-                self.ranef_indices_ = kwargs['ranef_indices'].astype(bool)
+                if kwargs['ranef_indices'] is not None:
+                    self.ranef_indices_ = kwargs['ranef_indices'].astype(bool)
             if 'prob_thresh' in kwargs.keys():
                 self.prob_thresh_ = kwargs['prob_thresh']                
                 
