@@ -66,7 +66,13 @@ def main():
     print("Assigning...")    
     df_out = mm.augment_df_with_traj_info(df, op.groupby, test_data=True)
     df_out.replace({'traj': traj_map}, inplace=True)
-    
+
+    # Rename the columns containing the per-trajectory probabilities
+    for ii in traj_map.items():
+        df_out.rename(columns={f'traj_{ii[0]}': f'tmp_{ii[1]}'}, inplace=True)
+    for ii in traj_map.items():
+        df_out.rename(columns={f'tmp_{ii[1]}': f'traj_{ii[1]}'}, inplace=True)
+        
     if op.out_csv is not None:
         print("Saving data with trajectory info...")
         df_out.to_csv(op.out_csv, index=False)
