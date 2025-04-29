@@ -4,6 +4,7 @@ import torch
 import numpy as np
 import pdb
 import pickle
+import pandas as pd
 from argparse import ArgumentParser
 from provenance_tools.write_provenance_data import write_provenance_data
 from bayes_traj.fit_stats import ave_pp, odds_correct_classification
@@ -32,7 +33,8 @@ def main():
     op = parser.parse_args()
     
     with open(op.model, 'rb') as f:
-        mm = pickle.load(f)['MultDPRegression']
+        #mm = pickle.load(f)['MultDPRegression']
+        mm = pd.read_pickle(f)['MultDPRegression']
 
     if torch.is_tensor(mm.R_):
         traj_probs = np.sum(mm.R_.numpy(), 0)/np.sum(mm.R_.numpy())
@@ -63,8 +65,9 @@ def main():
     
     # Get dataframe column that was used to create groups, if groups exist
     if mm.gb_ is not None:
-        num_groups = mm.gb_.ngroups
-        groupby_col = mm.gb_.count().index.name               
+        groupby_col = mm.gb_.keys if isinstance(mm.gb_.keys, str) \
+            else self.gb_.keys().name        
+        num_groups = (mm.gb_.obj).groupby(groupby_col).ngroups
     else:
         num_groups = df_traj.shape[0]
         

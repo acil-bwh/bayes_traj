@@ -3,6 +3,7 @@
 import numpy as np
 import pdb
 import pickle
+import pandas as pd
 import matplotlib.pyplot as plt
 from argparse import ArgumentParser
 from provenance_tools.write_provenance_data import write_provenance_data
@@ -72,7 +73,8 @@ def main():
             traj_map[int(ii.split('-')[0])] = int(ii.split('-')[1])
     
     with open(op.model, 'rb') as f:
-        mm = pickle.load(f)['MultDPRegression']
+        #mm = pickle.load(f)['MultDPRegression']
+        mm = pd.read_pickle(f)['MultDPRegression']
         assert op.x_axis in mm.predictor_names_, \
             'x-axis variable not among model predictor variables'
         assert op.y_axis in mm.target_names_, \

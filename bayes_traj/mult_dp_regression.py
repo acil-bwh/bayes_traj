@@ -2008,10 +2008,13 @@ class MultDPRegression:
                     n_traj = np.sum(df_traj.traj.values == tt)
                     perc_traj = 100*n_traj/df_traj.shape[0]
                 else:
-                    groupby_col = self.gb_.count().index.name                
+                    groupby_col = \
+                        self.gb_.keys if isinstance(self.gb_.keys, str) \
+                        else self.gb_.keys().name
                     n_traj = df_traj[df_traj.traj.values == tt].\
                         groupby(groupby_col).ngroups
-                    perc_traj = 100*n_traj/self.gb_.ngroups
+                    gb_ngroups = (self.gb_.obj).groupby(groupby_col).ngroups
+                    perc_traj = 100*n_traj/gb_ngroups
 
                 co = self.w_mu_[:, target_index, tt]
                 if self.target_type_[target_index] == 'gaussian':
