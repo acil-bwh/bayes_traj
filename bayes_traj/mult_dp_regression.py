@@ -148,6 +148,8 @@ class MultDPRegression:
             
             self.w_mu_ = None
             self.w_var_ = None
+            self.w_mu_fixed_ = None
+            self.w_var_fixed_ = None
             self.lambda_a_ = None
             self.lambda_b_ = None
             self.v_a_ = None
@@ -352,7 +354,8 @@ class MultDPRegression:
     def fit(self, target_names, predictor_names, df, groupby=None, iters=100,
             R=None, traj_probs=None, traj_probs_weight=None, v_a=None,
             v_b=None, w_mu=None, w_var=None, lambda_a=None, lambda_b=None,
-            verbose=False, weights_only=False, num_init_trajs=None):
+            verbose=False, weights_only=False, num_init_trajs=None,
+            w_mu_fixed=None):
         """Performs variational inference (coordinate ascent or SVI) given data
         and provided parameters.
 
@@ -456,6 +459,12 @@ class MultDPRegression:
             If specified, the initialization procedure will attempt to ensure 
             that the number of initial trajectories in the fitting routine
             equals the specified number.       
+
+        w_mu_fixed : array, shape ( M, D, K ), optional
+            If specified, this array contains predictor coefficient values that
+            will be fixed to specified values during inference. Corresponding 
+            varianced (w_var_) will be kept to the smallest positive floating 
+            point value (float64).
         """
         if traj_probs_weight is not None:
             assert traj_probs_weight >= 0 and traj_probs_weight <=1, \
@@ -494,12 +503,19 @@ class MultDPRegression:
             self.w_mu_ = torch.from_numpy(w_mu).double()
         else:
             self.w_mu_ = None
+
+        if w_mu_fixed is not None:
+            self.fixed_ids_ = ~torch.isnan(w_mu_fixed)
+            self.w_mu_fixed_ = w_mu_fixed
+            self.w_var_fixed_ = \
+                torch.finfo(torch.float64).tiny*\
+                torch.ones([self.M_, self.D_, self.K_])
             
         if w_var is not None:
             self.w_var_ = torch.from_numpy(w_var).double()
         else:
             self.w_var_ is None
-            
+        
         if v_a is not None:
             if torch.is_tensor(v_a):                
                 self.v_a_ = v_a.clone().detach()
@@ -669,7 +685,7 @@ class MultDPRegression:
                 self.update_w_logistic(em_iters=1)
             if (self.D_ - self.num_binary_targets_ > 0) and \
                (not weights_only):
-                self.update_w_gaussian()
+                self.update_w_gaussian()                
                 self.update_lambda()
             self.R_ = self.update_z(self.X_, self.Y_)
 
@@ -913,6 +929,9 @@ class MultDPRegression:
         """ Updates the variational distributions over predictor coefficients 
         corresponding to continuous (Gaussian) target variables. 
         """
+        if self.w_mu_fixed_ is not None:
+            fixed_ids = ~torch.isnan(self.w_mu_fixed_)
+        
         mu0_DIV_var0 = self.w_mu0_/self.w_var0_
         for m in range(0, self.M_):
             ids = torch.ones(self.M_, dtype=bool)
@@ -952,6 +971,13 @@ class MultDPRegression:
                         (-(self.lambda_a_[d, self.sig_trajs_]/\
                            self.lambda_b_[d, self.sig_trajs_])*\
                          sum_term + mu0_DIV_var0[m, d])
+
+                    if self.w_mu_fixed_ is not None:
+                        self.w_mu_[self.fixed_ids_] = \
+                            self.w_mu_fixed_[self.fixed_ids_]
+                        self.w_var_[self.fixed_ids_] = \
+                            self.w_var_fixed_[self.fixed_ids_]                        
+                        
 
     def update_lambda(self):
         """Updates the variational distribution over latent variable lambda.

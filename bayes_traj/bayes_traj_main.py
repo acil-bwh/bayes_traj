@@ -110,6 +110,15 @@ def main():
         subgroups differs. By using this flag, the proportions of previously \
         determined trajectory subgroups will be determined for the current \
         data set.', action='store_true')
+    parser.add_argument('--fix', help='Fix the value of a predictor \
+        coefficient for a specified trajectory. During inference, this value \
+        for the specified trajectory will remained fixed at this value. \
+        Specify as a comma-separated tuple: target_name,predictor_name,\
+        trajectory,value. Multiple can be specified. For the purposes of \
+        smapling, computing information criteria scores, etc, the \
+        corresponding variance for this predictor will be set to the smallest \
+        positive floating point value (float64).', type=str, default=None,
+        action='append', nargs='+')    
     parser.add_argument('-s', help='Number of samples to use when computing \
         WAIC2', type=int, default=100)
     parser.add_argument('--seed', help='Seed to use for WAIC2 \
@@ -131,7 +140,7 @@ def main():
     if probs_weight is not None:
         assert probs_weight >=0 and probs_weight <= 1, \
             "Invalide probs_weight value"
-                        
+    
     #---------------------------------------------------------------------------
     # Get priors from file
     #---------------------------------------------------------------------------
@@ -143,9 +152,11 @@ def main():
         
         D = len(targets)
         M = len(preds)
-        
         if 'w_mu' in prior_file_info.keys():
-            K = prior_file_info['w_mu'][preds[0]][targets[0]].shape[0]
+            if prior_file_info['w_mu'] is not None:                
+                K = prior_file_info['w_mu'][preds[0]][targets[0]].shape[0]
+            else:
+                K = int(op.k)
         else:
             K = int(op.k)
         
@@ -225,6 +236,27 @@ def main():
         print("Warning: identified NaNs in predictor set. \
         Proceeding with non-NaN data")
         df = df.dropna(subset=preds).reset_index()
+
+    #---------------------------------------------------------------------------
+    # Get fixed values if any
+    #---------------------------------------------------------------------------
+    w_mu_fixed = None
+    if op.fix is not None:
+        w_mu_fixed = torch.nan*torch.ones([M, D, K])
+        for tt in op.fix:
+            assert len(tt[0].split(',')) == 4
+            tmp_target = tt[0].split(',')[0]
+            tmp_pred = tt[0].split(',')[1]
+            tmp_traj = int(tt[0].split(',')[2])
+            tmp_val = float(tt[0].split(',')[3])
+            assert tmp_target in targets
+            assert tmp_traj in range(0, K)
+
+            which_target = \
+                [i for i, s in enumerate(targets) if s == tmp_target][0]
+            which_pred = \
+                [i for i, s in enumerate(preds) if s == tmp_pred][0]
+            w_mu_fixed[which_pred, which_target, tmp_traj] = tmp_val
         
     #---------------------------------------------------------------------------
     # Set up and run the traj alg
@@ -265,7 +297,8 @@ def main():
                    lambda_a=prior_data['lambda_a'],
                    lambda_b=prior_data['lambda_b'],
                    weights_only=op.weights_only,
-                   num_init_trajs=op.num_init_trajs)
+                   num_init_trajs=op.num_init_trajs,
+                   w_mu_fixed=w_mu_fixed)
         else:
             restructured_data = get_restructured_data(df, preds, targets, op.groupby)
             model = MultPyro(
