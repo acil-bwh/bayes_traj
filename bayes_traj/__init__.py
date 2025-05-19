@@ -1,5 +1,5 @@
 # Define version
-__version__ = "1.0.4"
+__version__ = "1.0.5"
 
 # Import key modules to make them accessible
 from . import bayes_traj_main
