@@ -118,7 +118,15 @@ def main():
         smapling, computing information criteria scores, etc, the \
         corresponding variance for this predictor will be set to the smallest \
         positive floating point value (float64).', type=str, default=None,
-        action='append', nargs='+')    
+        action='append', nargs='+')
+    parser.add_argument('--soft_fix', help='Similar to --fix. However, with \
+        this flag the user specifies both a mean value and a corresponding \
+        standard deviation indicating the confidence around the mean. \
+        During inference, the mean and standard deviation replace the default \
+        prior settings for the specified coefficient, but only for the \
+        indicated trajectory. Specify as a comma-separated tuple: target_name,\
+        predictor_name,trajectory,mean,stdev. Multiple can be specified.',
+        type=str, default=None, action='append', nargs='+')        
     parser.add_argument('-s', help='Number of samples to use when computing \
         WAIC2', type=int, default=100)
     parser.add_argument('--seed', help='Seed to use for WAIC2 \
@@ -257,6 +265,33 @@ def main():
             which_pred = \
                 [i for i, s in enumerate(preds) if s == tmp_pred][0]
             w_mu_fixed[which_pred, which_target, tmp_traj] = tmp_val
+
+    #---------------------------------------------------------------------------
+    # Get soft-fix values if any
+    #---------------------------------------------------------------------------
+    w_mu0_override = None
+    w_var0_override = None    
+    if op.soft_fix is not None:
+        w_mu0_override = torch.nan*torch.ones([M, D, K])
+        w_var0_override = torch.nan*torch.ones([M, D, K])
+        
+        for tt in op.soft_fix:
+            assert len(tt[0].split(',')) == 5
+            tmp_target = tt[0].split(',')[0]
+            tmp_pred = tt[0].split(',')[1]
+            tmp_traj = int(tt[0].split(',')[2])
+            tmp_mu = float(tt[0].split(',')[3])
+            tmp_std = float(tt[0].split(',')[4])
+            assert tmp_target in targets
+            assert tmp_traj in range(0, K)
+            assert tmp_std > 0
+
+            which_target = \
+                [i for i, s in enumerate(targets) if s == tmp_target][0]
+            which_pred = \
+                [i for i, s in enumerate(preds) if s == tmp_pred][0]
+            w_mu0_override[which_pred, which_target, tmp_traj] = tmp_mu
+            w_var0_override[which_pred, which_target, tmp_traj] = tmp_std**2            
         
     #---------------------------------------------------------------------------
     # Set up and run the traj alg
@@ -298,6 +333,8 @@ def main():
                    lambda_b=prior_data['lambda_b'],
                    weights_only=op.weights_only,
                    num_init_trajs=op.num_init_trajs,
+                   w_mu0_override=w_mu0_override,
+                   w_var0_override=w_var0_override,                   
                    w_mu_fixed=w_mu_fixed)
         else:
             restructured_data = get_restructured_data(df, preds, targets, op.groupby)

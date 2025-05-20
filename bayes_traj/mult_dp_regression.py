@@ -150,6 +150,8 @@ class MultDPRegression:
             self.w_var_ = None
             self.w_mu_fixed_ = None
             self.w_var_fixed_ = None
+            self.w_mu0_override_ = None
+            self.w_var0_override_ = None            
             self.lambda_a_ = None
             self.lambda_b_ = None
             self.v_a_ = None
@@ -355,7 +357,7 @@ class MultDPRegression:
             R=None, traj_probs=None, traj_probs_weight=None, v_a=None,
             v_b=None, w_mu=None, w_var=None, lambda_a=None, lambda_b=None,
             verbose=False, weights_only=False, num_init_trajs=None,
-            w_mu_fixed=None):
+            w_mu0_override=None, w_var0_override=None, w_mu_fixed=None):
         """Performs variational inference (coordinate ascent or SVI) given data
         and provided parameters.
 
@@ -460,6 +462,15 @@ class MultDPRegression:
             that the number of initial trajectories in the fitting routine
             equals the specified number.       
 
+        w_mu0_override : array, shape ( M, D, K ), optional
+            If specified, this array contains predictor coefficient values that
+            will override the prior for specific predictors, targets, and 
+            trajectories.
+
+        w_var0_override : array, shape ( M, D, K ), optional
+            If specified, this array contains variance values that will override 
+            the prior for specific predictors, targets, and trajectories.
+
         w_mu_fixed : array, shape ( M, D, K ), optional
             If specified, this array contains predictor coefficient values that
             will be fixed to specified values during inference. Corresponding 
@@ -510,6 +521,11 @@ class MultDPRegression:
             self.w_var_fixed_ = \
                 torch.finfo(torch.float64).tiny*\
                 torch.ones([self.M_, self.D_, self.K_])
+
+        if w_mu0_override is not None:
+            self.w_mu0_override_ = w_mu0_override
+        if w_var0_override is not None:
+            self.w_var0_override_ = w_var0_override            
             
         if w_var is not None:
             self.w_var_ = torch.from_numpy(w_var).double()
@@ -925,7 +941,7 @@ class MultDPRegression:
                                 torch.pow(torch.mv(self.X_[non_nan_ids, :], \
                                             self.w_mu_[:, d, k]), 2))
   
-    def update_w_gaussian(self):
+    def update_w_gaussian_orig(self):
         """ Updates the variational distributions over predictor coefficients 
         corresponding to continuous (Gaussian) target variables. 
         """
@@ -977,6 +993,68 @@ class MultDPRegression:
                             self.w_mu_fixed_[self.fixed_ids_]
                         self.w_var_[self.fixed_ids_] = \
                             self.w_var_fixed_[self.fixed_ids_]                        
+
+    def update_w_gaussian(self):
+        """ Updates the variational distributions over predictor coefficients 
+        corresponding to continuous (Gaussian) target variables. 
+        """
+        # Expand prior mean/variance to shape (M, D, K)
+        mu0_eff = self.w_mu0_[:, :, None].expand(-1, -1, self.K_).clone()
+        var0_eff = self.w_var0_[:, :, None].expand(-1, -1, self.K_).clone()
+    
+        # Apply soft override where specified
+        if hasattr(self, 'w_mu0_override_') and self.w_mu0_override_ is not None:
+            override_mask = ~torch.isnan(self.w_mu0_override_)
+            mu0_eff[override_mask] = self.w_mu0_override_[override_mask]
+            var0_eff[override_mask] = self.w_var0_override_[override_mask]
+    
+        mu0_DIV_var0 = mu0_eff / var0_eff
+    
+        for m in range(0, self.M_):
+            ids = torch.ones(self.M_, dtype=bool)
+            ids[m] = False
+            for d in range(0, self.D_):
+                if self.target_type_[d] == 'gaussian':
+                    non_nan_ids = ~torch.isnan(self.Y_[:, d])
+    
+                    tmp1 = (self.lambda_a_[d, self.sig_trajs_] /
+                            self.lambda_b_[d, self.sig_trajs_]) * \
+                           (torch.sum(self.R_[:, self.sig_trajs_, None]
+                                [non_nan_ids, :, :]*\
+                                self.X_[non_nan_ids, None, :]**2, 0).T) \
+                                [:, None, :]
+    
+                    self.w_var_[:, :, self.sig_trajs_] = \
+                        (tmp1 + (1.0 / var0_eff[:, :, self.sig_trajs_]))**-1
+    
+                    ranef_terms = torch.zeros(torch.sum(non_nan_ids),
+                                              torch.sum(self.sig_trajs_))
+                    if self.ranef_indices_ is not None:
+                        ranef_terms = torch.einsum('nkm,nm->nk',
+                            self.u_mu_[self.N_to_G_index_map_, d, :, :],
+                                self.X_)[:, self.sig_trajs_]
+    
+                    sum_term = torch.sum(
+                        self.R_[non_nan_ids, :][:, self.sig_trajs_] *
+                        self.X_[non_nan_ids, m, None] *
+                        (torch.matmul(self.X_[:, ids][non_nan_ids, :],
+                            self.w_mu_[ids, d, :][:, self.sig_trajs_]) +
+                         ranef_terms -
+                         self.Y_[non_nan_ids, d][:, None]), 0)
+    
+                    self.w_mu_[m, d, self.sig_trajs_] = \
+                        self.w_var_[m, d, self.sig_trajs_] * (
+                            -(self.lambda_a_[d, self.sig_trajs_] /
+                              self.lambda_b_[d, self.sig_trajs_]) * sum_term +
+                            mu0_DIV_var0[m, d, self.sig_trajs_]
+                        )
+    
+                # Apply hard fix after all updates (if needed)
+                if self.w_mu_fixed_ is not None:
+                    self.w_mu_[self.fixed_ids_] = \
+                        self.w_mu_fixed_[self.fixed_ids_]
+                    self.w_var_[self.fixed_ids_] = \
+                        self.w_var_fixed_[self.fixed_ids_]
                         
 
     def update_lambda(self):
