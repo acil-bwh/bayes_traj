@@ -756,7 +756,7 @@ def main():
     if op.model is not None:
         with open(op.model, 'rb') as f:
             print("Reading model...")
-            mm = pickle.load(f)['MultDPRegression']
+            mm = pd.read_pickle(op.model)['MultDPRegression']
             if 'ranef_indices_' not in dir(mm):
                 mm.ranef_indices_ = None
             if op.model_trajs is not None:
