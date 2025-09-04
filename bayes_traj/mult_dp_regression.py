@@ -1690,6 +1690,18 @@ class MultDPRegression:
         w_mu_tmp = torch.from_numpy(sample_cos(self.w_mu0_, self.w_var0_,
                                                num_samples=self.K_)).double()
 
+        # If overrides have been specified, initialize with those
+        if hasattr(self, 'w_mu0_override_') and \
+           self.w_mu0_override_ is not None:
+            override_mask = ~torch.isnan(self.w_mu0_override_)
+            for mm in np.where(override_mask.numpy())[0]:
+                for dd in np.where(override_mask.numpy())[1]:
+                    for kk in np.where(override_mask.numpy())[2]:
+                        mu = self.w_mu0_override_[mm, dd, kk]
+                        var = self.w_var0_override_[mm, dd, kk]
+                        w_mu_tmp[mm, dd, kk] = \
+                            mu + np.sqrt(var)*np.random.randn()
+        
         if self.w_mu_ is not None:
             if torch.isnan(torch.sum(self.w_mu_)):
                 ids = torch.isnan(self.w_mu_)
