@@ -9,7 +9,119 @@ from argparse import ArgumentParser
 from provenance_tools.write_provenance_data import write_provenance_data
 from bayes_traj.fit_stats import ave_pp, odds_correct_classification
 
-def main():
+def compute_weighted_posterior_population_cov(mu_list, Sigma_list, weights):
+    """
+    Computes a weighted posterior population covariance matrix.
+
+    Parameters:
+    -----------
+    mu_list : list or array of shape [N, d] 
+        Posterior means
+
+    Sigma_list : list or array of shape [N, d, d] 
+        Posterior covariances
+
+    weights: array of shape [N] 
+        Non-negative, need not be normalized
+
+    Returns:
+    --------
+    pop_cov: [d, d] 
+        Posterior estimate of population covariance matrix
+    """
+    mu_array = np.stack(mu_list)         # shape: [N, d]
+    Sigma_array = np.stack(Sigma_list)   # shape: [N, d, d]
+    weights = np.array(weights).astype(np.float64)
+
+    # Normalize weights
+    weights /= np.sum(weights)           # now sum to 1
+    N, d = mu_array.shape
+
+    # Compute weighted mean of the means
+    mu_bar = np.sum(weights[:, None] * mu_array, axis=0)  # shape: [d]
+
+    # Compute weighted average of the Sigma_i matrices
+    weighted_covs = np.sum(weights[:, None, None] * Sigma_array, axis=0)  
+
+    # Compute weighted covariance of the mu_i means
+    diffs = mu_array - mu_bar            # shape: [N, d]
+    weighted_outer = np.einsum('ni,nj,n->ij', diffs, diffs, weights)  # shape: [d, d]
+
+    # Total population covariance
+    pop_cov = weighted_covs + weighted_outer
+    
+    return pop_cov
+
+
+def get_ranef_cov_mat_output_str(mm, d, k, precision=3,
+                                 sci_notation_threshold=1e-3):
+    """Pretty-prints and returns a string of the selected random effects 
+    covariance matrix from a model object `mm` for dimension `d` and component 
+    `k`.
+
+    Arguments:
+    ----------
+    mm : MultDPRegression instance
+        Assumes attributes u_Sig_, ranef_indices_, predictor_names_
+
+    d : int
+        Target dimension index
+
+    k : int
+        Trajectory number
+
+    precision : int
+        Number of digits after decimal point
+
+    sci_notation_threshold : float
+        Below this absolute value, use scientific notation
+
+    Returns:
+    --------
+    output_str : str
+        Formatted string representation of the covariance matrix
+    """
+    probs = mm.R_[mm.group_first_index_, k]
+
+    cov_mat = compute_weighted_posterior_population_cov(\
+        mm.u_mu_[:, d, k, mm.ranef_indices_],
+        mm.u_Sig_[:, d, k, mm.ranef_indices_, :][:, :, mm.ranef_indices_],
+        mm.R_[mm.group_first_index_, k])
+
+    # Predictor names
+    preds_sel = np.array(mm.predictor_names_)[mm.ranef_indices_]
+    num_preds_sel = preds_sel.shape[0]
+
+    name_width = max(len(nn) for nn in preds_sel) + 2
+    cell_width = max(precision, name_width) + 7  # space for sign, decimal, etc.
+
+    # Prepare output lines
+    lines = []
+
+    # Header row
+    header = " " * name_width + "".join(
+        f"{nn:>{cell_width}}" for nn in preds_sel
+    )
+    lines.append(header)
+
+    # Matrix rows
+    for ii, nn in enumerate(preds_sel):
+        row_vals = []
+        for jj in range(num_preds_sel):
+            val = cov_mat[ii, jj]
+            if abs(val) < sci_notation_threshold and val != 0:
+                formatted = f"{val:>{cell_width}.{precision}e}"
+            else:
+                formatted = f"{val:>{cell_width}.{precision}f}"
+            row_vals.append(formatted)
+        row_str = f"{nn:<{name_width}}" + "".join(row_vals)
+        lines.append(row_str)
+
+    output_str = "\n".join(lines)
+
+    return output_str
+    
+def main():        
     desc = """"""
     
     parser = ArgumentParser(description=desc)
@@ -31,9 +143,10 @@ def main():
             sampling', type=int, default=None)
     
     op = parser.parse_args()
+
+    sci_notation_threshold = 1e-2
     
     with open(op.model, 'rb') as f:
-        #mm = pickle.load(f)['MultDPRegression']
         mm = pd.read_pickle(f)['MultDPRegression']
 
     if torch.is_tensor(mm.R_):
@@ -171,17 +284,64 @@ def main():
                 for (jj, pred) in enumerate(mm.predictor_names_):
                     co = mm.w_mu_[jj, ii, traj]
                     std = np.sqrt(mm.w_var_[jj, ii, traj])
-                    co_str = "{:.3f}".format(co).center(20)
-                    std_str = "{:.3f}".format(std).center(20)
+
+                    if abs(co) < sci_notation_threshold:
+                        co_str = f'{co:.2e}'.center(20)
+                    else:
+                        co_str = f'{co:.3f}'.center(20)
+
+                    if abs(std) < sci_notation_threshold:
+                        std_str = f'{std:.2e}'.center(20)
+                    else:
+                        std_str = f'{std:.3f}'.center(20)                        
+                        
                     low95 = co - 2*std
                     high95 = co + 2*std
-                    interval = "   {}{}   ".format("{:.3f}".format(low95).ljust(7),
-                                                   "{:.3f}".format(high95).rjust(7))
+
+
+                    # Formatting helper
+                    #def fmt(val, num_width):
+                    #    if abs(val) < 1e-3 and val != 0:
+                    #        return f"{val:.2e}".center(num_width)
+                    #    else:
+                    #        return f"{val:.3f}".center(num_width)
+
+                    #num_width = 20
+                    #co_str = fmt(co, num_width)
+                    #std_str = fmt(std, num_width)
+                    #low_str = fmt(low95, num_width)
+                    #high_str = fmt(high95, num_width)
+
+                    # Align label column
+                    #label = f"{pred} ({tar})"
+                    #space = " " * (first_col_width - len(label))
+                    #pdb.set_trace()
+                    #print(f"{label}{space}{co_str}{std_str}{low_str}{high_str}")
+
+                    if abs(low95) < sci_notation_threshold or \
+                       abs(high95) < sci_notation_threshold:
+                        interval = "{}{}".format("{:.2e}".format(low95).ljust(10),
+                                                 "{:.2e}".format(high95).rjust(10))
+                    else:
+                        interval = "   {}{}   ".format("{:.3f}".format(low95).ljust(7),
+                                                       "{:.3f}".format(high95).rjust(7))
+                        
                     space = " "*(first_col_width - len(tar) - len(pred) - 3)
                     print("{} ({}){}{}{}{}".format(pred, tar, space, co_str,
-                                                   std_str, interval))            
+                                                   std_str, interval))
+                print("")
+
+                if hasattr(mm, 'ranef_indices_'):
+                    if np.sum(mm.ranef_indices_) > 0:                        
+                        ranef_cov_str = \
+                            get_ranef_cov_mat_output_str(mm, ii, traj, 3,
+                                    sci_notation_threshold)
+                        print(f'Random effect posterior covariance matrix ({tar}):')
+                        print(ranef_cov_str)
+                        print("")                
             print("")
 
+            
 if __name__ == "__main__":
     main()
             
