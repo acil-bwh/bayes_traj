@@ -298,26 +298,6 @@ def main():
                     low95 = co - 2*std
                     high95 = co + 2*std
 
-
-                    # Formatting helper
-                    #def fmt(val, num_width):
-                    #    if abs(val) < 1e-3 and val != 0:
-                    #        return f"{val:.2e}".center(num_width)
-                    #    else:
-                    #        return f"{val:.3f}".center(num_width)
-
-                    #num_width = 20
-                    #co_str = fmt(co, num_width)
-                    #std_str = fmt(std, num_width)
-                    #low_str = fmt(low95, num_width)
-                    #high_str = fmt(high95, num_width)
-
-                    # Align label column
-                    #label = f"{pred} ({tar})"
-                    #space = " " * (first_col_width - len(label))
-                    #pdb.set_trace()
-                    #print(f"{label}{space}{co_str}{std_str}{low_str}{high_str}")
-
                     if abs(low95) < sci_notation_threshold or \
                        abs(high95) < sci_notation_threshold:
                         interval = "{}{}".format("{:.2e}".format(low95).ljust(10),
