@@ -312,13 +312,14 @@ def main():
                 print("")
 
                 if hasattr(mm, 'ranef_indices_'):
-                    if np.sum(mm.ranef_indices_) > 0:                        
-                        ranef_cov_str = \
-                            get_ranef_cov_mat_output_str(mm, ii, traj, 3,
-                                    sci_notation_threshold)
-                        print(f'Random effect posterior covariance matrix ({tar}):')
-                        print(ranef_cov_str)
-                        print("")                
+                    if mm.ranef_indices_ is not None:
+                        if np.sum(mm.ranef_indices_) > 0:                        
+                            ranef_cov_str = \
+                                get_ranef_cov_mat_output_str(mm, ii, traj, 3,
+                                        sci_notation_threshold)
+                            print(f'Random effect posterior covariance matrix ({tar}):')
+                            print(ranef_cov_str)
+                            print("")                
             print("")
 
             
