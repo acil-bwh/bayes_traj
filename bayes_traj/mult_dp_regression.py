@@ -357,7 +357,8 @@ class MultDPRegression:
             R=None, traj_probs=None, traj_probs_weight=None, v_a=None,
             v_b=None, w_mu=None, w_var=None, lambda_a=None, lambda_b=None,
             verbose=False, weights_only=False, num_init_trajs=None,
-            w_mu0_override=None, w_var0_override=None, w_mu_fixed=None):
+            w_mu0_override=None, w_var0_override=None, w_mu_fixed=None,
+            shared_predictor_names=None):
         """Performs variational inference (coordinate ascent or SVI) given data
         and provided parameters.
 
