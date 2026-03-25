@@ -6,14 +6,8 @@ import pytest
 
 from bayes_traj.bayes_traj_main import main
 
+
 def test_bayes_traj_main_old_prior_backward_compatible(tmp_path, monkeypatch):
-    import sys
-    import pickle
-    import numpy as np
-    import pandas as pd
-
-    from bayes_traj.bayes_traj_main import main
-
     # ------------------------------------------------------------------
     # Create tiny data set
     # ------------------------------------------------------------------
@@ -81,13 +75,6 @@ def test_bayes_traj_main_old_prior_backward_compatible(tmp_path, monkeypatch):
     assert mm.num_traj_preds_ == 2
 
 def test_bayes_traj_main_reads_shared_predictor_prior(tmp_path, monkeypatch):
-    import sys
-    import pickle
-    import numpy as np
-    import pandas as pd
-
-    from bayes_traj.bayes_traj_main import main
-
     # ------------------------------------------------------------------
     # Create tiny data set
     # ------------------------------------------------------------------
@@ -170,12 +157,6 @@ def test_bayes_traj_main_reads_shared_predictor_prior(tmp_path, monkeypatch):
     assert np.isclose(mm.w_var0_shared_[0, 0].item(), 0.25)
 
 def test_bayes_traj_main_shared_predictor_ordering(tmp_path, monkeypatch):
-    import sys
-    import pickle
-    import pandas as pd
-
-    from bayes_traj.bayes_traj_main import main
-
     df = pd.DataFrame({
         'id': ['a', 'a'],
         'intercept': [1.0, 1.0],
@@ -237,12 +218,6 @@ def test_bayes_traj_main_shared_predictor_ordering(tmp_path, monkeypatch):
     assert mm.shared_indices_[0] == len(mm.predictor_names_) - 1
 
 def test_bayes_traj_main_old_prior_has_empty_shared_block(tmp_path, monkeypatch):
-    import sys
-    import pickle
-    import pandas as pd
-
-    from bayes_traj.bayes_traj_main import main
-
     df = pd.DataFrame({
         'id': ['a', 'a'],
         'intercept': [1.0, 1.0],

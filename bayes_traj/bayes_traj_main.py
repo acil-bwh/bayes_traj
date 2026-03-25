@@ -193,6 +193,9 @@ def main():
         prior_data['w_var0'] = np.ones([M, D])
         prior_data['lambda_a0'] = np.ones([D])
         prior_data['lambda_b0'] = np.ones([D])
+        prior_data['shared_predictors'] = shared_predictors
+        prior_data['w_mu0_shared'] = np.zeros([len(shared_predictors), D])
+        prior_data['w_var0_shared'] = np.ones([len(shared_predictors), D])
         prior_data['R'] = None
 
         if 'v_a' in prior_file_info.keys():
