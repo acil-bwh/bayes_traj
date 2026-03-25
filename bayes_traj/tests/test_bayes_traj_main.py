@@ -3,7 +3,7 @@ import pickle
 import numpy as np
 import pandas as pd
 import pytest
-
+import pdb
 from bayes_traj.bayes_traj_main import main
 
 
