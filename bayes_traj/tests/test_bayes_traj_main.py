@@ -152,7 +152,7 @@ def test_bayes_traj_main_reads_shared_predictor_prior(tmp_path, monkeypatch):
     assert hasattr(mm, 'w_var0_shared_')
     assert mm.w_mu0_shared_.shape == (1, 1)
     assert mm.w_var0_shared_.shape == (1, 1)
-    pdb.set_trace()
+
     assert np.isclose(mm.w_mu0_shared_[0, 0].item(), 1.5)
     assert np.isclose(mm.w_var0_shared_[0, 0].item(), 0.25)
 
