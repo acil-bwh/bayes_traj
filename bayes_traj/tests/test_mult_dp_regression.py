@@ -27,7 +27,7 @@ def get_basic_model(G, M, num_gaussian, num_binary, K, num_long_data_pts):
         
     predictor_names = []
     for pp in range(M):
-        predictor_names.append(f'predictor_{dd}')
+        predictor_names.append(f'predictor_{pp}')
 
     D = num_gaussian + num_binary
     
@@ -400,46 +400,59 @@ def test_update_z_logistic():
     assert np.isclose(np.mean(R_updated[0:int(mm.N_/2)], 0)[0], .999,
                       atol=0, rtol=.01), "R not updated correctly"    
     
-def test_MultDPRegression():
-    # Read data from resources dir
-    data_file_name = os.path.split(os.path.realpath(__file__))[0] + \
-        '/../resources/data/trajectory_data_1.csv'
-    df = pd.read_csv(data_file_name)
-    
-    prior_file_name = os.path.split(os.path.realpath(__file__))[0] + \
-        '/../resources/priors/trajectory_prior_1.p'
-    
-    # Read prior from resources dir
-    with open(prior_file_name, 'rb') as f:
-        prior_file_info = pickle.load(f)
-        
-    preds = get_pred_names_from_prior_info(prior_file_info)
-    targets = get_target_names_from_prior_info(prior_file_info)        
-
-    D = len(targets)
-    M = len(preds)
-    K = 20
-
-    prior_data = {}
-    prior_data['w_mu0'] = np.zeros([M, D])
-    prior_data['w_var0'] = np.ones([M, D])
-    prior_data['lambda_a0'] = np.ones([D])
-    prior_data['lambda_b0'] = np.ones([D])
-    prior_data['alpha'] = prior_file_info['alpha']
-    for (d, target) in enumerate(targets):
-        prior_data['lambda_a0'][d] = prior_file_info['lambda_a0'][target]
-        prior_data['lambda_b0'][d] = prior_file_info['lambda_b0'][target]            
-            
-        for (m, pred) in enumerate(preds):
-            prior_data['w_mu0'][m, d] = prior_file_info['w_mu0'][target][pred]
-            prior_data['w_var0'][m, d] = prior_file_info['w_var0'][target][pred]            
-    
-    mm = MultDPRegression(prior_data['w_mu0'], prior_data['w_var0'],
-                          prior_data['lambda_a0'], prior_data['lambda_b0'], 1,
-                          prior_data['alpha'], K=K)
-    mm.fit(target_names=targets, predictor_names=preds, df=df, groupby='id',
-           iters=20, verbose=True)
-
+#def test_MultDPRegression():
+#    # Read data from resources dir
+#    data_file_name = os.path.split(os.path.realpath(__file__))[0] + \
+#        '/../resources/data/trajectory_data_1.csv'
+#    df = pd.read_csv(data_file_name)
+#    df['cohort'] = 0
+#    
+#    prior_file_name = os.path.split(os.path.realpath(__file__))[0] + \
+#        '/../resources/priors/trajectory_prior_1.p'
+#    
+#    # Read prior from resources dir
+#    with open(prior_file_name, 'rb') as f:
+#        prior_file_info = pickle.load(f)
+#        
+#    base_preds = get_pred_names_from_prior_info(prior_file_info)
+#    preds = base_preds + ['cohort']
+#    targets = get_target_names_from_prior_info(prior_file_info)        
+#
+#    D = len(targets)
+#    M = len(preds)
+#    K = 20
+#
+#    prior_data = {}
+#    prior_data['w_mu0'] = np.zeros([M, D])
+#    prior_data['w_var0'] = np.ones([M, D])
+#    prior_data['lambda_a0'] = np.ones([D])
+#    prior_data['lambda_b0'] = np.ones([D])
+#    prior_data['alpha'] = prior_file_info['alpha']
+#    for (d, target) in enumerate(targets):
+#        prior_data['lambda_a0'][d] = prior_file_info['lambda_a0'][target]
+#        prior_data['lambda_b0'][d] = prior_file_info['lambda_b0'][target]            
+#            
+#        for (m, pred) in enumerate(base_preds):
+#            prior_data['w_mu0'][m, d] = prior_file_info['w_mu0'][target][pred]
+#            prior_data['w_var0'][m, d] = prior_file_info['w_var0'][target][pred]
+#
+#        cohort_idx = preds.index('cohort')
+#        prior_data['w_mu0'][cohort_idx, d] = 0.0
+#        prior_data['w_var0'][cohort_idx, d] = 1.0            
+#   
+#    mm = MultDPRegression(prior_data['w_mu0'], prior_data['w_var0'],
+#                          prior_data['lambda_a0'], prior_data['lambda_b0'], 1,
+#                          prior_data['alpha'], K=K)
+#
+#    mm.fit(target_names=targets, predictor_names=preds, df=df, groupby='id',
+#           iters=20, verbose=True, shared_predictor_names=None)
+#    
+#    assert mm.shared_indices_.shape[0] == 0
+#    assert np.alltrue(mm.traj_indices_ == np.array([0, 1, 2]))
+#
+#    mm.fit(target_names=targets, predictor_names=preds,
+#           df=df, groupby='id', iters=20, verbose=True,
+#           shared_predictor_names=['cohort'])
     
 def test_to_df():
     targets = ['y1', 'y2']
@@ -770,3 +783,963 @@ def test_log_likelihood():
         torch.tensor(-1.8316561418, dtype=torch.float64)), \
         "Incorrect log-likelihood value"
     
+def test_MultDPRegression():
+    # Read data from resources dir
+    data_file_name = os.path.split(os.path.realpath(__file__))[0] + \
+        '/../resources/data/trajectory_data_1.csv'
+    df = pd.read_csv(data_file_name)
+    df['cohort'] = 0
+
+    prior_file_name = os.path.split(os.path.realpath(__file__))[0] + \
+        '/../resources/priors/trajectory_prior_1.p'
+
+    # Read prior from resources dir
+    with open(prior_file_name, 'rb') as f:
+        prior_file_info = pickle.load(f)
+
+    base_preds = get_pred_names_from_prior_info(prior_file_info)
+    preds = base_preds + ['cohort']
+    targets = get_target_names_from_prior_info(prior_file_info)
+
+    D = len(targets)
+    M = len(preds)
+    K = 20
+
+    prior_data = {}
+    prior_data['w_mu0'] = np.zeros([M, D])
+    prior_data['w_var0'] = np.ones([M, D])
+    prior_data['lambda_a0'] = np.ones([D])
+    prior_data['lambda_b0'] = np.ones([D])
+    prior_data['alpha'] = prior_file_info['alpha']
+
+    cohort_idx = preds.index('cohort')
+
+    for (d, target) in enumerate(targets):
+        prior_data['lambda_a0'][d] = prior_file_info['lambda_a0'][target]
+        prior_data['lambda_b0'][d] = prior_file_info['lambda_b0'][target]
+
+        for (m, pred) in enumerate(base_preds):
+            prior_data['w_mu0'][m, d] = prior_file_info['w_mu0'][target][pred]
+            prior_data['w_var0'][m, d] = prior_file_info['w_var0'][target][pred]
+
+        prior_data['w_mu0'][cohort_idx, d] = 0.0
+        prior_data['w_var0'][cohort_idx, d] = 1.0
+
+    mm = MultDPRegression(prior_data['w_mu0'], prior_data['w_var0'],
+                          prior_data['lambda_a0'], prior_data['lambda_b0'], 1,
+                          prior_data['alpha'], K=K)
+
+    # ------------------------------------------------------------------
+    # No shared predictors: backward-compatible bookkeeping
+    # ------------------------------------------------------------------
+    mm.fit(target_names=targets, predictor_names=preds, df=df, groupby='id',
+           iters=5, verbose=True, shared_predictor_names=None)
+
+    assert mm.shared_indices_.shape[0] == 0
+    assert np.array_equal(mm.traj_indices_, np.array([0, 1, 2]))
+    assert mm.num_shared_preds_ == 0
+    assert mm.num_traj_preds_ == 3
+    assert mm.w_mu_shared_.shape == (0, D)
+    assert mm.w_var_shared_.shape == (0, D)
+
+    ll_no_shared = mm.log_likelihood()
+    bic_no_shared = mm.bic()
+
+    if isinstance(bic_no_shared, tuple):
+        assert torch.isfinite(bic_no_shared[0])
+        assert np.isfinite(bic_no_shared[1])
+    else:
+        assert torch.isfinite(bic_no_shared)
+
+    assert torch.isfinite(ll_no_shared)
+
+    # ------------------------------------------------------------------
+    # One shared predictor
+    # ------------------------------------------------------------------
+    mm.fit(target_names=targets, predictor_names=preds,
+           df=df, groupby='id', iters=5, verbose=True,
+           shared_predictor_names=['cohort'])
+
+    assert np.array_equal(mm.shared_indices_, np.array([cohort_idx]))
+    assert np.array_equal(mm.traj_indices_, np.array([0, 1]))
+    assert mm.num_shared_preds_ == 1
+    assert mm.num_traj_preds_ == 2
+    assert mm.w_mu_shared_.shape == (1, D)
+    assert mm.w_var_shared_.shape == (1, D)
+
+    # Shared Gaussian coefficients should be present and finite
+    assert torch.all(torch.isfinite(mm.w_mu_shared_))
+    assert torch.all(torch.isfinite(mm.w_var_shared_))
+
+    # Shared predictors should be inactive in trajectory-specific Gaussian block
+    gaussian_ids = [d for d in range(D) if mm.target_type_[d] == 'gaussian']
+    for d in gaussian_ids:
+        assert torch.allclose(
+            mm.w_mu_[mm.shared_indices_, d, :],
+            torch.zeros_like(mm.w_mu_[mm.shared_indices_, d, :]),
+            atol=1e-8
+        ), "Shared predictor should be inactive in trajectory-specific Gaussian block"
+
+    ll_shared = mm.log_likelihood()
+    bic_shared = mm.bic()
+
+    assert torch.isfinite(ll_shared)
+    if isinstance(bic_shared, tuple):
+        assert torch.isfinite(bic_shared[0])
+        assert np.isfinite(bic_shared[1])
+    else:
+        assert torch.isfinite(bic_shared)
+
+def test_shared_predictor_partition_and_init():
+    targets = ['y']
+    preds = ['intercept', 'x', 'cohort']
+
+    D = len(targets)
+    M = len(preds)
+    K = 3
+
+    prior_data = {}
+    prior_data['w_mu0'] = np.zeros([M, D])
+    prior_data['w_var0'] = np.ones([M, D])
+    prior_data['lambda_a0'] = np.ones([D])
+    prior_data['lambda_b0'] = np.ones([D])
+
+    mm = MultDPRegression(prior_data['w_mu0'], prior_data['w_var0'],
+                          prior_data['lambda_a0'], prior_data['lambda_b0'],
+                          1, 1, K=K)
+
+    df = pd.DataFrame({
+        'sid': ['a', 'a', 'b', 'b'],
+        'intercept': [1, 1, 1, 1],
+        'x': [0.0, 1.0, 0.0, 1.0],
+        'cohort': [0, 0, 1, 1],
+        'y': [0.0, 1.0, 0.0, 1.0]
+    })
+
+    mm.fit(target_names=targets, predictor_names=preds, df=df, groupby='sid',
+           iters=0, verbose=False, shared_predictor_names=['cohort'])
+
+    assert mm.shared_predictor_names_ == ['cohort']
+    assert np.array_equal(mm.shared_indices_, np.array([2]))
+    assert np.array_equal(mm.traj_indices_, np.array([0, 1]))
+    assert mm.w_mu_shared_.shape == (1, 1)
+    assert mm.w_var_shared_.shape == (1, 1)
+    assert np.isclose(mm.w_mu0_shared_[0, 0].item(), 0.0)
+    assert np.isclose(mm.w_var0_shared_[0, 0].item(), 1.0)        
+
+def test_log_likelihood_with_shared_gaussian_effect():
+    G = 1
+    M = 3
+    num_gaussian = 1
+    num_binary = 0
+    K = 2
+    num_long_data_pts = 3
+
+    mm = get_basic_model(G, M, num_gaussian, num_binary, K, num_long_data_pts)
+
+    mm.target_type_[0] = 'gaussian'
+    mm.num_binary_targets_ = 0
+
+    mm.predictor_names_ = ['intercept', 'x', 'cohort']
+    mm.shared_predictor_names_ = ['cohort']
+    mm.shared_indices_ = np.array([2])
+    mm.traj_indices_ = np.array([0, 1])
+    mm.num_shared_preds_ = 1
+    mm.num_traj_preds_ = 2
+
+    mm.w_mu_shared_ = torch.zeros((1, 1), dtype=torch.float64)
+    mm.w_var_shared_ = torch.ones((1, 1), dtype=torch.float64)
+    mm.w_mu0_shared_ = torch.zeros((1, 1), dtype=torch.float64)
+    mm.w_var0_shared_ = torch.ones((1, 1), dtype=torch.float64)
+
+    # Make trajectory-specific coefficient at shared index inactive
+    mm.w_mu_[2, 0, :] = 0.0
+    mm.w_var_[2, 0, :] = 1.0
+
+    ll0 = mm.log_likelihood()
+
+    # Turn on a shared cohort effect
+    mm.w_mu_shared_[0, 0] = 2.0
+    ll1 = mm.log_likelihood()
+
+    assert torch.isfinite(ll0)
+    assert torch.isfinite(ll1)
+    assert not torch.isclose(ll0, ll1), \
+        "log_likelihood should change when shared Gaussian coefficient changes"
+    
+def test_bic_with_shared_predictors_runs():
+    G = 2
+    M = 3
+    num_gaussian = 1
+    num_binary = 0
+    K = 3
+    num_long_data_pts = 2
+
+    mm = get_basic_model(G, M, num_gaussian, num_binary, K, num_long_data_pts)
+
+    mm.predictor_names_ = ['intercept', 'x', 'cohort']
+    mm.shared_predictor_names_ = ['cohort']
+    mm.shared_indices_ = np.array([2])
+    mm.traj_indices_ = np.array([0, 1])
+    mm.num_shared_preds_ = 1
+    mm.num_traj_preds_ = 2
+
+    mm.w_mu_shared_ = torch.zeros((1, 1), dtype=torch.float64)
+    mm.w_var_shared_ = torch.ones((1, 1), dtype=torch.float64)
+    mm.w_mu0_shared_ = torch.zeros((1, 1), dtype=torch.float64)
+    mm.w_var0_shared_ = torch.ones((1, 1), dtype=torch.float64)
+
+    mm.v_a_ = torch.ones(K, dtype=torch.float64)
+    mm.v_b_ = torch.ones(K, dtype=torch.float64)    
+    
+    mm.gb_ = pd.DataFrame({'sid': [f'sid_{i//num_long_data_pts}'
+                                   for i in range(mm.N_)]}).groupby('sid')
+    bic_val = mm.bic()
+
+    assert isinstance(bic_val, tuple)
+    assert torch.isfinite(bic_val[0])
+    assert np.isfinite(bic_val[1])
+
+def test_compute_waic2_with_shared_predictors_runs():
+    G = 2
+    M = 3
+    num_gaussian = 1
+    num_binary = 0
+    K = 3
+    num_long_data_pts = 2
+
+    mm = get_basic_model(G, M, num_gaussian, num_binary, K, num_long_data_pts)
+
+    mm.predictor_names_ = ['intercept', 'x', 'cohort']
+    mm.shared_predictor_names_ = ['cohort']
+    mm.shared_indices_ = np.array([2])
+    mm.traj_indices_ = np.array([0, 1])
+    mm.num_shared_preds_ = 1
+    mm.num_traj_preds_ = 2
+
+    mm.w_mu_shared_ = torch.zeros((1, 1), dtype=torch.float64)
+    mm.w_var_shared_ = torch.ones((1, 1), dtype=torch.float64)
+    mm.w_mu0_shared_ = torch.zeros((1, 1), dtype=torch.float64)
+    mm.w_var0_shared_ = torch.ones((1, 1), dtype=torch.float64)
+
+    waic_val = mm.compute_waic2(S=20, seed=123)
+
+    assert np.isfinite(waic_val)    
+
+def test_compute_waic2_changes_with_shared_gaussian_effect():
+    G = 2
+    M = 3
+    num_gaussian = 1
+    num_binary = 0
+    K = 3
+    num_long_data_pts = 2
+
+    mm = get_basic_model(G, M, num_gaussian, num_binary, K, num_long_data_pts)
+
+    mm.predictor_names_ = ['intercept', 'x', 'cohort']
+    mm.shared_predictor_names_ = ['cohort']
+    mm.shared_indices_ = np.array([2])
+    mm.traj_indices_ = np.array([0, 1])
+    mm.num_shared_preds_ = 1
+    mm.num_traj_preds_ = 2
+
+    mm.w_mu_shared_ = torch.zeros((1, 1), dtype=torch.float64)
+    mm.w_var_shared_ = torch.ones((1, 1), dtype=torch.float64)
+    mm.w_mu0_shared_ = torch.zeros((1, 1), dtype=torch.float64)
+    mm.w_var0_shared_ = torch.ones((1, 1), dtype=torch.float64)
+
+    waic0 = mm.compute_waic2(S=50, seed=123)
+
+    mm.w_mu_shared_[0, 0] = 2.0
+
+    waic1 = mm.compute_waic2(S=50, seed=123)
+
+    assert np.isfinite(waic0)
+    assert np.isfinite(waic1)
+    assert not np.isclose(waic0, waic1), \
+        "WAIC should change when shared Gaussian coefficient changes"    
+
+def test_compute_waic2_shared_effect_not_double_counted():
+    G = 2
+    M = 3
+    num_gaussian = 1
+    num_binary = 0
+    K = 3
+    num_long_data_pts = 2
+
+    mm = get_basic_model(G, M, num_gaussian, num_binary, K, num_long_data_pts)
+
+    mm.predictor_names_ = ['intercept', 'x', 'cohort']
+    mm.shared_predictor_names_ = ['cohort']
+    mm.shared_indices_ = np.array([2])
+    mm.traj_indices_ = np.array([0, 1])
+    mm.num_shared_preds_ = 1
+    mm.num_traj_preds_ = 2
+
+    mm.w_mu_shared_ = torch.zeros((1, 1), dtype=torch.float64)
+    mm.w_var_shared_ = torch.ones((1, 1), dtype=torch.float64)
+    mm.w_mu0_shared_ = torch.zeros((1, 1), dtype=torch.float64)
+    mm.w_var0_shared_ = torch.ones((1, 1), dtype=torch.float64)
+
+    # Shared effect turned on
+    mm.w_mu_shared_[0, 0] = 1.5
+
+    # Deliberately put a large nonzero value into the trajectory-specific
+    # coefficient at the shared predictor index. The patched compute_waic2()
+    # should ignore this for Gaussian targets.
+    mm.w_mu_[2, 0, :] = 100.0
+
+    waic0 = mm.compute_waic2(S=50, seed=123)
+
+    # Change the trajectory-specific coefficient at the shared index again.
+    # If the implementation is correct, WAIC should remain effectively unchanged.
+    mm.w_mu_[2, 0, :] = -250.0
+
+    waic1 = mm.compute_waic2(S=50, seed=123)
+
+    assert np.isfinite(waic0)
+    assert np.isfinite(waic1)
+    assert np.isclose(waic0, waic1), \
+        "Trajectory-specific Gaussian coefficients at shared indices should be ignored in compute_waic2"
+
+def test_compute_waic2_no_shared_predictors_runs():
+    G = 2
+    M = 2
+    num_gaussian = 1
+    num_binary = 0
+    K = 3
+    num_long_data_pts = 2
+
+    mm = get_basic_model(G, M, num_gaussian, num_binary, K, num_long_data_pts)
+
+    mm.shared_predictor_names_ = []
+    mm.shared_indices_ = np.array([], dtype=int)
+    mm.traj_indices_ = np.array([0, 1])
+    mm.num_shared_preds_ = 0
+    mm.num_traj_preds_ = 2
+
+    mm.w_mu_shared_ = torch.zeros((0, 1), dtype=torch.float64)
+    mm.w_var_shared_ = torch.ones((0, 1), dtype=torch.float64)
+    mm.w_mu0_shared_ = torch.zeros((0, 1), dtype=torch.float64)
+    mm.w_var0_shared_ = torch.ones((0, 1), dtype=torch.float64)
+
+    waic_val = mm.compute_waic2(S=20, seed=123)
+
+    assert np.isfinite(waic_val)    
+
+def test_plot_with_shared_predictors_runs():
+    G = 2
+    M = 3
+    num_gaussian = 1
+    num_binary = 0
+    K = 3
+    num_long_data_pts = 2
+
+    mm = get_basic_model(G, M, num_gaussian, num_binary, K, num_long_data_pts)
+
+    mm.predictor_names_ = ['intercept', 'x', 'cohort']
+    mm.target_names_ = ['y']
+    mm.shared_predictor_names_ = ['cohort']
+    mm.shared_indices_ = np.array([2])
+    mm.traj_indices_ = np.array([0, 1])
+    mm.num_shared_preds_ = 1
+    mm.num_traj_preds_ = 2
+    mm.target_type_[0] = 'gaussian'
+    mm.num_binary_targets_ = 0
+
+    mm.w_mu_shared_ = torch.zeros((1, 1), dtype=torch.float64)
+    mm.w_var_shared_ = torch.ones((1, 1), dtype=torch.float64)
+    mm.w_mu0_shared_ = torch.zeros((1, 1), dtype=torch.float64)
+    mm.w_var0_shared_ = torch.ones((1, 1), dtype=torch.float64)
+
+    # Give the dataframe meaningful columns for plotting
+    vals_x = np.linspace(0.0, 1.0, mm.N_)
+    vals_cohort = np.array([0., 1.] * (mm.N_ // 2 + 1))[:mm.N_]
+    mm.df_ = pd.DataFrame({
+        'x': vals_x,
+        'cohort': vals_cohort,
+        'y': np.linspace(0.0, 1.0, mm.N_)
+    })
+
+    mm.X_[:, 0] = 1.0
+    mm.X_[:, 1] = torch.from_numpy(vals_x).double()
+    mm.X_[:, 2] = torch.from_numpy(vals_cohort).double()
+    mm.Y_[:, 0] = torch.from_numpy(mm.df_['y'].values).double()
+
+    ax = mm.plot(x_axis='x', y_axis='y', show=False, hide_scatter=True)
+
+    assert ax is not None
+    assert hasattr(ax, 'plot')    
+
+def test_plot_changes_with_shared_gaussian_effect():
+    G = 2
+    M = 3
+    num_gaussian = 1
+    num_binary = 0
+    K = 3
+    num_long_data_pts = 2
+
+    mm = get_basic_model(G, M, num_gaussian, num_binary, K, num_long_data_pts)
+
+    mm.predictor_names_ = ['intercept', 'x', 'cohort']
+    mm.target_names_ = ['y']
+    mm.shared_predictor_names_ = ['cohort']
+    mm.shared_indices_ = np.array([2])
+    mm.traj_indices_ = np.array([0, 1])
+    mm.num_shared_preds_ = 1
+    mm.num_traj_preds_ = 2
+    mm.target_type_[0] = 'gaussian'
+    mm.num_binary_targets_ = 0
+
+    mm.w_mu_shared_ = torch.zeros((1, 1), dtype=torch.float64)
+    mm.w_var_shared_ = torch.ones((1, 1), dtype=torch.float64)
+    mm.w_mu0_shared_ = torch.zeros((1, 1), dtype=torch.float64)
+    mm.w_var0_shared_ = torch.ones((1, 1), dtype=torch.float64)
+
+    vals_x = np.linspace(0.0, 1.0, mm.N_)
+    vals_cohort = np.ones(mm.N_)  # make shared effect visible everywhere
+    mm.df_ = pd.DataFrame({
+        'x': vals_x,
+        'cohort': vals_cohort,
+        'y': np.linspace(0.0, 1.0, mm.N_)
+    })
+
+    mm.X_[:, 0] = 1.0
+    mm.X_[:, 1] = torch.from_numpy(vals_x).double()
+    mm.X_[:, 2] = torch.from_numpy(vals_cohort).double()
+    mm.Y_[:, 0] = torch.from_numpy(mm.df_['y'].values).double()
+
+    ax0 = mm.plot(x_axis='x', y_axis='y', show=False, hide_scatter=True)
+    ydata0 = ax0.lines[0].get_ydata().copy()
+    plt.close(ax0.figure)
+
+    mm.w_mu_shared_[0, 0] = 2.0
+
+    ax1 = mm.plot(x_axis='x', y_axis='y', show=False, hide_scatter=True)
+    ydata1 = ax1.lines[0].get_ydata().copy()
+    plt.close(ax1.figure)
+
+    assert np.all(np.isfinite(ydata0))
+    assert np.all(np.isfinite(ydata1))
+    assert not np.allclose(ydata0, ydata1), \
+        "Plotted Gaussian trajectory mean should change when shared coefficient changes"    
+
+def test_plot_shared_effect_not_double_counted():
+    G = 2
+    M = 3
+    num_gaussian = 1
+    num_binary = 0
+    K = 3
+    num_long_data_pts = 2
+
+    mm = get_basic_model(G, M, num_gaussian, num_binary, K, num_long_data_pts)
+
+    mm.predictor_names_ = ['intercept', 'x', 'cohort']
+    mm.target_names_ = ['y']
+    mm.shared_predictor_names_ = ['cohort']
+    mm.shared_indices_ = np.array([2])
+    mm.traj_indices_ = np.array([0, 1])
+    mm.num_shared_preds_ = 1
+    mm.num_traj_preds_ = 2
+    mm.target_type_[0] = 'gaussian'
+    mm.num_binary_targets_ = 0
+
+    mm.w_mu_shared_ = torch.zeros((1, 1), dtype=torch.float64)
+    mm.w_var_shared_ = torch.ones((1, 1), dtype=torch.float64)
+    mm.w_mu0_shared_ = torch.zeros((1, 1), dtype=torch.float64)
+    mm.w_var0_shared_ = torch.ones((1, 1), dtype=torch.float64)
+
+    vals_x = np.linspace(0.0, 1.0, mm.N_)
+    vals_cohort = np.ones(mm.N_)
+    mm.df_ = pd.DataFrame({
+        'x': vals_x,
+        'cohort': vals_cohort,
+        'y': np.linspace(0.0, 1.0, mm.N_)
+    })
+
+    mm.X_[:, 0] = 1.0
+    mm.X_[:, 1] = torch.from_numpy(vals_x).double()
+    mm.X_[:, 2] = torch.from_numpy(vals_cohort).double()
+    mm.Y_[:, 0] = torch.from_numpy(mm.df_['y'].values).double()
+
+    mm.w_mu_shared_[0, 0] = 1.5
+
+    mm.w_mu_[2, 0, :] = 100.0
+    ax0 = mm.plot(x_axis='x', y_axis='y', show=False, hide_scatter=True)
+    ydata0 = ax0.lines[0].get_ydata().copy()
+    plt.close(ax0.figure)
+
+    mm.w_mu_[2, 0, :] = -250.0
+    ax1 = mm.plot(x_axis='x', y_axis='y', show=False, hide_scatter=True)
+    ydata1 = ax1.lines[0].get_ydata().copy()
+    plt.close(ax1.figure)
+
+    assert np.allclose(ydata0, ydata1), \
+        "Shared predictor contribution in plot() should not be double-counted through trajectory-specific coefficients"    
+
+def test_plot_no_shared_predictors_runs():
+    G = 2
+    M = 2
+    num_gaussian = 1
+    num_binary = 0
+    K = 3
+    num_long_data_pts = 2
+
+    mm = get_basic_model(G, M, num_gaussian, num_binary, K, num_long_data_pts)
+
+    mm.predictor_names_ = ['intercept', 'x']
+    mm.target_names_ = ['y']
+    mm.shared_predictor_names_ = []
+    mm.shared_indices_ = np.array([], dtype=int)
+    mm.traj_indices_ = np.array([0, 1])
+    mm.num_shared_preds_ = 0
+    mm.num_traj_preds_ = 2
+    mm.target_type_[0] = 'gaussian'
+    mm.num_binary_targets_ = 0
+
+    mm.w_mu_shared_ = torch.zeros((0, 1), dtype=torch.float64)
+    mm.w_var_shared_ = torch.ones((0, 1), dtype=torch.float64)
+    mm.w_mu0_shared_ = torch.zeros((0, 1), dtype=torch.float64)
+    mm.w_var0_shared_ = torch.ones((0, 1), dtype=torch.float64)
+
+    vals_x = np.linspace(0.0, 1.0, mm.N_)
+    mm.df_ = pd.DataFrame({
+        'x': vals_x,
+        'y': np.linspace(0.0, 1.0, mm.N_)
+    })
+
+    mm.X_[:, 0] = 1.0
+    mm.X_[:, 1] = torch.from_numpy(vals_x).double()
+    mm.Y_[:, 0] = torch.from_numpy(mm.df_['y'].values).double()
+
+    ax = mm.plot(x_axis='x', y_axis='y', show=False, hide_scatter=True)
+
+    assert ax is not None
+    plt.close(ax.figure)
+
+
+def test_get_R_matrix_changes_with_shared_gaussian_effect():
+    G = 2
+    M = 3
+    num_gaussian = 1
+    num_binary = 0
+    K = 3
+    num_long_data_pts = 2
+
+    mm = get_basic_model(G, M, num_gaussian, num_binary, K, num_long_data_pts)
+
+    mm.predictor_names_ = ['intercept', 'x', 'cohort']
+    mm.target_names_ = ['y']
+    mm.shared_predictor_names_ = ['cohort']
+    mm.shared_indices_ = np.array([2])
+    mm.traj_indices_ = np.array([0, 1])
+    mm.num_shared_preds_ = 1
+    mm.num_traj_preds_ = 2
+    mm.target_type_[0] = 'gaussian'
+    mm.num_binary_targets_ = 0
+
+    mm.w_mu_shared_ = torch.zeros((1, 1), dtype=torch.float64)
+    mm.w_var_shared_ = torch.ones((1, 1), dtype=torch.float64)
+    mm.w_mu0_shared_ = torch.zeros((1, 1), dtype=torch.float64)
+    mm.w_var0_shared_ = torch.ones((1, 1), dtype=torch.float64)
+
+    mm.v_a_ = torch.ones(mm.K_, dtype=torch.float64)
+    mm.v_b_ = torch.ones(mm.K_, dtype=torch.float64)
+
+    vals_x = np.linspace(0.0, 1.0, mm.N_)
+    vals_cohort = np.array([0., 1.] * (mm.N_ // 2 + 1))[:mm.N_]
+    vals_y = np.linspace(0.0, 1.0, mm.N_)
+    vals_sid = [f'sid_{i // num_long_data_pts}' for i in range(mm.N_)]
+
+    mm.df_ = pd.DataFrame({
+        'intercept': np.ones(mm.N_),
+        'sid': vals_sid,
+        'x': vals_x,
+        'cohort': vals_cohort,
+        'y': vals_y
+    })
+
+    mm.X_[:, 0] = 1.0
+    mm.X_[:, 1] = torch.from_numpy(vals_x).double()
+    mm.X_[:, 2] = torch.from_numpy(vals_cohort).double()
+    mm.Y_[:, 0] = torch.from_numpy(vals_y).double()
+
+    mm.gb_ = mm.df_.groupby('sid')
+    mm._set_group_first_index(mm.df_, mm.gb_)
+    mm._set_N_to_G_index_map()
+
+    R0 = mm.get_R_matrix(df=mm.df_, gb_col='sid')
+
+    mm.w_mu_shared_[0, 0] = 2.0
+    R1 = mm.get_R_matrix(df=mm.df_, gb_col='sid')
+
+    assert torch.all(torch.isfinite(R0))
+    assert torch.all(torch.isfinite(R1))
+    assert not torch.allclose(R0, R1), \
+        "R matrix should change when shared Gaussian coefficient changes"
+
+def test_get_R_matrix_shared_variance_not_double_counted():
+    G = 2
+    M = 3
+    num_gaussian = 1
+    num_binary = 0
+    K = 3
+    num_long_data_pts = 2
+
+    mm = get_basic_model(G, M, num_gaussian, num_binary, K, num_long_data_pts)
+
+    mm.predictor_names_ = ['intercept', 'x', 'cohort']
+    mm.target_names_ = ['y']
+    mm.shared_predictor_names_ = ['cohort']
+    mm.shared_indices_ = np.array([2])
+    mm.traj_indices_ = np.array([0, 1])
+    mm.num_shared_preds_ = 1
+    mm.num_traj_preds_ = 2
+    mm.target_type_[0] = 'gaussian'
+    mm.num_binary_targets_ = 0
+
+    mm.w_mu_shared_ = torch.zeros((1, 1), dtype=torch.float64)
+    mm.w_var_shared_ = torch.ones((1, 1), dtype=torch.float64)
+    mm.w_mu0_shared_ = torch.zeros((1, 1), dtype=torch.float64)
+    mm.w_var0_shared_ = torch.ones((1, 1), dtype=torch.float64)
+
+    mm.v_a_ = torch.ones(mm.K_, dtype=torch.float64)
+    mm.v_b_ = torch.ones(mm.K_, dtype=torch.float64)
+
+    vals_x = np.linspace(0.0, 1.0, mm.N_)
+    vals_cohort = np.array([0., 1.] * (mm.N_ // 2 + 1))[:mm.N_]
+    vals_y = np.linspace(0.0, 1.0, mm.N_)
+    vals_sid = [f'sid_{i // num_long_data_pts}' for i in range(mm.N_)]
+
+    mm.df_ = pd.DataFrame({
+        'intercept': np.ones(mm.N_),
+        'sid': vals_sid,
+        'x': vals_x,
+        'cohort': vals_cohort,
+        'y': vals_y
+    })
+
+    mm.X_[:, 0] = 1.0
+    mm.X_[:, 1] = torch.from_numpy(vals_x).double()
+    mm.X_[:, 2] = torch.from_numpy(vals_cohort).double()
+    mm.Y_[:, 0] = torch.from_numpy(vals_y).double()
+
+    mm.gb_ = mm.df_.groupby('sid')
+    mm._set_group_first_index(mm.df_, mm.gb_)
+    mm._set_N_to_G_index_map()
+
+    # Give shared block a nontrivial variance contribution
+    mm.w_var_shared_[0, 0] = 2.0
+
+    # Deliberately perturb trajectory-specific variance at the shared index.
+    # Correct behavior: this should NOT affect R.
+    mm.w_var_[2, 0, :] = 100.0
+    R0 = mm.get_R_matrix(df=mm.df_, gb_col='sid')
+
+    mm.w_var_[2, 0, :] = 0.001
+    R1 = mm.get_R_matrix(df=mm.df_, gb_col='sid')
+
+    assert torch.all(torch.isfinite(R0))
+    assert torch.all(torch.isfinite(R1))
+    assert torch.allclose(R0, R1, atol=1e-8, rtol=1e-8), \
+        "Trajectory-specific variance at a shared predictor index should be ignored in get_R_matrix"    
+
+def test_update_lambda_shared_variance_not_double_counted():
+    G = 2
+    M = 3
+    num_gaussian = 1
+    num_binary = 0
+    K = 3
+    num_long_data_pts = 2
+
+    mm = get_basic_model(G, M, num_gaussian, num_binary, K, num_long_data_pts)
+
+    mm.predictor_names_ = ['intercept', 'x', 'cohort']
+    mm.target_names_ = ['y']
+    mm.shared_predictor_names_ = ['cohort']
+    mm.shared_indices_ = np.array([2])
+    mm.traj_indices_ = np.array([0, 1])
+    mm.num_shared_preds_ = 1
+    mm.num_traj_preds_ = 2
+    mm.target_type_[0] = 'gaussian'
+    mm.num_binary_targets_ = 0
+    mm.sig_trajs_ = torch.tensor([True] * mm.K_)
+
+    mm.w_mu_shared_ = torch.zeros((1, 1), dtype=torch.float64)
+    mm.w_var_shared_ = torch.ones((1, 1), dtype=torch.float64)
+    mm.w_mu0_shared_ = torch.zeros((1, 1), dtype=torch.float64)
+    mm.w_var0_shared_ = torch.ones((1, 1), dtype=torch.float64)
+
+    vals_x = np.linspace(0.0, 1.0, mm.N_)
+    vals_cohort = np.array([0., 1.] * (mm.N_ // 2 + 1))[:mm.N_]
+    vals_y = np.linspace(0.0, 1.0, mm.N_)
+
+    mm.X_[:, 0] = 1.0
+    mm.X_[:, 1] = torch.from_numpy(vals_x).double()
+    mm.X_[:, 2] = torch.from_numpy(vals_cohort).double()
+    mm.Y_[:, 0] = torch.from_numpy(vals_y).double()
+
+    # Make sure prior-modified lambda params exist as they would after fit()
+    mm.lambda_a0_mod_ = mm.lambda_a0_.clone()
+    mm.lambda_b0_mod_ = mm.lambda_b0_.clone()
+
+    # Give shared block a nontrivial variance contribution
+    mm.w_var_shared_[0, 0] = 2.0
+
+    mm.w_var_[2, 0, :] = 100.0
+    mm.update_lambda()
+    b0 = mm.lambda_b_[0, :].clone()
+
+    mm.w_var_[2, 0, :] = 0.001
+    mm.update_lambda()
+    b1 = mm.lambda_b_[0, :].clone()
+
+    assert torch.all(torch.isfinite(b0))
+    assert torch.all(torch.isfinite(b1))
+    assert torch.allclose(b0, b1, atol=1e-8, rtol=1e-8), \
+        "Trajectory-specific variance at a shared predictor index should be ignored in update_lambda"    
+
+def test_shared_gaussian_effect_simulation_recovery():
+    np.random.seed(123)
+    torch.manual_seed(123)
+
+    # ------------------------------------------------------------------
+    # Simulate longitudinal Gaussian data
+    # ------------------------------------------------------------------
+    n_subjects = 120
+    n_timepoints = 5
+    K_fit = 6
+
+    subject_ids = []
+    time_vals = []
+    cohort_vals = []
+    y_vals = []
+
+    true_traj = np.random.binomial(1, 0.5, size=n_subjects)
+    subject_cohort = np.random.binomial(1, 0.5, size=n_subjects)
+
+    # True parameters
+    beta_cohort = 2.0  # shared effect
+
+    # trajectory-specific intercepts/slopes
+    intercepts = {0: 0.0, 1: 1.0}
+    slopes = {0: 0.2, 1: 1.0}
+
+    sigma = 0.35
+
+    for g in range(n_subjects):
+        sid = f'subj_{g}'
+        k = true_traj[g]
+        cohort = subject_cohort[g]
+
+        for t in range(n_timepoints):
+            mu = (
+                intercepts[k]
+                + slopes[k] * t
+                + beta_cohort * cohort
+            )
+            y = np.random.normal(mu, sigma)
+
+            subject_ids.append(sid)
+            time_vals.append(float(t))
+            cohort_vals.append(float(cohort))
+            y_vals.append(float(y))
+
+    df = pd.DataFrame({
+        'id': subject_ids,
+        'intercept': 1.0,
+        'time': time_vals,
+        'cohort': cohort_vals,
+        'y': y_vals
+    })
+
+    # ------------------------------------------------------------------
+    # Priors / model setup
+    # ------------------------------------------------------------------
+    predictor_names = ['intercept', 'time', 'cohort']
+    target_names = ['y']
+
+    M = len(predictor_names)
+    D = len(target_names)
+
+    w_mu0 = np.zeros((M, D))
+    w_var0 = np.ones((M, D)) * 10.0
+
+    lambda_a0 = np.ones(D)
+    lambda_b0 = np.ones(D)
+
+    alpha = 1.0
+
+    mm = MultDPRegression(
+        w_mu0, w_var0,
+        lambda_a0, lambda_b0,
+        1, alpha,
+        K=K_fit
+    )
+
+    mm.fit(
+        target_names=target_names,
+        predictor_names=predictor_names,
+        df=df,
+        groupby='id',
+        iters=60,
+        verbose=False,
+        shared_predictor_names=['cohort']
+    )
+
+    # ------------------------------------------------------------------
+    # Basic sanity checks
+    # ------------------------------------------------------------------
+    assert torch.all(torch.isfinite(mm.w_mu_shared_))
+    assert torch.all(torch.isfinite(mm.w_var_shared_))
+    assert torch.all(torch.isfinite(mm.w_mu_))
+    assert torch.all(torch.isfinite(mm.w_var_))
+    assert torch.all(torch.isfinite(mm.R_))
+
+    # ------------------------------------------------------------------
+    # Shared coefficient should be learned with correct sign and
+    # nontrivial magnitude
+    # ------------------------------------------------------------------
+    cohort_idx = predictor_names.index('cohort')
+    time_idx = predictor_names.index('time')
+    y_idx = 0
+
+    fitted_shared = mm.w_mu_shared_[0, y_idx].item()
+
+    assert fitted_shared > 0.5, \
+        f"Expected positive shared cohort effect; got {fitted_shared}"
+
+    # ------------------------------------------------------------------
+    # Shared predictor should remain inactive in trajectory-specific block
+    # ------------------------------------------------------------------
+    assert torch.allclose(
+        mm.w_mu_[cohort_idx, y_idx, :],
+        torch.zeros_like(mm.w_mu_[cohort_idx, y_idx, :]),
+        atol=1e-6
+    ), "Shared predictor should be inactive in trajectory-specific Gaussian block"
+
+    # ------------------------------------------------------------------
+    # Active trajectory-specific slopes should show heterogeneity
+    # ------------------------------------------------------------------
+    active_trajs = torch.where(mm.sig_trajs_)[0].cpu().numpy()
+
+    # Need at least two active trajectories for this check to be meaningful
+    assert len(active_trajs) >= 2, \
+        "Expected at least two active trajectories in simulation recovery test"
+
+    active_slopes = mm.w_mu_[time_idx, y_idx, active_trajs].detach().cpu().numpy()
+
+    # Check that at least one pair differs substantially
+    max_slope_diff = 0.0
+    for i in range(len(active_slopes)):
+        for j in range(i + 1, len(active_slopes)):
+            max_slope_diff = max(max_slope_diff, abs(active_slopes[i] - active_slopes[j]))
+
+    assert max_slope_diff > 0.3, \
+        f"Expected trajectory-specific slope heterogeneity; max diff was {max_slope_diff}"
+
+    # ------------------------------------------------------------------
+    # Optional: log-likelihood should be finite
+    # ------------------------------------------------------------------
+    ll = mm.log_likelihood()
+    assert torch.isfinite(ll), "Log-likelihood should be finite after fitting"    
+
+
+def test_shared_gaussian_effect_simulation_null_vs_signal():
+    def run_sim(beta_cohort, seed):
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+
+        n_subjects = 120
+        n_timepoints = 5
+        K_fit = 6
+
+        subject_ids = []
+        time_vals = []
+        cohort_vals = []
+        y_vals = []
+
+        true_traj = np.random.binomial(1, 0.5, size=n_subjects)
+        subject_cohort = np.random.binomial(1, 0.5, size=n_subjects)
+
+        intercepts = {0: 0.0, 1: 1.0}
+        slopes = {0: 0.2, 1: 1.0}
+        sigma = 0.35
+
+        for g in range(n_subjects):
+            sid = f'subj_{g}'
+            k = true_traj[g]
+            cohort = subject_cohort[g]
+
+            for t in range(n_timepoints):
+                mu = intercepts[k] + slopes[k] * t + beta_cohort * cohort
+                y = np.random.normal(mu, sigma)
+
+                subject_ids.append(sid)
+                time_vals.append(float(t))
+                cohort_vals.append(float(cohort))
+                y_vals.append(float(y))
+
+        df = pd.DataFrame({
+            'id': subject_ids,
+            'intercept': 1.0,
+            'time': time_vals,
+            'cohort': cohort_vals,
+            'y': y_vals
+        })
+
+        predictor_names = ['intercept', 'time', 'cohort']
+        target_names = ['y']
+
+        M = len(predictor_names)
+        D = len(target_names)
+
+        w_mu0 = np.zeros((M, D))
+        w_var0 = np.ones((M, D)) * 10.0
+        lambda_a0 = np.ones(D)
+        lambda_b0 = np.ones(D)
+
+        mm = MultDPRegression(
+            w_mu0, w_var0,
+            lambda_a0, lambda_b0,
+            1, 1.0,
+            K=K_fit
+        )
+
+        mm.fit(
+            target_names=target_names,
+            predictor_names=predictor_names,
+            df=df,
+            groupby='id',
+            iters=60,
+            verbose=False,
+            shared_predictor_names=['cohort']
+        )
+
+        return mm
+
+    mm_null = run_sim(beta_cohort=0.0, seed=456)
+    mm_signal = run_sim(beta_cohort=2.0, seed=123)
+
+    fitted_null = mm_null.w_mu_shared_[0, 0].item()
+    fitted_signal = mm_signal.w_mu_shared_[0, 0].item()
+
+    assert torch.all(torch.isfinite(mm_null.w_mu_shared_))
+    assert torch.all(torch.isfinite(mm_signal.w_mu_shared_))
+
+    assert fitted_signal > 0.5, \
+        f"Expected positive shared effect in signal case; got {fitted_signal}"
+
+    assert fitted_signal > fitted_null + 0.5, \
+        f"Expected signal shared effect to exceed null by a meaningful margin; null={fitted_null}, signal={fitted_signal}"
+
+    assert torch.allclose(
+        mm_null.w_mu_[2, 0, :],
+        torch.zeros_like(mm_null.w_mu_[2, 0, :]),
+        atol=1e-6
+    )
+    assert torch.allclose(
+        mm_signal.w_mu_[2, 0, :],
+        torch.zeros_like(mm_signal.w_mu_[2, 0, :]),
+        atol=1e-6
+    )    

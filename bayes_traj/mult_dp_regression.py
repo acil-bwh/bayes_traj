@@ -352,7 +352,207 @@ class MultDPRegression:
 
         return group_first_index
             
+  
+    def _set_predictor_partition(self, predictor_names,
+        shared_predictor_names=None):
+        """Set predictor partition into shared and trajectory-specific blocks.
+
+        Intercept remains trajectory-specific by convention.
+        Predictors are either shared or trajectory-specific, never both.
+        """
+        self.predictor_names_ = predictor_names
+    
+        if shared_predictor_names is None:
+            shared_predictor_names = []
+    
+        # normalize to list
+        shared_predictor_names = list(shared_predictor_names)
+
+        forbidden_intercept_names = {"Intercept", "intercept"}
+        overlap = forbidden_intercept_names.\
+            intersection(set(shared_predictor_names))
+        if len(overlap) > 0:
+            raise ValueError(
+                "Intercept must remain trajectory-specific; \
+                remove from shared_predictor_names: "
+                + str(list(overlap)))
+        
+        # check duplicates
+        if len(shared_predictor_names) != len(set(shared_predictor_names)):
+            raise ValueError("shared_predictor_names contains duplicates")
+    
+        predictor_name_set = set(predictor_names)
+        missing = [p for p in shared_predictor_names \
+                   if p not in predictor_name_set]
+        if len(missing) > 0:
+            raise ValueError(
+                "The following shared predictors are not in predictor_names: "
+                + str(missing))
+    
+        self.shared_predictor_names_ = shared_predictor_names
+        self.shared_indices_ = np.array(
+            [ii for ii, p in enumerate(predictor_names) \
+             if p in shared_predictor_names], dtype=int)
+
+        self.traj_indices_ = np.array(
+            [ii for ii, p in enumerate(predictor_names) \
+             if p not in shared_predictor_names], dtype=int)
+    
+        self.num_shared_preds_ = len(self.shared_indices_)
+        self.num_traj_preds_ = len(self.traj_indices_)
+    
+        self.has_shared_predictors_ = self.num_shared_preds_ > 0
+
+    def _init_shared_continuous_params(self):
+        """Initialize priors and posteriors for shared continuous 
+        coefficients.
+        """
+        M_shared = self.num_shared_preds_
+        D = self.D_
+    
+        self.w_mu0_shared_ = torch.zeros((M_shared, D), dtype=torch.float64)
+        self.w_var0_shared_ = torch.ones((M_shared, D), dtype=torch.float64)
+    
+        self.w_mu_shared_ = self.w_mu0_shared_.clone()
+        self.w_var_shared_ = self.w_var0_shared_.clone()
+
+    def _get_X_shared(self, X=None):
+        """
+        """
+        if X is None:
+            X = self.X_
+        if self.num_shared_preds_ == 0:
+            return torch.zeros((X.shape[0], 0), dtype=X.dtype)
+        
+        return X[:, self.shared_indices_]
+
+    def _get_X_traj(self, X=None):
+        """
+        """
+        if X is None:
+            X = self.X_
             
+        return X[:, self.traj_indices_]
+
+    def _get_gaussian_shared_mean(self, X, d):
+        """Return shared fixed-effect contribution for Gaussian target d.
+    
+        Parameters
+        ----------
+        X : torch.Tensor, shape (N, M)
+        d : int
+    
+        Returns
+        -------
+        out : torch.Tensor, shape (N,)
+        """
+        has_shared = hasattr(self, 'num_shared_preds_') and (self.num_shared_preds_ > 0)
+        if (not has_shared) or (self.target_type_[d] != 'gaussian'):
+            return torch.zeros(X.shape[0], dtype=torch.float64)
+    
+        return torch.matmul(X[:, self.shared_indices_], self.w_mu_shared_[:, d])
+
+    def _get_gaussian_traj_mean(self, X, d, traj_ids=None):
+        """Return trajectory-specific fixed-effect contribution for Gaussian 
+        target d.
+    
+        Parameters
+        ----------
+        X : torch.Tensor, shape (N, M)
+        d : int
+        traj_ids : array-like or None
+    
+        Returns
+        -------
+        out : torch.Tensor, shape (N, K_sel)
+        """
+        if traj_ids is None:
+            traj_ids = np.arange(self.K_)
+    
+        traj_ids = np.array(traj_ids)
+    
+        has_shared = hasattr(self, 'num_shared_preds_') \
+            and (self.num_shared_preds_ > 0)
+    
+        if self.target_type_[d] != 'gaussian':
+            return torch.matmul(X, self.w_mu_[:, d, traj_ids])
+    
+        if has_shared:
+            return torch.matmul(
+                X[:, self.traj_indices_],
+                self.w_mu_[self.traj_indices_, d, :][:, traj_ids]
+            )
+        else:
+            return torch.matmul(X, self.w_mu_[:, d, traj_ids])
+
+    def _get_gaussian_ranef_mean(self, X, d, traj_ids=None, row_ids=None,
+                             test_data=False):
+        """Return random-effect contribution for Gaussian target d.
+    
+        Parameters
+        ----------
+        X : torch.Tensor, shape (N, M)
+        d : int
+        traj_ids : array-like or None
+        row_ids : boolean array or None
+        test_data : bool
+    
+        Returns
+        -------
+        out : torch.Tensor, shape (N_sel, K_sel)
+        """
+        if traj_ids is None:
+            traj_ids = np.arange(self.K_)
+        traj_ids = np.array(traj_ids)
+    
+        if row_ids is None:
+            row_ids = torch.ones(X.shape[0], dtype=torch.bool)
+    
+        n_rows = int(torch.sum(row_ids))
+    
+        # No random effects in these cases
+        if test_data or self.target_type_[d] != 'gaussian' or \
+           ('u_mu_' not in dir(self)) or (self.u_mu_ is None):
+            return torch.zeros(n_rows, len(traj_ids), dtype=torch.float64)
+    
+        # Backward-compatible behavior:
+        # if u_mu_ exists but ranef_indices_ is None, use all coordinates
+        if (not hasattr(self, 'ranef_indices_')) or (self.ranef_indices_ is None):
+            return torch.sum(
+                self.u_mu_[self.N_to_G_index_map_, d, :, :][row_ids, :, :] *
+                X[row_ids, :].unsqueeze(1),
+                dim=-1
+            )[:, traj_ids]
+    
+        # Standard masked random-effect behavior
+        return torch.sum(
+            self.u_mu_[self.N_to_G_index_map_, d, :, :][row_ids, :, :] *
+            X[row_ids, :].unsqueeze(1),
+            dim=-1
+        )[:, traj_ids]
+        
+    def _get_gaussian_mean(self, X, d, traj_ids=None, row_ids=None,
+                           test_data=False):
+        """Return total Gaussian mean for target d.
+    
+        Returns
+        -------
+        out : torch.Tensor, shape (N_sel, K_sel)
+        """
+        if traj_ids is None:
+            traj_ids = np.arange(self.K_)
+        traj_ids = np.array(traj_ids)
+    
+        if row_ids is None:
+            row_ids = torch.ones(X.shape[0], dtype=torch.bool)
+    
+        shared = self._get_gaussian_shared_mean(X[row_ids, :], d).unsqueeze(1)
+        traj = self._get_gaussian_traj_mean(X[row_ids, :], d, traj_ids=traj_ids)
+        ranef = self._get_gaussian_ranef_mean(X, d, traj_ids=traj_ids,
+                                              row_ids=row_ids,
+                                              test_data=test_data)
+        return shared + traj + ranef
+    
     def fit(self, target_names, predictor_names, df, groupby=None, iters=100,
             R=None, traj_probs=None, traj_probs_weight=None, v_a=None,
             v_b=None, w_mu=None, w_var=None, lambda_a=None, lambda_b=None,
@@ -477,6 +677,9 @@ class MultDPRegression:
             will be fixed to specified values during inference. Corresponding 
             varianced (w_var_) will be kept to the smallest positive floating 
             point value (float64).
+
+        shared_predictor_names : list of strings
+            Predictor names to treat as common across trajectories.
         """
         if traj_probs_weight is not None:
             assert traj_probs_weight >= 0 and traj_probs_weight <=1, \
@@ -488,11 +691,14 @@ class MultDPRegression:
         assert len(set(target_names)) == len(target_names), \
             "Duplicate target name found"
         self.target_names_ = target_names
-    
+
+
         assert len(set(predictor_names)) == len(predictor_names), \
             "Duplicate predictor name found"
-        self.predictor_names_ = predictor_names
-    
+
+        self._set_predictor_partition(predictor_names=predictor_names,
+            shared_predictor_names=shared_predictor_names)
+
         assert self.w_mu0_.shape[0] == self.X_.shape[1], \
           "Dimension mismatch between mu_ and X_"
         assert self.X_.shape[0] == self.Y_.shape[0], \
@@ -729,6 +935,205 @@ class MultDPRegression:
                      test_data=False):
         """For each individual, computes the probability that he/she belongs to
         each of the trajectories.
+        Supports shared continuous fixed effects across trajectories.
+        """
+        def _to_double_tensor(x):
+            if torch.is_tensor(x):
+                return x.double()
+            if isinstance(x, np.ndarray):
+                if x.dtype != object:
+                    return torch.from_numpy(x).double()
+                # object array: coerce elementwise to float
+                return torch.tensor([float(xx) for xx in x],
+                                    dtype=torch.float64)
+            if isinstance(x, (list, tuple)):
+                return torch.tensor([float(xx) for xx in x],
+                                    dtype=torch.float64)
+            return torch.tensor(x, dtype=torch.float64)
+        
+        if not hasattr(self, 'ranef_indices_'):
+            self.ranef_indices_ = None
+    
+        has_shared = hasattr(self, 'num_shared_preds_') \
+            and (self.num_shared_preds_ > 0)
+
+        v_a = _to_double_tensor(self.v_a_)
+        v_b = _to_double_tensor(self.v_b_)
+            
+        expec_ln_v = torch.digamma(v_a) - torch.digamma(v_a + v_b)
+        expec_ln_1_minus_v = torch.digamma(v_b) - torch.digamma(v_a + v_b)        
+        expec_ln_v_terms = expec_ln_v.clone().detach()
+        for k in range(1, self.K_):
+            expec_ln_v_terms[k] = expec_ln_v_terms[k] + \
+                torch.sum(expec_ln_1_minus_v[0:k])
+    
+        if df is not None:
+            N = df.shape[0]
+            Y = torch.from_numpy(df[self.target_names_].values).double()
+            X = torch.from_numpy(df[self.predictor_names_].values).double()
+        else:
+            N = self.N_
+            Y = self.Y_
+            X = self.X_
+    
+        if df_helper is not None:
+            df_helper = df_helper
+            gb = self.gb_
+        else:
+            if gb_col is None:
+                df_helper = pd.DataFrame(index=range(df.shape[0]))
+            else:
+                df_helper = pd.DataFrame(df[[gb_col]])
+            for k in range(self.K_):
+                df_helper['like_accum_' + str(k)] = np.nan * np.zeros(N)
+    
+            if gb_col is None:
+                gb = df_helper.groupby(df.index)
+            else:
+                gb = df_helper.groupby(gb_col)
+    
+        likelihood_accum = torch.zeros([N, self.K_]).double()
+    
+        if self.num_binary_targets_ > 0:
+            num_samples = 100
+            mc_term = torch.zeros([N, self.K_]).double()
+    
+        for d in range(0, self.D_):
+            non_nan_ids = ~torch.isnan(Y[:, d])
+    
+            if self.target_type_[d] == 'gaussian':
+                X_non_nan = X[non_nan_ids, :]
+
+                # --------------------------------------------------------------
+                # Mean contributions via helper methods
+                # --------------------------------------------------------------
+                shared_mean = self._get_gaussian_shared_mean(X_non_nan, d)
+                traj_mean = self._get_gaussian_traj_mean(X_non_nan, d)
+                ranef_mean = self._get_gaussian_ranef_mean(
+                    X,
+                    d,
+                    traj_ids=np.arange(self.K_),
+                    row_ids=non_nan_ids,
+                    test_data=test_data)
+    
+                # ---------------------------------------------------------------
+                # Variance terms
+                # ---------------------------------------------------------------
+                shared_var_term = torch.zeros(torch.sum(non_nan_ids),
+                                              dtype=torch.float64)
+                if has_shared:
+                    X_shared = X_non_nan[:, self.shared_indices_]
+                    shared_var_term = torch.sum(
+                        (X_shared ** 2) *
+                        self.w_var_shared_[:, d].unsqueeze(0),
+                        dim=1)
+
+                if has_shared:
+                    X_traj = X_non_nan[:, self.traj_indices_]
+
+                    w_var_traj = self.w_var_[:, d, :]
+                    w_var_traj = w_var_traj[self.traj_indices_, :]
+
+                    traj_var_term = torch.sum(
+                        (X_traj[:, None, :] ** 2) *
+                        (w_var_traj.T)[None, :, :],
+                        dim=2)                
+                else:
+                    traj_var_term = torch.sum(
+                        (X_non_nan[:, None, :] ** 2) *
+                        (self.w_var_[:, d, :].T)[None, :, :],
+                        dim=2)
+
+                ranef_var_term = torch.zeros(torch.sum(non_nan_ids), self.K_,
+                                             dtype=torch.float64)
+                if self.ranef_indices_ is not None and not test_data:
+                    u_Sig_times_X = torch.einsum(
+                        'nkij,ni->nkj',
+                        self.u_Sig_[self.N_to_G_index_map_, d, :, :, :]
+                            [non_nan_ids, :, :, :],
+                        X_non_nan)
+                    ranef_var_term = torch.einsum(
+                        'nkj,nj->nk',
+                        u_Sig_times_X,
+                        X_non_nan)
+                    
+                y_term = Y[non_nan_ids, d][:, None]
+                shared_mean_2d = shared_mean[:, None]
+    
+                sq_resid_expec = (
+                    y_term ** 2
+                    - 2 * y_term * (shared_mean_2d + traj_mean + ranef_mean)
+                    + shared_var_term[:, None]
+                    + traj_var_term
+                    + ranef_var_term
+                    + shared_mean_2d ** 2
+                    + traj_mean ** 2
+                    + ranef_mean ** 2
+                    + 2 * shared_mean_2d * traj_mean
+                    + 2 * shared_mean_2d * ranef_mean
+                    + 2 * traj_mean * ranef_mean)
+    
+                likelihood_accum[non_nan_ids, :] = \
+                    likelihood_accum[non_nan_ids, :] + \
+                    0.5 * (
+                        psi(self.lambda_a_[d, :]) -
+                        torch.log(self.lambda_b_[d, :]) -
+                        torch.log(torch.tensor(2 * np.pi)) -
+                        (self.lambda_a_[d, :] / self.lambda_b_[d, :]) * \
+                        sq_resid_expec)
+    
+            elif self.target_type_[d] == 'binary':
+                for k in range(self.K_):
+                    dist = MultivariateNormal(self.w_mu_[:, d, k],
+                                              self.w_covmat_[:, :, d, k])
+                    samples = dist.sample((num_samples,))
+    
+                    mc_term[non_nan_ids, k] = \
+                        torch.mean(torch.log1p(torch.exp(
+                            torch.matmul(X[non_nan_ids, :], samples.T))), dim=1)
+    
+                    likelihood_accum[non_nan_ids, k] = \
+                        likelihood_accum[non_nan_ids, k] + \
+                        Y[non_nan_ids, d] * \
+                        torch.matmul(X[non_nan_ids, :], self.w_mu_[:, d, k]) - \
+                        mc_term[non_nan_ids, k]
+    
+        like_accum_cols = []
+        for k in range(self.K_):
+            like_accum_cols.append('like_accum_' + str(k))
+            df_helper[like_accum_cols[k]] = likelihood_accum[:, k]
+    
+        ln_rho_deb = torch.ones([gb.ngroups, self.K_],
+            dtype=torch.float64) * expec_ln_v_terms.unsqueeze(0) + \
+            torch.from_numpy(
+                gb[like_accum_cols].sum().values).double()
+    
+        rho_10 = ln_rho_deb * np.log10(np.e)
+        rho_10[:, ~self.sig_trajs_] = -sys.float_info.max
+        rho_10_shift = \
+            10 ** ((rho_10.T - torch.max(rho_10, dim=1).values).T + 300).\
+            clip(-300, 300)
+    
+        R_grouped = (rho_10_shift.T / torch.sum(rho_10_shift, dim=1)).T
+    
+        R_grouped[R_grouped <= self.prob_thresh_] = 0
+        R_grouped = R_grouped / torch.sum(R_grouped, dim=1).unsqueeze(1)
+    
+        R_indices = [index for group_indices in gb.groups.values()
+                     for index in group_indices]
+    
+        gb_indices_rep = [kk for kk, gg in enumerate(gb.groups.keys())
+                          for _ in range(gb.get_group(gg).shape[0])]
+    
+        R = np.zeros([N, self.K_])
+        R[R_indices, :] = R_grouped[gb_indices_rep, :]
+    
+        return torch.from_numpy(R).double()
+            
+    def get_R_matrix_orig(self, df=None, gb_col=None, df_helper=None,
+                     test_data=False):
+        """For each individual, computes the probability that he/she belongs to
+        each of the trajectories.
         """
         if not hasattr(self, 'ranef_indices_'):
             self.ranef_indices_ = None
@@ -942,60 +1347,193 @@ class MultDPRegression:
                                 torch.pow(torch.mv(self.X_[non_nan_ids, :], \
                                             self.w_mu_[:, d, k]), 2))
   
-    def update_w_gaussian_orig(self):
-        """ Updates the variational distributions over predictor coefficients 
-        corresponding to continuous (Gaussian) target variables. 
-        """
-        if self.w_mu_fixed_ is not None:
-            fixed_ids = ~torch.isnan(self.w_mu_fixed_)
-        
-        mu0_DIV_var0 = self.w_mu0_/self.w_var0_
-        for m in range(0, self.M_):
-            ids = torch.ones(self.M_, dtype=bool)
-            ids[m] = False
-            for d in range(0, self.D_):
-                if self.target_type_[d] == 'gaussian':
-                    non_nan_ids = ~torch.isnan(self.Y_[:, d])
-    
-                    tmp1 = (self.lambda_a_[d, self.sig_trajs_]/\
-                            self.lambda_b_[d, self.sig_trajs_])*\
-                            (torch.sum(self.R_[:, self.sig_trajs_, None]\
-                                    [non_nan_ids, :, :]*\
-                                    self.X_[non_nan_ids, None, :]**2, 0).T)\
-                                    [:, None, :]
-    
-                    self.w_var_[:, :, self.sig_trajs_] = \
-                        (tmp1 + (1.0/self.w_var0_)[:, :, None])**-1
-
-
-                    ranef_terms = torch.zeros(torch.sum(non_nan_ids),
-                                              torch.sum(self.sig_trajs_))
-                    if self.ranef_indices_ is not None:
-                        ranef_terms = torch.einsum('nkm,nm->nk',
-                            self.u_mu_[self.N_to_G_index_map_, d, :, :],
-                            self.X_)[:, self.sig_trajs_]
-                    
-                    sum_term = \
-                        torch.sum(self.R_[non_nan_ids, :][:, self.sig_trajs_]*\
-                                  self.X_[non_nan_ids, m, None]*\
-                                (torch.matmul(self.X_[:, ids][non_nan_ids, :], \
-                                self.w_mu_[ids, d, :][:, self.sig_trajs_]) + \
-                                 ranef_terms - \
-                                   self.Y_[non_nan_ids, d][:, None]), 0)
-
-                    self.w_mu_[m, d, self.sig_trajs_] = \
-                        self.w_var_[m, d, self.sig_trajs_]*\
-                        (-(self.lambda_a_[d, self.sig_trajs_]/\
-                           self.lambda_b_[d, self.sig_trajs_])*\
-                         sum_term + mu0_DIV_var0[m, d])
-
-                    if self.w_mu_fixed_ is not None:
-                        self.w_mu_[self.fixed_ids_] = \
-                            self.w_mu_fixed_[self.fixed_ids_]
-                        self.w_var_[self.fixed_ids_] = \
-                            self.w_var_fixed_[self.fixed_ids_]                        
 
     def update_w_gaussian(self):
+        """Updates the variational distributions over predictor coefficients
+        corresponding to continuous (Gaussian) target variables.
+    
+        This version supports a partition of predictors into:
+          1) shared fixed effects across trajectories, and
+          2) trajectory-specific fixed effects.
+    
+        Random effects remain attached only to the trajectory-specific block.
+        """
+    
+        # Expand trajectory-specific prior mean/variance to shape (M, D, K)
+        mu0_eff = self.w_mu0_[:, :, None].expand(-1, -1, self.K_).clone()
+        var0_eff = self.w_var0_[:, :, None].expand(-1, -1, self.K_).clone()
+    
+        # Apply soft override where specified (trajectory-specific block only)
+        if hasattr(self, 'w_mu0_override_') and self.w_mu0_override_ is not None:
+            override_mask = ~torch.isnan(self.w_mu0_override_)
+            mu0_eff[override_mask] = self.w_mu0_override_[override_mask]
+            var0_eff[override_mask] = self.w_var0_override_[override_mask]
+    
+        mu0_DIV_var0 = mu0_eff / var0_eff
+    
+        # Convenience flags
+        has_shared = hasattr(self, 'num_shared_preds_') \
+            and (self.num_shared_preds_ > 0)
+    
+        for d in range(0, self.D_):
+            if self.target_type_[d] != 'gaussian':
+                continue
+    
+            non_nan_ids = ~torch.isnan(self.Y_[:, d])
+            n_non_nan = torch.sum(non_nan_ids)
+    
+            if n_non_nan == 0:
+                continue
+    
+            #---------------------------------------------------------------
+            # Precompute common terms for this target
+            #---------------------------------------------------------------
+            sig_traj_ids = self.sig_trajs_
+            num_sig_trajs = torch.sum(sig_traj_ids)
+    
+            # E[lambda_dk]
+            lambda_ratio = self.lambda_a_[d, sig_traj_ids] / \
+                self.lambda_b_[d, sig_traj_ids]
+    
+            # Random effect contribution: shape (N_non_nan, K_sig)
+            ranef_terms = torch.zeros(n_non_nan, num_sig_trajs,
+                                      dtype=torch.float64)
+            if self.ranef_indices_ is not None:
+                ranef_terms = torch.einsum(
+                    'nkm,nm->nk',
+                    self.u_mu_[self.N_to_G_index_map_, d, :, :][non_nan_ids, :, :],
+                    self.X_[non_nan_ids, :]
+                )[:, sig_traj_ids]
+    
+            # Shared contribution: shape (N_non_nan,)
+            shared_terms = torch.zeros(n_non_nan, dtype=torch.float64)
+            if has_shared:
+                X_shared = self.X_[non_nan_ids, :][:, self.shared_indices_]
+                shared_terms = torch.matmul(X_shared, self.w_mu_shared_[:, d])
+    
+            #---------------------------------------------------------------
+            # Update trajectory-specific coefficients
+            #---------------------------------------------------------------
+            for m in self.traj_indices_:
+                ids = torch.zeros(self.M_, dtype=bool)
+                ids[self.traj_indices_] = True
+                ids[m] = False
+    
+                x_m = self.X_[non_nan_ids, m]
+    
+                # Posterior variance for this coefficient across active trajs
+                weighted_x2 = torch.sum(
+                    self.R_[non_nan_ids, :][:, sig_traj_ids] *
+                    (x_m[:, None] ** 2),
+                    dim=0)
+    
+                self.w_var_[m, d, sig_traj_ids] = (
+                    lambda_ratio * weighted_x2 +
+                    1.0 / var0_eff[m, d, sig_traj_ids]) ** -1
+    
+                # Contribution from other trajectory-specific coefficients
+                if torch.sum(ids) > 0:
+                    traj_other_terms = torch.matmul(
+                        self.X_[non_nan_ids, :][:, ids],
+                        self.w_mu_[ids, d, :][:, sig_traj_ids])
+                else:
+                    traj_other_terms = torch.zeros(
+                        n_non_nan, num_sig_trajs, dtype=torch.float64)
+    
+                sum_term = torch.sum(
+                    self.R_[non_nan_ids, :][:, sig_traj_ids] *
+                    x_m[:, None] *
+                    (
+                        shared_terms[:, None] +
+                        traj_other_terms +
+                        ranef_terms -
+                        self.Y_[non_nan_ids, d][:, None]
+                    ),
+                    dim=0
+                )
+    
+                self.w_mu_[m, d, sig_traj_ids] = \
+                    self.w_var_[m, d, sig_traj_ids] * (
+                        -lambda_ratio * sum_term +
+                        mu0_DIV_var0[m, d, sig_traj_ids]
+                    )
+    
+            #------------------------------------------------------------------
+            # Shared coefficients must be inactive in trajectory-specific block
+            # for Gaussian targets
+            # -----------------------------------------------------------------
+            if has_shared:
+                self.w_mu_[self.shared_indices_, d, :] = 0.0
+                self.w_var_[self.shared_indices_, d, :] = \
+                    self.w_var0_[self.shared_indices_, d][:, None]
+    
+            # ---------------------------------------------------------------
+            # Update shared coefficients
+            # ---------------------------------------------------------------
+            if has_shared:
+                # Recompute trajectory-specific total contribution after
+                # trajectory-specific updates: shape (N_non_nan, K_sig)
+                if len(self.traj_indices_) > 0:
+                    traj_terms = torch.matmul(
+                        self.X_[non_nan_ids, :][:, self.traj_indices_],
+                        self.w_mu_[self.traj_indices_, d, :][:, sig_traj_ids])
+                else:
+                    traj_terms = torch.zeros(
+                        n_non_nan, num_sig_trajs, dtype=torch.float64)
+    
+                for jj in range(self.num_shared_preds_):
+                    m_shared = self.shared_indices_[jj]
+    
+                    x_j = self.X_[non_nan_ids, m_shared]
+    
+                    shared_ids = torch.ones(self.num_shared_preds_,
+                                            dtype=bool)
+                    shared_ids[jj] = False
+    
+                    # Other shared predictors
+                    if torch.sum(shared_ids) > 0:
+                        shared_other_terms = torch.matmul(
+                            self.X_[non_nan_ids, :]\
+                            [:, self.shared_indices_[shared_ids]],
+                            self.w_mu_shared_[shared_ids, d])
+                    else:
+                        shared_other_terms = torch.zeros(
+                            n_non_nan, dtype=torch.float64)
+    
+                    # Posterior variance for shared coefficient
+                    weighted_x2 = torch.sum(
+                        self.R_[non_nan_ids, :][:, sig_traj_ids] *
+                        (x_j[:, None] ** 2),
+                        dim=0)
+    
+                    post_prec = torch.sum(lambda_ratio * weighted_x2) + \
+                        1.0 / self.w_var0_shared_[jj, d]
+    
+                    self.w_var_shared_[jj, d] = post_prec ** -1
+    
+                    sum_term = torch.sum(
+                        self.R_[non_nan_ids, :][:, sig_traj_ids] *
+                        lambda_ratio[None, :] *
+                        x_j[:, None] * (
+                            shared_other_terms[:, None] +
+                            traj_terms +
+                            ranef_terms -
+                            self.Y_[non_nan_ids, d][:, None]))
+    
+                    self.w_mu_shared_[jj, d] = \
+                        self.w_var_shared_[jj, d] * (
+                            -sum_term +
+                            self.w_mu0_shared_[jj, d] /
+                            self.w_var0_shared_[jj, d])
+    
+            # ---------------------------------------------------------------
+            # Apply hard fixes after updates (trajectory-specific block only)
+            # ---------------------------------------------------------------
+            if self.w_mu_fixed_ is not None:
+                self.w_mu_[self.fixed_ids_] = self.w_mu_fixed_[self.fixed_ids_]
+                self.w_var_[self.fixed_ids_] = self.w_var_fixed_[self.fixed_ids_]
+
+    def update_w_gaussian_orig(self):
         """ Updates the variational distributions over predictor coefficients 
         corresponding to continuous (Gaussian) target variables. 
         """
@@ -1060,6 +1598,110 @@ class MultDPRegression:
 
     def update_lambda(self):
         """Updates the variational distribution over latent variable lambda.
+        Supports shared continuous fixed effects across trajectories.
+        """
+        has_shared = hasattr(self, 'num_shared_preds_') and (self.num_shared_preds_ > 0)
+    
+        for d in range(self.D_):
+            if self.target_type_[d] == 'gaussian':
+                non_nan_ids = ~torch.isnan(self.Y_[:, d])
+    
+                self.lambda_a_[d, self.sig_trajs_] = \
+                    self.lambda_a0_mod_[d, None] + \
+                    0.5 * torch.sum(
+                        self.R_[:, self.sig_trajs_][non_nan_ids, :], 0
+                    )[None, :]
+
+                X_non_nan = self.X_[non_nan_ids, :]
+                sig_traj_ids = np.where(self.sig_trajs_)[0]
+
+                # ---------------------------------------------------------------
+                # Mean contributions via helper methods
+                # ---------------------------------------------------------------
+                shared_mean = self._get_gaussian_shared_mean(X_non_nan, d)
+                traj_mean = self._get_gaussian_traj_mean(
+                    X_non_nan,
+                    d,
+                    traj_ids=sig_traj_ids)
+                ranef_mean = self._get_gaussian_ranef_mean(
+                    self.X_,
+                    d,
+                    traj_ids=sig_traj_ids,
+                    row_ids=non_nan_ids,
+                    test_data=False)
+    
+                # ---------------------------------------------------------------
+                # Variance terms
+                # ---------------------------------------------------------------
+                shared_var_term = torch.zeros(torch.sum(non_nan_ids),
+                                              dtype=torch.float64)
+                if has_shared:
+                    X_shared = X_non_nan[:, self.shared_indices_]
+                    shared_var_term = torch.sum(
+                        (X_shared ** 2) *
+                        self.w_var_shared_[:, d].unsqueeze(0),
+                        dim=1)
+
+                if has_shared:
+                    X_traj = X_non_nan[:, self.traj_indices_]
+    
+                    w_var_traj = self.w_var_[:, d, self.sig_trajs_]
+                    w_var_traj = w_var_traj[self.traj_indices_, :]
+    
+                    traj_var_term = torch.sum(
+                        (X_traj[:, None, :] ** 2) *
+                        (w_var_traj.T)[None, :, :],
+                        dim=2)
+                else:
+                    traj_var_term = torch.sum(
+                        (X_non_nan[:, None, :] ** 2) *
+                        (self.w_var_[:, d, self.sig_trajs_].T)[None, :, :],
+                        dim=2)
+    
+                ranef_var_term = torch.zeros(
+                    torch.sum(non_nan_ids), torch.sum(self.sig_trajs_),
+                    dtype=torch.float64)
+
+                if self.ranef_indices_ is not None:
+                    u_Sig_times_X = torch.einsum(
+                        'nkij,ni->nkj',
+                        self.u_Sig_[self.N_to_G_index_map_, d, :, :, :]
+                            [non_nan_ids, :, :, :],
+                        X_non_nan)
+                    ranef_var_term = torch.einsum(
+                        'nkj,nj->nk',
+                        u_Sig_times_X[:, self.sig_trajs_, :],
+                        X_non_nan)
+                    
+                # ---------------------------------------------------------------
+                # Cross terms among mean components
+                # ---------------------------------------------------------------
+                y_term = self.Y_[non_nan_ids, d][:, None]
+                shared_mean_2d = shared_mean[:, None]
+    
+                sq_resid_expec = (
+                    y_term ** 2
+                    - 2 * y_term * (shared_mean_2d + traj_mean + ranef_mean)
+                    + shared_var_term[:, None]
+                    + traj_var_term
+                    + ranef_var_term
+                    + shared_mean_2d ** 2
+                    + traj_mean ** 2
+                    + ranef_mean ** 2
+                    + 2 * shared_mean_2d * traj_mean
+                    + 2 * shared_mean_2d * ranef_mean
+                    + 2 * traj_mean * ranef_mean
+                )
+    
+                self.lambda_b_[d, self.sig_trajs_] = \
+                    self.lambda_b0_mod_[d, None] + \
+                    0.5 * torch.sum(
+                        self.R_[non_nan_ids, :][:, self.sig_trajs_] * sq_resid_expec,
+                        dim=0
+                    )
+                    
+    def update_lambda_orig(self):
+        """Updates the variational distribution over latent variable lambda.
         """
         for d in range(self.D_):
             if self.target_type_[d] == 'gaussian':
@@ -1111,8 +1753,75 @@ class MultDPRegression:
                              torch.mm(self.X_[non_nan_ids, :], \
                                     self.w_mu_[:, d, self.sig_trajs_]) + \
                              self.Y_[non_nan_ids, d, None]**2), 0)
-                
+
     def update_u(self):
+        """Updates the variational distribution over the random effects.
+        Supports shared continuous fixed effects across trajectories.
+        """
+        col_names = [f'col_{i}' for i in range(self.M_)]
+    
+        has_shared = hasattr(self, 'num_shared_preds_') and (self.num_shared_preds_ > 0)
+    
+        for dd, tt in enumerate(self.target_names_):
+            if self.target_type_[dd] != 'gaussian':
+                continue
+    
+            # Shared mean for this target across all observations
+            shared_mean = np.zeros(self.N_)
+            if has_shared:
+                shared_mean = torch.matmul(
+                    self.X_[:, self.shared_indices_],
+                    self.w_mu_shared_[:, dd]
+                ).detach().cpu().numpy()
+    
+            for kk in np.where(self.sig_trajs_)[0]:
+                # ---------------------------------------------------------------
+                # Compute the left part
+                # ---------------------------------------------------------------
+                tmp_vec = self.R_[:, kk] * (
+                    -np.dot(self.X_, self.w_mu_[:, dd, kk]) -
+                    shared_mean +
+                    self.Y_[:, dd].numpy()
+                )
+    
+                tmp_mat = (self.df_[self.predictor_names_].values.T *
+                           tmp_vec[np.newaxis, :].numpy()).T
+    
+                df_tmp = pd.DataFrame(tmp_mat, columns=col_names)
+                groupby_col = self.gb_.keys
+                df_tmp['id'] = self.df_[groupby_col].values
+    
+                left_term = (self.lambda_a_[dd, kk] / self.lambda_b_[dd, kk]) * \
+                    df_tmp.groupby('id')[col_names].sum().values
+    
+                # ---------------------------------------------------------------
+                # Compute the right part
+                # ---------------------------------------------------------------
+                tmp_vec = (self.lambda_a_[dd, kk] / self.lambda_b_[dd, kk]) * \
+                    self.R_[self.group_first_index_, kk]
+    
+                tmp_mat = (self.G_r_r_.permute(2, 1, 0) *
+                     tmp_vec[np.newaxis, np.newaxis, :]).permute(2, 1, 0) + \
+                     self.invSig0_[tt][np.newaxis, :, :]
+    
+                right_term = torch.inverse(tmp_mat)
+    
+                u_Sig_slice = self.u_Sig_[:, dd, kk, self.ranef_indices_, :]
+                u_Sig_slice[:, :, self.ranef_indices_] = right_term
+                self.u_Sig_[:, dd, kk, self.ranef_indices_, :] = u_Sig_slice
+    
+                # ---------------------------------------------------------------
+                # Compute the left-right product
+                # ---------------------------------------------------------------
+                dot_products = torch.bmm(
+                    right_term,
+                    left_term[:, self.ranef_indices_].unsqueeze(-1)
+                ).squeeze(-1)
+    
+                for ii, ri in enumerate(np.where(self.ranef_indices_)[0]):
+                    self.u_mu_[:, dd, kk, int(ri)] = dot_products[:, ii]
+                
+    def update_u_orig(self):
         """Updates the variational distribution over the random effects
         """    
         col_names = [f'col_{i}' for i in range(self.M_)]
@@ -1356,8 +2065,87 @@ class MultDPRegression:
             self.v_a_ = torch.from_numpy(self.v_a_)
             self.v_b_ = torch.from_numpy(self.v_b_)            
             
-    
+
     def log_likelihood(self):
+        """Compute the log-likelihood given expected values of the latent
+        variables.
+    
+        TODO: Test implementation of binary targets
+    
+        Returns
+        -------
+        log_likelihood : float
+            The log-likelihood
+        """
+        if not torch.is_tensor(self.Y_):
+            Y = torch.from_numpy(self.Y_).double()
+        else:
+            Y = self.Y_
+    
+        if not torch.is_tensor(self.X_):
+            X = torch.from_numpy(self.X_).double()
+        else:
+            X = self.X_
+    
+        if not torch.is_tensor(self.R_):
+            R = torch.from_numpy(self.R_).double()
+        else:
+            R = self.R_
+    
+        if not torch.is_tensor(self.w_mu_):
+            w_mu = torch.from_numpy(self.w_mu_).double()
+        else:
+            w_mu = self.w_mu_
+    
+        if 'G_' not in dir(self):
+            self.G_ = self.gb_.ngroups
+    
+        if 'N_to_G_index_map_' not in dir(self):
+            self._set_N_to_G_index_map()
+    
+        if 'ranef_indices_' not in dir(self):
+            self.ranef_indices_ = None
+    
+        if not torch.is_tensor(self.lambda_a_):
+            lambda_a = torch.from_numpy(self.lambda_a_).double()
+            lambda_b = torch.from_numpy(self.lambda_b_).double()
+        else:
+            lambda_a = self.lambda_a_
+            lambda_b = self.lambda_b_
+    
+        has_shared = hasattr(self, 'num_shared_preds_') and (self.num_shared_preds_ > 0)
+    
+        tmp_k = torch.zeros(self.N_, dtype=torch.float64)
+        for kk in range(self.K_):
+            tmp_d = torch.zeros(self.N_, dtype=torch.float64)
+            for dd in range(self.D_):
+                ids = torch.isnan(Y[:, dd]) == 0
+    
+                if self.target_type_[dd] == 'gaussian':
+                    mu = self._get_gaussian_mean(
+                        X,
+                        dd,
+                        traj_ids=[kk],
+                        test_data=False
+                    ).squeeze(1)
+
+                    v = lambda_b[dd, kk] / lambda_a[dd, kk]
+                    co = torch.log(1 / torch.sqrt(2. * torch.pi * v))
+
+                    tmp_d[ids] += co - ((Y[ids, dd] - mu[ids]) ** 2) / (2. * v)
+                else:
+                    # Target assumed to be binary
+                    prod = torch.sum(X * w_mu[:, dd, kk], dim=1)
+                    tmp_d[ids] += prod[ids] * Y[ids, dd] - \
+                        torch.log(1 + torch.exp(prod[ids]))
+    
+            tmp_k = tmp_k + R[:, kk] * tmp_d
+    
+        log_likelihood = torch.sum(tmp_k)
+    
+        return log_likelihood
+            
+    def log_likelihood_orig(self):
         """Compute the log-likelihood given expected values of the latent 
         variables.
     
@@ -1440,6 +2228,72 @@ class MultDPRegression:
 
 
     def bic(self):
+        """Computes the Bayesian Information Criterion according to formula 4.1
+        in the reference.
+    
+        Returns
+        -------
+        bic_obs[, bic_groups] : float or tuple
+            The BIC values.
+        """
+        self.cast_to_torch()
+    
+        ll = self.log_likelihood()
+        num_trajs = torch.sum(torch.sum(self.R_, 0) > 0.0)
+    
+        num_gaussian_targets = self.D_ - self.num_binary_targets_
+    
+        has_shared = hasattr(self, 'num_shared_preds_')
+        if has_shared:
+            num_shared_preds = self.num_shared_preds_
+            num_traj_preds = self.num_traj_preds_
+        else:
+            num_shared_preds = 0
+            num_traj_preds = self.M_
+    
+        # Binary targets remain trajectory-specific over full predictor space
+        num_binary_params = 2 * num_trajs * self.M_ * self.num_binary_targets_
+    
+        # Gaussian targets:
+        #   - trajectory-specific coefficients and variances
+        #   - shared coefficients and variances
+        num_gaussian_traj_params = 2 * num_trajs * num_traj_preds * num_gaussian_targets
+        num_gaussian_shared_params = 2 * num_shared_preds * num_gaussian_targets
+    
+        # Trajectory weights
+        num_weight_params = num_trajs - 1.
+    
+        # Gamma params for Gaussian residual precisions
+        num_lambda_params = 2 * num_trajs * num_gaussian_targets
+    
+        num_params = (
+            num_binary_params +
+            num_gaussian_traj_params +
+            num_gaussian_shared_params +
+            num_weight_params +
+            num_lambda_params
+        )
+    
+        # Add estimates of random effects to the total number of parameters if needed
+        if self.ranef_indices_ is not None:
+            num_ranefs = np.sum(self.ranef_indices_)
+            num_params += num_trajs * num_ranefs * num_gaussian_targets * self.G_
+    
+        num_obs_tally = 0
+        for d in range(self.D_):
+            num_obs_tally = num_obs_tally + \
+                torch.sum(torch.isnan(self.Y_[:, d]) == False)
+    
+        bic_obs = ll - 0.5 * num_params * torch.log(num_obs_tally)
+    
+        if self.gb_ is not None:
+            num_subjects = self.gb_.ngroups
+            bic_groups = ll - 0.5 * num_params * np.log(num_subjects)
+            return (bic_obs, bic_groups)
+        else:
+            return bic_obs
+    
+    def bic_orig(self):
         """Computes the Bayesian Information Criterion according to formula 4.1 
         in the reference. Assumes same number of parameters for each trajectory 
         and for each target dimension.
@@ -1507,7 +2361,211 @@ class MultDPRegression:
         else:
             return bic_obs
 
+
     def compute_waic2(self, S=100, seed=None):
+        """Computes the Watanabe-Akaike (aka widely available) information
+        criterion, using the variance of individual terms in the log predictive
+        density summed over the n data points.
+    
+        TODO: Test implementation of binary target accomodation
+    
+        Parameters
+        ----------
+        S : integer, optional
+            The number of draws from the posterior to use when computing the
+            required expectations.
+        seed : int, optional
+            The seed to use for reproducibility. If None, the default
+            random seed will be used.
+    
+        Returns
+        -------
+        waic2 : float
+            The Watanable-Akaike information criterion.
+    
+        References
+        ----------
+        Gelman et al, 'Bayesian Data Analysis, 3rd Edition'
+        """
+        if seed is not None:
+            torch.manual_seed(seed)
+            np.random.seed(seed)
+
+        if 'N_to_G_index_map_' not in dir(self):
+            self._set_N_to_G_index_map()
+    
+        if ('group_first_index_' not in dir(self)) or \
+           (self.group_first_index_ is None):
+            if self.gb_ is not None:
+                group_first_index = np.zeros(self.N_, dtype=bool)
+                for _, vv in self.gb_.groups.items():
+                    group_first_index[vv[0]] = True
+                self.group_first_index_ = group_first_index
+            else:
+                self.group_first_index_ = np.ones(self.N_, dtype=bool)
+    
+        if not hasattr(self, 'ranef_indices_'):
+            self.ranef_indices_ = None
+    
+        has_shared = hasattr(self, 'num_shared_preds_') and \
+            (self.num_shared_preds_ > 0)
+    
+        sig_traj_ids = np.where(self.sig_trajs_)[0]
+        num_trajs = torch.sum(self.sig_trajs_)
+    
+        #-----------------------------------------------------------------------
+        # Get samples of trajectory assignments. We'll one-hot code these. We
+        # sample the traj assignments outside the loop over the target
+        # dimensions because the model assumes conditional independenc.
+        #-----------------------------------------------------------------------
+        group_probs = self.R_[:, self.sig_trajs_][self.group_first_index_, :]
+        if group_probs.ndim == 1:
+            group_probs = group_probs.unsqueeze(1)
+        
+        traj_samples = torch.multinomial(
+            group_probs,
+            num_samples=S,
+            replacement=True
+           )[self.N_to_G_index_map_, :]
+                
+        traj_samples_one_hot = torch.zeros(
+            self.N_, S, num_trajs, dtype=torch.float32
+        )
+        traj_samples_one_hot.scatter_(2, traj_samples.unsqueeze(-1), 1)
+    
+        #-----------------------------------------------------------------------
+        # Loop over the target dimensions and accumulate samples in
+        # 'likelihood_samples'
+        #-----------------------------------------------------------------------
+        likelihood_samples = torch.zeros(self.N_, self.D_, S, dtype=torch.float64)
+    
+        for dd in range(self.D_):
+            co_x_preds = torch.zeros(self.N_, S, num_trajs, dtype=torch.float64)
+    
+            #-------------------------------------------------------------------
+            # Sample shared fixed effects once per target dimension
+            #-------------------------------------------------------------------
+            shared_linpred = torch.zeros(self.N_, S, dtype=torch.float64)
+            if has_shared and self.target_type_[dd] == 'gaussian':
+                shared_mu = self.w_mu_shared_[:, dd].expand(S, -1)
+                shared_std = torch.sqrt(self.w_var_shared_[:, dd].expand(S, -1))
+                shared_w_samples = torch.normal(mean=shared_mu, std=shared_std)
+    
+                X_shared = self.X_[:, self.shared_indices_]
+                shared_linpred = torch.matmul(X_shared, shared_w_samples.T)
+    
+            for ii, kk in enumerate(sig_traj_ids):
+                #---------------------------------------------------------------
+                # Get samples from the trajectory-specific coefficients
+                #---------------------------------------------------------------
+                w_samples = torch.normal(
+                    mean=self.w_mu_[:, dd, kk].expand(S, -1),
+                    std=torch.sqrt(self.w_var_[:, dd, kk].expand(S, -1))
+                )
+    
+                # Ensure shared predictor coordinates are inactive in the
+                # trajectory-specific Gaussian block
+                if has_shared and self.target_type_[dd] == 'gaussian':
+                    w_samples[:, self.shared_indices_] = 0.0
+    
+                #---------------------------------------------------------------
+                # Get samples from the random effects if specified
+                #---------------------------------------------------------------
+                if self.ranef_indices_ is not None and \
+                   self.target_type_[dd] == 'gaussian':
+                    u_mu_tmp = \
+                        self.u_mu_[:, dd, kk, self.ranef_indices_].unsqueeze(1)
+                    u_Sig_tmp = \
+                        self.u_Sig_[:, dd, kk, self.ranef_indices_, :]\
+                        [:, :, self.ranef_indices_].unsqueeze(1)
+    
+                    mvn = MultivariateNormal(
+                        u_mu_tmp.expand(-1, S, -1),
+                        u_Sig_tmp.expand(-1, S, -1, -1)
+                    )
+                    ranef_samples = mvn.sample()[self.N_to_G_index_map_, :, :]
+    
+                    ranef_samples_holder = torch.zeros(
+                        self.N_, S, self.M_, dtype=torch.float64
+                    )
+                    ranef_samples_holder[:, :, self.ranef_indices_] = \
+                        ranef_samples
+    
+                    #-----------------------------------------------------------
+                    # Combine the trajectory-specific fixed effect and random
+                    # effect samples
+                    #-----------------------------------------------------------
+                    co_samples = w_samples.unsqueeze(0).repeat(self.N_, 1, 1) + \
+                        ranef_samples_holder
+                else:
+                    co_samples = w_samples.unsqueeze(0).repeat(self.N_, 1, 1)
+    
+                assert co_samples.shape == (self.N_, S, self.M_)
+    
+                #---------------------------------------------------------------
+                # Populate the trajectory-specific + random-effect contribution
+                #---------------------------------------------------------------
+                traj_ranef_linpred = torch.einsum(
+                    'nsm,nm->ns', co_samples, self.X_
+                )
+    
+                # Add shared contribution for Gaussian targets
+                if self.target_type_[dd] == 'gaussian':
+                    co_x_preds[:, :, ii] = traj_ranef_linpred + shared_linpred
+                else:
+                    co_x_preds[:, :, ii] = traj_ranef_linpred
+    
+            #-------------------------------------------------------------------
+            # Mask the samples of co_x_preds based on the randomly chosen
+            # trajectory to get the actual predictions.
+            #-------------------------------------------------------------------
+            pred_samples = (co_x_preds * traj_samples_one_hot).sum(dim=2)  # NxS
+    
+            #-------------------------------------------------------------------
+            # Compute likelihood samples
+            #-------------------------------------------------------------------
+            if self.target_type_[dd] == 'gaussian':
+                lambda_b_ = self.lambda_b_[dd, sig_traj_ids].unsqueeze(0)
+                lambda_a_ = self.lambda_a_[dd, sig_traj_ids].unsqueeze(0)
+    
+                samples_tmp = (
+                    torch.distributions.Gamma(lambda_a_, lambda_b_).sample((S,))
+                ).squeeze(1)
+    
+                prec_samples = (
+                    samples_tmp.unsqueeze(0) * traj_samples_one_hot
+                ).sum(dim=2)
+    
+                likelihood_samples[:, dd, :] = \
+                    ((prec_samples / (2 * torch.pi)) ** 0.5) * \
+                    torch.exp(
+                        -0.5 * prec_samples *
+                        (self.Y_[:, dd].unsqueeze(-1) - pred_samples) ** 2
+                    )
+    
+            elif self.target_type_[dd] == 'binary':
+                likelihood_samples[:, dd, :] = \
+                    (torch.exp(pred_samples) ** self.Y_[:, dd].unsqueeze(-1)) / \
+                    (1 + torch.exp(pred_samples))
+            else:
+                raise AttributeError('Unknown target type')
+    
+        #-----------------------------------------------------------------------
+        # Tally. Clip the likelihood_samples to avoid infs
+        #-----------------------------------------------------------------------
+        likelihood_samples_clipped = torch.clamp(likelihood_samples, min=1e-45)
+    
+        lppd = \
+            torch.sum(torch.log(torch.nanmean(likelihood_samples_clipped, 2)))
+        pwaic = \
+            np.sum(np.nanvar(torch.log(likelihood_samples_clipped).numpy(), 2))
+        waic2 = -2 * (lppd - pwaic)
+    
+        return waic2
+
+
+        
+    def compute_waic2_orig(self, S=100, seed=None):
         """Computes the Watanabe-Akaike (aka widely available) information
         criterion, using the variance of individual terms in the log predictive
         density summed over the n data points.
@@ -1767,6 +2825,16 @@ class MultDPRegression:
                                      self.X_[non_nan_ids, :].T).T), 1) + \
                                    torch.mv(self.X_[non_nan_ids, :],
                                             self.w_mu_[:, d, k])**2)
+                    
+        if not hasattr(self, 'has_shared_predictors_'):
+            self.has_shared_predictors_ = False
+            self.shared_predictor_names_ = []
+            self.shared_indices_ = np.array([], dtype=int)
+            self.traj_indices_ = np.arange(self.M_, dtype=int)
+            self.num_shared_preds_ = 0
+            self.num_traj_preds_ = self.M_
+
+        self._init_shared_continuous_params()
 
 
     def init_R_mat(self, traj_probs=None, traj_probs_weight=None):
@@ -1872,6 +2940,39 @@ class MultDPRegression:
         pass
 
     def get_traj_probs(self):
+        """Computes the probability of each trajectory based on the marginal
+        of the assignment matrix, where the marginalization is computed over
+        individuals, not data points (individuals will in general have more
+        or less data points than others). This function assumes that 'fit'
+        has already been called.
+    
+        Returns
+        -------
+        traj_probs : array, shape ( K )
+            Each element is the probability of the corresponding trajectory.
+        """
+        if ('group_first_index_' not in dir(self)) or (self.group_first_index_ is None):
+            if self.gb_ is not None:
+                group_first_index = np.zeros(self.N_, dtype=bool)
+                for _, vv in self.gb_.groups.items():
+                    group_first_index[vv[0]] = True
+                self.group_first_index_ = group_first_index
+            else:
+                self.group_first_index_ = np.ones(self.N_, dtype=bool)
+    
+        group_first_index = self.group_first_index_.astype(bool)
+    
+        if torch.is_tensor(self.R_):
+            R_np = self.R_.numpy()
+        else:
+            R_np = self.R_
+    
+        traj_probs = np.sum(R_np[group_first_index, :], 0) / \
+            np.sum(R_np[group_first_index, :])
+    
+        return traj_probs
+    
+    def get_traj_probs_orig(self):
         """Computes the probability of each trajectory based on the marginal 
         of the assignment matrix, where the marginalization is computed over 
         individuals, not data points (individuals will in general have more
@@ -1943,7 +3044,181 @@ class MultDPRegression:
                 
         return self.df_  
 
+
     def plot(self, x_axis, y_axis, x_label=None, y_label=None, which_trajs=None,
+             show=True, min_traj_prob=0, max_traj_prob=1, traj_map=None,
+             hide_traj_details=False, hide_scatter=False, traj_markers=None,
+             traj_colors=None, fill_alpha=0.3):
+        """Generates a 2D plot of trajectory results. The original data will be
+        shown as a scatter plot, color-coded according to trajectory membership.
+        Trajectories will be plotted with line plots indicating the expected
+        target value given predictor values. The user has control over what
+        variables will appear on the x- and y-axes. This plotting function
+        expects that predictors raised to a power use the ^ character. E.g.
+        predictors might be: 'age' and 'age^2'. In this case, if the user
+        wants to plot 'age' on the x-axis, he/she need only specify 'age' (the
+        plotting routine will take care of the higher order terms). Predictor
+        variables not specified to be on the x-axis will be set to their mean
+        values for plotting.
+    
+        TODO: Update to accomodate binary target variables as necessary
+        """
+        has_shared = hasattr(self, 'num_shared_preds_') and \
+            (self.num_shared_preds_ > 0)
+    
+        # Compute the probability vector for each trajectory
+        traj_probs = self.get_traj_probs()
+    
+        df_traj = self.to_df()
+    
+        num_dom_locs = 100
+        x_dom = np.linspace(np.min(df_traj[x_axis].values),
+                            np.max(df_traj[x_axis].values),
+                            num_dom_locs)
+    
+        target_index = np.where(np.array(self.target_names_) == y_axis)[0][0]
+    
+        X_tmp = np.ones([num_dom_locs, self.M_])
+        for (inc, pp) in enumerate(self.predictor_names_):
+            tmp_pow = pp.split('^')
+            tmp_int = pp.split('*')
+    
+            if len(tmp_pow) > 1:
+                if x_axis in tmp_pow:
+                    X_tmp[:, inc] = x_dom ** int(tmp_pow[1])
+                else:
+                    X_tmp[:, inc] = np.mean(self.df_[pp].values)
+    
+            elif len(tmp_int) > 1:
+                if x_axis in tmp_int:
+                    other_vars = [vv for vv in tmp_int if vv != x_axis]
+                    if len(other_vars) == 0:
+                        X_tmp[:, inc] = x_dom
+                    else:
+                        prod_term = np.ones(num_dom_locs)
+                        for ov in other_vars:
+                            prod_term *= np.mean(self.df_[ov].values)
+                        X_tmp[:, inc] = x_dom * prod_term
+                else:
+                    X_tmp[:, inc] = np.mean(self.df_[pp].values)
+            else:
+                if pp == x_axis:
+                    X_tmp[:, inc] = x_dom
+                elif pp.lower() in ['intercept',]:
+                    X_tmp[:, inc] = 1.0
+                else:
+                    X_tmp[:, inc] = np.mean(self.df_[pp].values)            
+    
+        X_tmp_torch = torch.from_numpy(X_tmp).double()
+    
+        fig, ax = plt.subplots()
+    
+        # Scatter plot of observed data
+        if not hide_scatter:
+            traj = df_traj['traj'].values
+            sig_ids = np.where(self.sig_trajs_)[0]
+            for ii, kk in enumerate(sig_ids):
+                if traj_probs[kk] < min_traj_prob or \
+                   traj_probs[kk] > max_traj_prob:
+                    continue
+                if which_trajs is not None and kk not in which_trajs:
+                    continue
+                if traj_map is not None and kk not in traj_map.keys():
+                    continue
+    
+                ids = traj == kk
+    
+                color = None
+                if traj_colors is not None:
+                    color = traj_colors[ii]
+    
+                ax.scatter(df_traj.loc[ids, x_axis].values,
+                           df_traj.loc[ids, y_axis].values,
+                           alpha=0.4, color=color)
+    
+        # Plot expected trajectory means
+        inc = 0
+        for kk in np.where(self.sig_trajs_)[0]:
+            if traj_probs[kk] < min_traj_prob or traj_probs[kk] > max_traj_prob:
+                continue
+            if which_trajs is not None and kk not in which_trajs:
+                continue
+            if traj_map is not None and kk not in traj_map.keys():
+                continue
+    
+            # ---------------------------------------------------------------
+            # Mean trajectory prediction
+            # ---------------------------------------------------------------
+            if self.target_type_[target_index] == 'gaussian':                
+                mu = self._get_gaussian_mean(
+                    X_tmp_torch,
+                    target_index,
+                    traj_ids=[kk],
+                    test_data=True).squeeze(1)                
+            else:
+                mu = torch.sum(
+                    X_tmp_torch * self.w_mu_[:, target_index, kk].unsqueeze(0),
+                    dim=1)
+                            
+            mu = mu.detach().cpu().numpy()
+            
+            # ---------------------------------------------------------------
+            # Residual band
+            # ---------------------------------------------------------------
+            if self.target_type_[target_index] == 'gaussian':
+                sig = np.sqrt(
+                    self.lambda_b_[target_index, kk].item() /
+                    self.lambda_a_[target_index, kk].item())
+                lower = mu - 2 * sig
+                upper = mu + 2 * sig
+            else:
+                lower = None
+                upper = None
+    
+            # ---------------------------------------------------------------
+            # Legend label
+            # ---------------------------------------------------------------
+            display_traj = kk
+            if traj_map is not None:
+                display_traj = traj_map[kk]
+    
+            if hide_traj_details:
+                label = f"Traj {display_traj}"
+            else:
+                n_k = int(np.sum(df_traj['traj'].values == kk))
+                pct_k = 100 * traj_probs[kk]
+                label = f"Traj {display_traj} (N={n_k}, {pct_k:.1f}%)"
+    
+            color = None
+            marker = None
+            if traj_colors is not None:
+                color = traj_colors[inc]
+            if traj_markers is not None:
+                marker = traj_markers[inc]
+    
+            ax.plot(x_dom, mu, label=label, color=color, marker=marker)
+    
+            if self.target_type_[target_index] == 'gaussian':
+                ax.fill_between(x_dom, lower, upper, alpha=fill_alpha,
+                                color=color)
+    
+            inc += 1
+    
+        if x_label is None:
+            x_label = x_axis
+        if y_label is None:
+            y_label = y_axis
+    
+        ax.set_xlabel(x_label)
+        ax.set_ylabel(y_label)
+        ax.legend()
+    
+        if show:
+            plt.show()
+        else:
+            return ax
+    
+    def plot_orig(self, x_axis, y_axis, x_label=None, y_label=None, which_trajs=None,
              show=True, min_traj_prob=0, max_traj_prob=1, traj_map=None,
              hide_traj_details=False, hide_scatter=False, traj_markers=None,
              traj_colors=None, fill_alpha=0.3):

@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 from bayes_traj.utils import *
 import pdb, os, pickle
-
+import pytest, copy
 
 def test_prior_info_from_model():
     """
@@ -567,5 +567,156 @@ def test_compute_prior_info_5():
     assert np.isclose(pg.prior_info_['alpha'], 0.3613243243243244), \
         "Error in prior"
     
+def test_prior_generator_initializes_shared_schema():
+    pg = PriorGenerator(
+        targets=['y'],
+        preds=['intercept', 'time'],
+        shared_predictors=['cohort']
+    )
 
+    assert 'shared_predictors' in pg.prior_info_
+    assert 'w_mu0_shared' in pg.prior_info_
+    assert 'w_var0_shared' in pg.prior_info_
+
+    assert pg.prior_info_['shared_predictors'] == ['cohort']
+    assert 'y' in pg.prior_info_['w_mu0_shared']
+    assert 'y' in pg.prior_info_['w_var0_shared']
+
+    assert pg.prior_info_['w_mu0_shared']['y']['cohort'] == 0
+    assert pg.prior_info_['w_var0_shared']['y']['cohort'] == 1
+
+    # legacy block still exists
+    assert pg.prior_info_['w_mu0']['y']['intercept'] == 0
+    assert pg.prior_info_['w_var0']['y']['intercept'] == 5
     
+def test_prior_generator_rejects_shared_pred_overlap():
+    with pytest.raises(AssertionError):
+        PriorGenerator(
+            targets=['y'],
+            preds=['intercept', 'time', 'cohort'],
+            shared_predictors=['cohort']
+        )
+
+def test_is_shared_pred():
+    pg = PriorGenerator(
+        targets=['y'],
+        preds=['intercept', 'time'],
+        shared_predictors=['cohort', 'site']
+    )
+
+    assert pg._is_shared_pred('cohort')
+    assert pg._is_shared_pred('site')
+    assert not pg._is_shared_pred('time')        
+
+def test_prior_info_from_df_gaussians_routes_shared_predictors():
+    np.random.seed(123)
+
+    n = 200
+    time = np.random.normal(size=n)
+    cohort = np.random.binomial(1, 0.5, size=n)
+
+    # true model: trajectory-specific block has intercept + time,
+    # shared block has cohort
+    y = 1.0 + 0.8 * time + 2.5 * cohort + np.random.normal(scale=0.5, size=n)
+
+    df = pd.DataFrame({
+        'intercept': 1.0,
+        'time': time,
+        'cohort': cohort,
+        'y': y
+    })
+
+    pg = PriorGenerator(
+        targets=['y'],
+        preds=['intercept', 'time'],
+        shared_predictors=['cohort']
+    )
+    pg.set_data(df, groupby=None)
+
+    pg.prior_info_from_df_gaussians('y')
+
+    # trajectory-specific predictors should be in legacy block
+    assert 'intercept' in pg.prior_info_['w_mu0']['y']
+    assert 'time' in pg.prior_info_['w_mu0']['y']
+
+    # shared predictor should be in shared block
+    assert 'cohort' in pg.prior_info_['w_mu0_shared']['y']
+    assert 'cohort' in pg.prior_info_['w_var0_shared']['y']
+
+    # and should not be required in the legacy block
+    # (if you left it absent, this is the expected behavior)
+    assert 'cohort' not in pg.prior_info_['w_mu0']['y']
+
+    # sanity checks on direction / finiteness
+    assert np.isfinite(pg.prior_info_['w_mu0']['y']['time'])
+    assert np.isfinite(pg.prior_info_['w_var0']['y']['time'])
+    assert np.isfinite(pg.prior_info_['w_mu0_shared']['y']['cohort'])
+    assert np.isfinite(pg.prior_info_['w_var0_shared']['y']['cohort'])
+
+    assert pg.prior_info_['w_mu0_shared']['y']['cohort'] > 0.5    
+
+def test_prior_info_from_df_binary_leaves_shared_block_unused():
+    np.random.seed(123)
+
+    n = 200
+    time = np.random.normal(size=n)
+    cohort = np.random.binomial(1, 0.5, size=n)
+
+    lp = -0.5 + 1.2 * time
+    p = 1 / (1 + np.exp(-lp))
+    y = np.random.binomial(1, p, size=n)
+
+    df = pd.DataFrame({
+        'intercept': 1.0,
+        'time': time,
+        'cohort': cohort,
+        'y': y
+    })
+
+    pg = PriorGenerator(
+        targets=['y'],
+        preds=['intercept', 'time'],
+        shared_predictors=['cohort']
+    )
+    pg.set_data(df, groupby=None)
+
+    pg.prior_info_from_df('y')
+
+    # legacy block populated from binary regression
+    assert 'intercept' in pg.prior_info_['w_mu0']['y']
+    assert 'time' in pg.prior_info_['w_mu0']['y']
+    assert np.isfinite(pg.prior_info_['w_mu0']['y']['time'])
+
+    # binary path should not populate shared block from regression
+    # (assuming you left binary behavior unchanged)
+    assert pg.prior_info_['w_mu0_shared']['y']['cohort'] == 0
+    assert pg.prior_info_['w_var0_shared']['y']['cohort'] == 1
+
+    # lambda priors should be None for binary targets
+    assert pg.prior_info_['lambda_a0']['y'] is None
+    assert pg.prior_info_['lambda_b0']['y'] is None    
+
+def test_coef_override_routes_shared_predictor_to_shared_block():
+    pg = PriorGenerator(
+        targets=['y'],
+        preds=['intercept', 'time'],
+        shared_predictors=['cohort']
+    )
+
+    prior_info = copy.deepcopy(pg.prior_info_)
+
+    tt = 'y'
+    pp = 'cohort'
+    m = 1.5
+    s = 0.25
+
+    # mimic your routing logic
+    if pp in pg.shared_predictors_:
+        prior_info['w_mu0_shared'][tt][pp] = m
+        prior_info['w_var0_shared'][tt][pp] = s**2
+    else:
+        prior_info['w_mu0'][tt][pp] = m
+        prior_info['w_var0'][tt][pp] = s**2
+
+    assert prior_info['w_mu0_shared']['y']['cohort'] == 1.5
+    assert prior_info['w_var0_shared']['y']['cohort'] == 0.25**2    

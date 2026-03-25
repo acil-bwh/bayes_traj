@@ -35,7 +35,8 @@ class PriorGenerator:
     """
     """
     def __init__(self, targets, preds, ranefs=None, num_trajs=2,
-                 min_num_trajs=None, max_num_trajs=None, alpha=None):
+                 min_num_trajs=None, max_num_trajs=None, alpha=None,
+                 shared_predictors=None):    
         """
         """
         assert np.issubdtype(type(num_trajs), np.integer) and \
@@ -92,6 +93,22 @@ class PriorGenerator:
         self.prior_info_['Sig0'] = None
         self.prior_info_['ranefs'] = None
         self.prior_info_['ranef_indices'] = None        
+        self.prior_info_['w_mu0_shared'] = {}
+        self.prior_info_['w_var0_shared'] = {}
+
+        if shared_predictors is None:
+            shared_predictors = []
+        self.shared_predictors_ = list(shared_predictors)
+
+        assert len(set(self.shared_predictors_)) == \
+            len(self.shared_predictors_), \
+            "Duplicate shared predictors specified"
+
+        assert len(set(self.shared_predictors_).\
+                   intersection(set(self.preds_))) == 0, \
+            "Predictors cannot be both trajectory-specific and shared"
+        
+        self.prior_info_['shared_predictors'] = list(shared_predictors)
         
         # The following maps a predictor name to the covariance matrix index
         # location
@@ -135,14 +152,27 @@ class PriorGenerator:
             self.prior_info_['w_mu0'][tt] = {}
             self.prior_info_['w_var0'][tt] = {}
             #self.prior_info_['w_mu'][tt] = {}
-            #self.prior_info_['w_var'][tt] = {}            
+            #self.prior_info_['w_var'][tt] = {}
+            self.prior_info_['w_mu0_shared'][tt] = {}
+            self.prior_info_['w_var0_shared'][tt] = {}
+
             for pp in self.preds_:
                 self.prior_info_['w_mu0'][tt][pp] = 0
                 self.prior_info_['w_var0'][tt][pp] = 5
 
+            for pp in self.shared_predictors_:
+                self.prior_info_['w_mu0_shared'][tt][pp] = 0
+                self.prior_info_['w_var0_shared'][tt][pp] = 1
+                
                 #self.prior_info_['w_mu'][tt][pp] = None
                 #self.prior_info_['w_var'][tt][pp] = None
 
+    def _all_fixed_preds(self):
+        return list(self.preds_) + list(self.shared_predictors_)                
+                
+    def _is_shared_pred(self, pred):
+        return pred in self.shared_predictors_
+                
     def set_model(self, mm, model_trajs=None):
         """Sets input model. Once set, a data frame corresponding to the model
         will be computed and set as well.
@@ -348,10 +378,11 @@ class PriorGenerator:
         # derive overall prior info from these. Otherwise, we will get prior
         # info from the data alone.
         # TODO
-
+        
         # Per-traj prior info has not been set:
+        all_preds = self._all_fixed_preds()
         res_tmp = sm.OLS(self.df_data_[target],
-                         self.df_data_[self.preds_], missing='drop').fit()
+                         self.df_data_[all_preds], missing='drop').fit()
 
         num_trajs = np.array([self.min_num_trajs_, self.max_num_trajs_])
 
@@ -384,9 +415,14 @@ class PriorGenerator:
         fudge_factor = 0.005 
         vars = fudge_factor*self.df_data_.shape[0]*res_tmp.HC0_se.values**2 
 
-        for (i, m) in enumerate(self.preds_):
-            self.prior_info_['w_mu0'][target][m] = res_tmp.params.values[i]
-            self.prior_info_['w_var0'][target][m] = vars[i]
+        for (i, m) in enumerate(all_preds):
+            if self._is_shared_pred(m):
+                self.prior_info_['w_mu0_shared'][target][m] = \
+                    res_tmp.params.values[i]
+                self.prior_info_['w_var0_shared'][target][m] = vars[i]
+            else:
+                self.prior_info_['w_mu0'][target][m] = res_tmp.params.values[i]
+                self.prior_info_['w_var0'][target][m] = vars[i]
 
         if self.prior_info_['ranefs'] is not None and \
            self.estimate_ranef_covmat_:
@@ -654,6 +690,10 @@ def main():
     parser = ArgumentParser(description=desc)
     parser.add_argument('--preds', help='Comma-separated list of predictor names',
         dest='preds', type=str, default=None)
+    parser.add_argument('--shared_preds',
+        help='Comma-separated list of predictors to model as shared fixed \
+        effects across trajectories for continuous targets', type=str,
+        default=None)
     parser.add_argument('--targets', help='Comma-separated list of target names',
         dest='targets', type=str, default=None)
     parser.add_argument('--out_file', help='Output (pickle) file that will \
@@ -720,6 +760,10 @@ def main():
     preds = op.preds.split(',')
     targets = op.targets.split(',')
 
+    shared_predictors = []
+    if op.shared_preds is not None:
+        shared_predictors = op.shared_preds.split(',')
+    
     ranefs = None
     if op.ranefs is not None:
         ranefs = op.ranefs.split(',')
@@ -730,7 +774,8 @@ def main():
         assert op.alpha > 0, \
             "alpha  must be a positive real value"
         
-    pg = PriorGenerator(targets, preds, ranefs, alpha=op.alpha)
+    pg = PriorGenerator(targets, preds, ranefs, alpha=op.alpha,
+                        shared_predictors=shared_predictors)    
     
     #---------------------------------------------------------------------------
     # Set the number of trajs
@@ -791,23 +836,36 @@ def main():
             pp = op.coef[i][0].split(',')[1]
             m = float(op.coef[i][0].split(',')[2])
             s = float(op.coef[i][0].split(',')[3])
-    
-            assert tt in targets, "{} not among specified targets".format(tt)
-            assert pp in preds, "{} not among specified predictors".format(pp)        
-    
-            prior_info['w_mu0'][tt][pp] = m
-            prior_info['w_var0'][tt][pp] = s**2
-    
+
+            valid_preds = set(preds).union(set(shared_predictors))
+            assert pp in valid_preds, \
+                "{} not among specified predictors".format(pp)            
+            assert tt in targets, \
+                "{} not among specified targets".format(tt)
+
+            if pp in shared_predictors:
+                prior_info['w_mu0_shared'][tt][pp] = m
+                prior_info['w_var0_shared'][tt][pp] = s**2
+            else:
+                prior_info['w_mu0'][tt][pp] = m
+                prior_info['w_var0'][tt][pp] = s**2
+              
     if op.coef_std is not None:
         for i in range(len(op.coef_std)):
             tt = op.coef_std[i][0].split(',')[0]
             pp = op.coef_std[i][0].split(',')[1]
             s = float(op.coef_std[i][0].split(',')[2])
-    
-            assert tt in targets, "{} not among specified targets".format(tt)
-            assert pp in preds, "{} not among specified predictors".format(pp)        
-    
-            prior_info['w_var0'][tt][pp] = s**2
+
+            valid_preds = set(preds).union(set(shared_predictors))
+            assert pp in valid_preds, \
+                "{} not among specified predictors".format(pp)            
+            assert tt in targets, \
+                "{} not among specified targets".format(tt)
+
+            if pp in shared_predictors:
+                prior_info['w_var0_shared'][tt][pp] = s**2
+            else:
+                prior_info['w_var0'][tt][pp] = s**2
 
     if op.ranef is not None:
         if op.ranefs is None:
@@ -854,7 +912,12 @@ def main():
             tmp_std = np.sqrt(prior_info['w_var0'][tt][pp])
             print("{} {} (mean, std): ({:.2e}, {:.2e})".\
                   format(tt, pp, tmp_mean, tmp_std))
-
+        for pp in shared_predictors:
+            tmp_mean = prior_info['w_mu0_shared'][tt][pp]
+            tmp_std = np.sqrt(prior_info['w_var0_shared'][tt][pp])
+            print("{} [shared] {} (mean, std): ({:.2e}, {:.2e})".format(
+                tt, pp, tmp_mean, tmp_std))
+            
         if op.ranefs is not None:
             print(f'{tt} ranefs:')
             df_tmp = pd.DataFrame(prior_info['Sig0'][tt],

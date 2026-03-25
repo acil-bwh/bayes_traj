@@ -156,10 +156,24 @@ def main():
     with open(prior, 'rb') as f:
         prior_file_info = pickle.load(f)
 
-        preds = get_pred_names_from_prior_info(prior_file_info)
-        
+        preds_traj = get_pred_names_from_prior_info(prior_file_info)
+
+        shared_predictors = prior_file_info.get('shared_predictors', [])
+        if shared_predictors is None:
+            shared_predictors = []
+
+        # preserve order and avoid duplicates
+        shared_predictors = list(shared_predictors)
+        assert len(set(shared_predictors)) == len(shared_predictors), \
+            "Duplicate shared predictors in prior file"
+        assert len(set(preds_traj).intersection(set(shared_predictors))) == 0, \
+            "Predictors cannot be both trajectory-specific and shared"
+
+        preds = preds_traj + shared_predictors
+
         D = len(targets)
         M = len(preds)
+        
         if 'w_mu' in prior_file_info.keys():
             if prior_file_info['w_mu'] is not None:                
                 K = prior_file_info['w_mu'][preds[0]][targets[0]].shape[0]
@@ -221,8 +235,8 @@ def main():
             if prior_data['lambda_b'] is not None:
                 prior_data['lambda_b'][d, :] = \
                     prior_file_info['lambda_b'][target]
-            
-            for (m, pred) in enumerate(preds):
+
+            for (m, pred) in enumerate(preds_traj):
                 prior_data['w_mu0'][m, d] = \
                     prior_file_info['w_mu0'][target][pred]
                 prior_data['w_var0'][m, d] = \
@@ -233,7 +247,30 @@ def main():
                 if prior_data['w_var'] is not None:
                     prior_data['w_var'][m, d, :] = \
                         prior_file_info['w_var'][pred][target]
-                
+
+            for (j, pred) in enumerate(shared_predictors):
+                # legacy block gets benign defaults for shared predictors
+                m = len(preds_traj) + j
+                prior_data['w_mu0'][m, d] = 0.0
+                prior_data['w_var0'][m, d] = 1.0
+
+                # explicit shared prior block
+                if 'w_mu0_shared' in prior_file_info and \
+                   target in prior_file_info['w_mu0_shared'] and \
+                   pred in prior_file_info['w_mu0_shared'][target]:
+                    prior_data['w_mu0_shared'][j, d] = \
+                        prior_file_info['w_mu0_shared'][target][pred]
+                else:
+                    prior_data['w_mu0_shared'][j, d] = 0.0
+
+                if 'w_var0_shared' in prior_file_info and \
+                   target in prior_file_info['w_var0_shared'] and \
+                   pred in prior_file_info['w_var0_shared'][target]:
+                    prior_data['w_var0_shared'][j, d] = \
+                        prior_file_info['w_var0_shared'][target][pred]
+                else:
+                    prior_data['w_var0_shared'][j, d] = 1.0            
+                    
     if op.alpha is not None:
         prior_data['alpha'] = float(op.alpha)
 
@@ -320,6 +357,15 @@ def main():
                                   ranef_indices=prior_data['ranef_indices'],
                                   prob_thresh=op.prob_thresh)
 
+            # Added w_mu0_shared_ / w_var0_shared_ to the model state, but these
+            # are not part of the original constructor signature. So we need to
+            # populate them from the new prior file schema before fitting.            
+            if len(shared_predictors) > 0:
+                mm.w_mu0_shared_ = \
+                    torch.from_numpy(prior_data['w_mu0_shared']).double()
+                mm.w_var0_shared_ = \
+                    torch.from_numpy(prior_data['w_var0_shared']).double()
+            
             mm.fit(target_names=targets, predictor_names=preds, df=df,
                    groupby=op.groupby, iters=iters, verbose=op.verbose,
                    R=prior_data['R'],
@@ -335,7 +381,8 @@ def main():
                    num_init_trajs=op.num_init_trajs,
                    w_mu0_override=w_mu0_override,
                    w_var0_override=w_var0_override,                   
-                   w_mu_fixed=w_mu_fixed)
+                   w_mu_fixed=w_mu_fixed,
+                   shared_predictor_names=shared_predictors)
         else:
             restructured_data = get_restructured_data(df, preds, targets, op.groupby)
             model = MultPyro(
