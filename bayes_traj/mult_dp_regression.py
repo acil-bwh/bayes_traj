@@ -402,8 +402,30 @@ class MultDPRegression:
         self.num_traj_preds_ = len(self.traj_indices_)
     
         self.has_shared_predictors_ = self.num_shared_preds_ > 0
-
+  
     def _init_shared_continuous_params(self):
+        """Initialize priors and posteriors for shared continuous coefficients."""
+        M_shared = self.num_shared_preds_
+        D = self.D_
+
+        expected_shape = (M_shared, D)
+
+        # Preserve externally supplied shared priors if already present
+        if (not hasattr(self, 'w_mu0_shared_')) or \
+           (self.w_mu0_shared_ is None) or \
+           (tuple(self.w_mu0_shared_.shape) != expected_shape):
+            self.w_mu0_shared_ = torch.zeros(expected_shape, dtype=torch.float64)
+
+        if (not hasattr(self, 'w_var0_shared_')) or \
+           (self.w_var0_shared_ is None) or \
+           (tuple(self.w_var0_shared_.shape) != expected_shape):
+            self.w_var0_shared_ = torch.ones(expected_shape, dtype=torch.float64)
+
+        # Posterior initialization should start from the prior
+        self.w_mu_shared_ = self.w_mu0_shared_.clone()
+        self.w_var_shared_ = self.w_var0_shared_.clone()
+        
+    def _init_shared_continuous_params_orig(self):
         """Initialize priors and posteriors for shared continuous 
         coefficients.
         """
