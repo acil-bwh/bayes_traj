@@ -167,6 +167,12 @@ class PriorGenerator:
                 #self.prior_info_['w_mu'][tt][pp] = None
                 #self.prior_info_['w_var'][tt][pp] = None
 
+    def _get_model_target_index(self, target):
+        return np.where(np.array(self.mm_.target_names_) == target)[0][0]
+
+    def _get_model_pred_index(self, pred):
+        return np.where(np.array(self.mm_.predictor_names_) == pred)[0][0]
+    
     def _all_fixed_preds(self):
         return list(self.preds_) + list(self.shared_predictors_)                
                 
@@ -340,8 +346,9 @@ class PriorGenerator:
         assert self.mm_ is not None, \
             "Trying to set prior info from model, but no model specified"
 
-        assert set(self.prior_info_['w_mu0'][target].keys()) == \
-            set(self.mm_.predictor_names_), "Predictor name mismatch"
+        expected_preds = set(self.preds_).union(set(self.shared_predictors_))
+        assert expected_preds == set(self.mm_.predictor_names_), \
+            "Predictor name mismatch"
         
         target_index = \
             np.where(np.array(self.mm_.target_names_) == target)[0][0]
@@ -359,7 +366,7 @@ class PriorGenerator:
                 self.mm_.w_mu_[pred_index, target_index, traj]
             self.prior_info_['w_var'][m][target][traj] = \
                 self.mm_.w_var_[pred_index, target_index, traj]
-
+            
         if self.prior_info_['ranefs'] is not None and \
            self.estimate_ranef_covmat_:
             self.prior_info_['Sig0'] = \
@@ -435,9 +442,13 @@ class PriorGenerator:
         """
         assert target in self.mm_.target_names_, \
             "Specified target is not among model targets"
-        assert set(self.preds_) == set(self.mm_.predictor_names_), \
-            "Specified predictors differ from model predictors"
 
+        model_preds = set(self.mm_.predictor_names_)
+        expected_preds = set(self.preds_).union(set(self.shared_predictors_))
+
+        assert expected_preds == model_preds, \
+            "Specified preds + shared preds differ from model preds"
+        
         target_index = np.where(np.array(self.mm_.target_names_) == \
                                 target)[0][0]
 
@@ -481,6 +492,24 @@ class PriorGenerator:
                 self.prior_info_['w_var0'][target][m] = \
                     w_var[pred_index, target_index, sig_trajs][0]
 
+        if len(self.shared_predictors_) > 0:
+            if torch.is_tensor(self.mm_.w_mu_shared_):
+                w_mu_shared = self.mm_.w_mu_shared_.numpy()
+                w_var_shared = self.mm_.w_var_shared_.numpy()
+            else:
+                w_mu_shared = self.mm_.w_mu_shared_
+                w_var_shared = self.mm_.w_var_shared_
+
+            for pred in self.shared_predictors_:
+                pred_index = \
+                    np.where(np.array(self.shared_predictors_) == pred)[0][0]
+
+                self.prior_info_['w_mu0_shared'][target][pred] = \
+                    w_mu_shared[pred_index, target_index]
+
+                self.prior_info_['w_var0_shared'][target][pred] = \
+                    w_var_shared[pred_index, target_index]
+                
         if torch.is_tensor(self.mm_.lambda_a_):
             lambda_a = self.mm_.lambda_a_.numpy()
             lambda_b = self.mm_.lambda_b_.numpy()

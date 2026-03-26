@@ -1,9 +1,92 @@
 from bayes_traj.generate_prior import PriorGenerator
+from bayes_traj.mult_dp_regression import MultDPRegression
 import numpy as np
 import pandas as pd
 from bayes_traj.utils import *
 import pdb, os, pickle
 import pytest, copy
+import torch
+
+def get_basic_model(G, M, num_gaussian, num_binary, K, num_long_data_pts):
+    """
+    """
+    np.random.seed(42)
+    N = G*num_long_data_pts
+    
+    target_names = []
+    target_type = [] 
+    for dd in range(num_gaussian):
+        target_names.append(f'gaussian_{dd}')
+        target_type.append('gaussian')
+
+    for dd in range(num_binary):
+        target_names.append(f'binary_{dd}')
+        target_type.append('binary')        
+        
+    predictor_names = []
+    for pp in range(M):
+        predictor_names.append(f'predictor_{pp}')
+
+    D = num_gaussian + num_binary
+    
+    w_var0 = np.ones([M, D])
+    w_mu0 = np.zeros([M, D])
+    lambda_a0 = np.ones(D)
+    lambda_b0 = np.ones(D)
+    alpha = 1.
+    mm = MultDPRegression(w_mu0, w_var0,
+                          lambda_a0, lambda_b0,
+                          1, 1, K=K)
+    mm.target_names_ = target_names
+    mm.target_type_ = target_type
+    mm.predictor_names_ = predictor_names
+    mm.M_ = M
+    mm.N_ = N
+    mm.G_ = G
+    mm.K_ = K
+    mm.num_binary_targets_ = num_binary
+
+    mm.R_ = torch.zeros(N, K)
+    inc = 0
+    sids = []
+    for gg in range(G):
+        vec = np.exp(np.random.randn(K))
+        vec_norm = vec/np.sum(vec)
+        sid = f'sid_{gg}'
+        for nn in range(num_long_data_pts):
+            mm.R_[inc, :] = torch.from_numpy(vec_norm)
+            sids.append(sid)
+            inc += 1
+    
+    mm.X_ = torch.from_numpy(np.random.rand(N, M))
+    mm.Y_ = torch.from_numpy(np.random.rand(N, D))
+    for dd in range(num_gaussian, num_binary):
+        tmp_ids = mm.Y_[:, dd] > 0.5
+        mm.Y_[tmp_ids, dd] = 1
+        mm.Y_[~tmp_ids, dd] = 0    
+
+    mm.w_mu_ = torch.from_numpy(np.random.randn(M, D, K))
+    mm.w_var_ = torch.from_numpy(np.exp(np.random.randn(M, D, K)))
+
+    mm.lambda_a_ = torch.from_numpy(np.exp(np.random.randn(D, K)))
+    mm.lambda_b_ = torch.from_numpy(np.exp(np.random.randn(D, K)))    
+
+    mm.u_mu_ = torch.from_numpy(np.random.randn(G, D, K, M))
+
+    df = pd.DataFrame()
+    df['sid'] = sids
+    for xx in range(M):
+        df[predictor_names[xx]] = mm.X_[:, xx]
+    for yy in range(D):
+        df[target_names[yy]] = mm.Y_[:, yy]
+
+    mm.gb_ = df.groupby('sid') 
+    mm.N_to_G_index_map_ = np.arange(N)
+    for ii, (kk, vv) in enumerate(mm.gb_.groups.items()):
+        mm.N_to_G_index_map_[vv] = ii
+    
+    return mm
+
 
 def test_prior_info_from_model():
     """
@@ -720,3 +803,337 @@ def test_coef_override_routes_shared_predictor_to_shared_block():
 
     assert prior_info['w_mu0_shared']['y']['cohort'] == 1.5
     assert prior_info['w_var0_shared']['y']['cohort'] == 0.25**2    
+
+def test_prior_info_from_model_exports_shared_predictors_separately():
+    np.random.seed(123)
+    torch.manual_seed(123)
+
+    # ------------------------------------------------------------------
+    # Simulate simple Gaussian longitudinal data with one shared predictor
+    # ------------------------------------------------------------------
+    n_subjects = 80
+    n_timepoints = 4
+    K_fit = 4
+
+    subject_ids = []
+    time_vals = []
+    cohort_vals = []
+    y_vals = []
+
+    true_traj = np.random.binomial(1, 0.5, size=n_subjects)
+    subject_cohort = np.random.binomial(1, 0.5, size=n_subjects)
+
+    beta_cohort = 1.5
+    intercepts = {0: 0.0, 1: 1.0}
+    slopes = {0: 0.2, 1: 0.9}
+    sigma = 0.4
+
+    for g in range(n_subjects):
+        sid = f'subj_{g}'
+        k = true_traj[g]
+        cohort = subject_cohort[g]
+
+        for t in range(n_timepoints):
+            mu = intercepts[k] + slopes[k] * t + beta_cohort * cohort
+            y = np.random.normal(mu, sigma)
+
+            subject_ids.append(sid)
+            time_vals.append(float(t))
+            cohort_vals.append(float(cohort))
+            y_vals.append(float(y))
+
+    df = pd.DataFrame({
+        'id': subject_ids,
+        'intercept': 1.0,
+        'time': time_vals,
+        'cohort': cohort_vals,
+        'y': y_vals
+    })
+
+    predictor_names = ['intercept', 'time', 'cohort']
+    target_names = ['y']
+
+    w_mu0 = np.zeros((3, 1))
+    w_var0 = np.ones((3, 1)) * 10.0
+    lambda_a0 = np.ones(1)
+    lambda_b0 = np.ones(1)
+
+    mm = MultDPRegression(
+        w_mu0, w_var0,
+        lambda_a0, lambda_b0,
+        1, 1.0,
+        K=K_fit
+    )
+
+    mm.fit(
+        target_names=target_names,
+        predictor_names=predictor_names,
+        df=df,
+        groupby='id',
+        iters=40,
+        verbose=False,
+        shared_predictor_names=['cohort']
+    )
+
+    # ------------------------------------------------------------------
+    # Export priors from the fitted model
+    # ------------------------------------------------------------------
+    pg = PriorGenerator(
+        targets=['y'],
+        preds=['intercept', 'time'],
+        shared_predictors=['cohort']
+    )
+    pg.set_model(mm)
+    pg.prior_info_from_model('y')
+
+    # Shared predictor should be exported to shared block
+    assert 'cohort' in pg.prior_info_['w_mu0_shared']['y']
+    assert 'cohort' in pg.prior_info_['w_var0_shared']['y']
+
+    # Shared predictor should not appear in the legacy block
+    assert 'cohort' not in pg.prior_info_['w_mu0']['y']
+    assert 'cohort' not in pg.prior_info_['w_var0']['y']
+
+    # Check that exported value matches model shared posterior
+    assert np.isclose(
+        pg.prior_info_['w_mu0_shared']['y']['cohort'],
+        mm.w_mu_shared_[0, 0].item()
+    )
+    assert np.isclose(
+        pg.prior_info_['w_var0_shared']['y']['cohort'],
+        mm.w_var_shared_[0, 0].item()
+    )
+
+    # Legacy predictors should still export normally
+    assert 'intercept' in pg.prior_info_['w_mu0']['y']
+    assert 'time' in pg.prior_info_['w_mu0']['y']
+    assert np.isfinite(pg.prior_info_['w_mu0']['y']['time'])
+    assert np.isfinite(pg.prior_info_['w_var0']['y']['time'])    
+
+def test_traj_prior_info_from_model_ignores_shared_predictors():
+    np.random.seed(123)
+    torch.manual_seed(123)
+
+    # ------------------------------------------------------------------
+    # Simulate simple Gaussian longitudinal data
+    # ------------------------------------------------------------------
+    n_subjects = 60
+    n_timepoints = 4
+    K_fit = 4
+
+    subject_ids = []
+    time_vals = []
+    cohort_vals = []
+    y_vals = []
+
+    true_traj = np.random.binomial(1, 0.5, size=n_subjects)
+    subject_cohort = np.random.binomial(1, 0.5, size=n_subjects)
+
+    beta_cohort = 1.2
+    intercepts = {0: 0.0, 1: 1.0}
+    slopes = {0: 0.1, 1: 0.8}
+    sigma = 0.4
+
+    for g in range(n_subjects):
+        sid = f'subj_{g}'
+        k = true_traj[g]
+        cohort = subject_cohort[g]
+
+        for t in range(n_timepoints):
+            mu = intercepts[k] + slopes[k] * t + beta_cohort * cohort
+            y = np.random.normal(mu, sigma)
+
+            subject_ids.append(sid)
+            time_vals.append(float(t))
+            cohort_vals.append(float(cohort))
+            y_vals.append(float(y))
+
+    df = pd.DataFrame({
+        'id': subject_ids,
+        'intercept': 1.0,
+        'time': time_vals,
+        'cohort': cohort_vals,
+        'y': y_vals
+    })
+
+    predictor_names = ['intercept', 'time', 'cohort']
+    target_names = ['y']
+
+    w_mu0 = np.zeros((3, 1))
+    w_var0 = np.ones((3, 1)) * 10.0
+    lambda_a0 = np.ones(1)
+    lambda_b0 = np.ones(1)
+
+    mm = MultDPRegression(
+        w_mu0, w_var0,
+        lambda_a0, lambda_b0,
+        1, 1.0,
+        K=K_fit
+    )
+
+    mm.fit(
+        target_names=target_names,
+        predictor_names=predictor_names,
+        df=df,
+        groupby='id',
+        iters=30,
+        verbose=False,
+        shared_predictor_names=['cohort']
+    )
+
+    active_trajs = torch.where(mm.sig_trajs_)[0].cpu().numpy()
+    assert len(active_trajs) > 0
+    traj = int(active_trajs[0])
+
+    pg = PriorGenerator(
+        targets=['y'],
+        preds=['intercept', 'time'],
+        shared_predictors=['cohort']
+    )
+    pg.set_model(mm)
+    pg.traj_prior_info_from_model('y', traj)
+
+    # Only trajectory-specific predictors should appear in traj prior export
+    assert 'intercept' in pg.prior_info_['w_mu']
+    assert 'time' in pg.prior_info_['w_mu']
+    assert 'cohort' not in pg.prior_info_['w_mu']
+
+    assert 'intercept' in pg.prior_info_['w_var']
+    assert 'time' in pg.prior_info_['w_var']
+    assert 'cohort' not in pg.prior_info_['w_var']
+
+    # Check values are present for the requested trajectory
+    assert 'y' in pg.prior_info_['w_mu']['intercept']
+    assert 'y' in pg.prior_info_['w_mu']['time']
+
+    assert len(pg.prior_info_['w_mu']['intercept']['y']) > traj
+    assert len(pg.prior_info_['w_mu']['time']['y']) > traj
+    assert len(pg.prior_info_['w_var']['time']['y']) > traj
+
+    assert np.isfinite(pg.prior_info_['w_mu']['intercept']['y'][traj])
+    assert np.isfinite(pg.prior_info_['w_mu']['time']['y'][traj])
+    assert np.isfinite(pg.prior_info_['w_var']['time']['y'][traj])
+
+def test_prior_info_from_model_round_trip_shared_schema():
+    np.random.seed(321)
+    torch.manual_seed(321)
+
+    # ------------------------------------------------------------------
+    # Simulate Gaussian longitudinal data with one shared predictor
+    # ------------------------------------------------------------------
+    n_subjects = 70
+    n_timepoints = 4
+    K_fit = 4
+
+    subject_ids = []
+    time_vals = []
+    cohort_vals = []
+    y_vals = []
+
+    true_traj = np.random.binomial(1, 0.5, size=n_subjects)
+    subject_cohort = np.random.binomial(1, 0.5, size=n_subjects)
+
+    beta_cohort = 1.8
+    intercepts = {0: 0.0, 1: 0.8}
+    slopes = {0: 0.2, 1: 0.9}
+    sigma = 0.45
+
+    for g in range(n_subjects):
+        sid = f'subj_{g}'
+        k = true_traj[g]
+        cohort = subject_cohort[g]
+
+        for t in range(n_timepoints):
+            mu = intercepts[k] + slopes[k] * t + beta_cohort * cohort
+            y = np.random.normal(mu, sigma)
+
+            subject_ids.append(sid)
+            time_vals.append(float(t))
+            cohort_vals.append(float(cohort))
+            y_vals.append(float(y))
+
+    df = pd.DataFrame({
+        'id': subject_ids,
+        'intercept': 1.0,
+        'time': time_vals,
+        'cohort': cohort_vals,
+        'y': y_vals
+    })
+
+    predictor_names = ['intercept', 'time', 'cohort']
+    target_names = ['y']
+
+    w_mu0 = np.zeros((3, 1))
+    w_var0 = np.ones((3, 1)) * 10.0
+    lambda_a0 = np.ones(1)
+    lambda_b0 = np.ones(1)
+
+    mm = MultDPRegression(
+        w_mu0, w_var0,
+        lambda_a0, lambda_b0,
+        1, 1.0,
+        K=K_fit
+    )
+
+    mm.fit(
+        target_names=target_names,
+        predictor_names=predictor_names,
+        df=df,
+        groupby='id',
+        iters=35,
+        verbose=False,
+        shared_predictor_names=['cohort']
+    )
+
+    # ------------------------------------------------------------------
+    # Export prior info from the fitted model
+    # ------------------------------------------------------------------
+    pg = PriorGenerator(
+        targets=['y'],
+        preds=['intercept', 'time'],
+        shared_predictors=['cohort']
+    )
+    pg.set_model(mm)
+    pg.prior_info_from_model('y')
+
+    prior_info = pg.prior_info_
+
+    # Shared schema should be present
+    assert 'shared_predictors' in prior_info
+    assert 'w_mu0_shared' in prior_info
+    assert 'w_var0_shared' in prior_info
+
+    assert prior_info['shared_predictors'] == ['cohort']
+    assert 'cohort' in prior_info['w_mu0_shared']['y']
+    assert 'cohort' in prior_info['w_var0_shared']['y']
+
+    # Exported shared priors should be finite
+    assert np.isfinite(prior_info['w_mu0_shared']['y']['cohort'])
+    assert np.isfinite(prior_info['w_var0_shared']['y']['cohort'])
+
+    # Legacy block should still be finite for non-shared predictors
+    assert np.isfinite(prior_info['w_mu0']['y']['intercept'])
+    assert np.isfinite(prior_info['w_var0']['y']['intercept'])
+    assert np.isfinite(prior_info['w_mu0']['y']['time'])
+    assert np.isfinite(prior_info['w_var0']['y']['time'])    
+
+def test_prior_info_from_model_predictor_set_validation_with_shared_preds():
+    pg = PriorGenerator(
+        targets=['y'],
+        preds=['intercept', 'time'],
+        shared_predictors=['cohort']
+    )
+
+    mm = get_basic_model(G=2, M=3, num_gaussian=1, num_binary=0, K=3, num_long_data_pts=2)
+    mm.predictor_names_ = ['intercept', 'time', 'cohort']
+    mm.target_names_ = ['y']
+    mm.shared_predictor_names_ = ['cohort']
+    mm.num_shared_preds_ = 1
+    mm.num_traj_preds_ = 2
+    mm.w_mu_shared_ = torch.zeros((1, 1), dtype=torch.float64)
+    mm.w_var_shared_ = torch.ones((1, 1), dtype=torch.float64)
+
+    pg.set_model(mm)
+
+    # Should not raise
+    pg.prior_info_from_model('y')    
