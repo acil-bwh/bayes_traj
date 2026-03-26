@@ -179,7 +179,7 @@ def main():
     # Get dataframe column that was used to create groups, if groups exist
     if mm.gb_ is not None:
         groupby_col = mm.gb_.keys if isinstance(mm.gb_.keys, str) \
-            else self.gb_.keys().name        
+            else mm.gb_.keys().name        
         num_groups = (mm.gb_.obj).groupby(groupby_col).ngroups
     else:
         num_groups = df_traj.shape[0]
@@ -281,10 +281,14 @@ def main():
                                     "[95% Cred. Int.]".center(20)))
             print("-"*row_width)
             for (ii, tar) in enumerate(mm.target_names_):
-                for (jj, pred) in enumerate(mm.predictor_names_):
+                traj_indices = \
+                    mm.traj_indices_ if hasattr(mm, 'traj_indices_') \
+                    else np.arange(len(mm.predictor_names_))
+                for jj in traj_indices:
+                    pred = mm.predictor_names_[jj]
                     co = mm.w_mu_[jj, ii, traj]
                     std = np.sqrt(mm.w_var_[jj, ii, traj])
-
+                
                     if abs(co) < sci_notation_threshold:
                         co_str = f'{co:.2e}'.center(20)
                     else:
@@ -321,7 +325,45 @@ def main():
                             print(ranef_cov_str)
                             print("")                
             print("")
+            
+    #---------------------------------------------------------------------------
+    # Shared continuous fixed effects
+    #---------------------------------------------------------------------------
+    if hasattr(mm, 'shared_indices_') and hasattr(mm, 'w_mu_shared_') and \
+       (len(mm.shared_indices_) > 0):
 
+        output_str += '\n'
+        output_str += 'Shared continuous fixed effects\n'
+        output_str += '------------------------------\n'
+
+        for (ii, target) in enumerate(mm.target_names_):
+            if mm.target_type_[ii] != 'gaussian':
+                continue
+
+            output_str += '\n'
+            output_str += f'Target: {target}\n'
+            output_str += '\n'
+            output_str += '{:<20} {:>12} {:>12}\n'.format(
+                'Predictor', 'Mean', 'Std')
+
+            output_str += '{:<20} {:>12} {:>12}\n'.format(
+                '---------', '----', '---')
+
+            for (j, pred_idx) in enumerate(mm.shared_indices_):
+                pred = mm.predictor_names_[pred_idx]
+                co = mm.w_mu_shared_[j, ii]
+                std = np.sqrt(mm.w_var_shared_[j, ii])
+
+                if torch.is_tensor(co):
+                    co = co.item()
+                if torch.is_tensor(std):
+                    std = std.item()
+
+                output_str += \
+                    '{:<20} {:>12.4f} {:>12.4f}\n'.format(pred, co, std)
+
+
+            
             
 if __name__ == "__main__":
     main()

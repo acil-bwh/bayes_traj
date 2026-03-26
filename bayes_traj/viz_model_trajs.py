@@ -24,6 +24,11 @@ def main():
     parser.add_argument('--x_label', help='Label to display on x-axis. If none \
         given, the variable name specified with the x_axis flag will be used.',
         type=str, default=None)
+    parser.add_argument('--set_vals', help='Comma-separated predictor=value '
+        'pairs to pin predictors to fixed values when plotting trajectories. '
+        'Example: "cohort=1,sex=0". Predictors not specified here and not '
+        'used for the x-axis default to their sample means.',
+        type=str, default=None)    
     parser.add_argument('--trajs', help='Comma-separated list of trajectories to \
         plot. If none specified, all trajectories will be plotted.', type=str,
         default=None)
@@ -66,6 +71,19 @@ def main():
     
     op = parser.parse_args()
 
+    set_vals = {}
+    if op.set_vals is not None:
+        for item in op.set_vals.split(','):
+            item = item.strip()
+            if item == '':
+                continue
+            assert '=' in item, \
+                "--set_vals entries must have the form predictor=value"
+            pred, val = item.split('=')
+            pred = pred.strip()
+            val = float(val.strip())
+            set_vals[pred] = val
+            
     traj_map = None
     if op.traj_map is not None:
         traj_map = {}
@@ -79,6 +97,10 @@ def main():
             'x-axis variable not among model predictor variables'
         assert op.y_axis in mm.target_names_, \
             'y-axis variable not among model target variables'
+
+        for pred in set_vals:
+            assert pred in mm.predictor_names_, \
+                f"{pred} from --set_vals not among model predictors"
         
         show = op.fig_file is None
 
@@ -97,14 +119,14 @@ def main():
                          max_traj_prob=op.max_traj_prob, traj_map=traj_map,
                          hide_scatter=op.hs, hide_traj_details=op.htd,
                          traj_markers=traj_markers, traj_colors=traj_colors,
-                         fill_alpha=op.fill_alpha)
+                         fill_alpha=op.fill_alpha, set_vals=set_vals)
         else:            
             ax = mm.plot(op.x_axis, op.y_axis, op.x_label, op.y_label,
                          show=show, min_traj_prob=op.min_traj_prob,
                          max_traj_prob=op.max_traj_prob, traj_map=traj_map,
                          hide_scatter=op.hs, hide_traj_details=op.htd,
                          traj_markers=traj_markers, traj_colors=traj_colors,
-                         fill_alpha=op.fill_alpha)
+                         fill_alpha=op.fill_alpha, set_vals=set_vals)
             
         if op.ylim is not None:
             plt.ylim(float(op.ylim.strip('--').split(',')[0]),

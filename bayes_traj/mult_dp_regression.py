@@ -3070,7 +3070,7 @@ class MultDPRegression:
     def plot(self, x_axis, y_axis, x_label=None, y_label=None, which_trajs=None,
              show=True, min_traj_prob=0, max_traj_prob=1, traj_map=None,
              hide_traj_details=False, hide_scatter=False, traj_markers=None,
-             traj_colors=None, fill_alpha=0.3):
+             traj_colors=None, fill_alpha=0.3, set_vals=None):
         """Generates a 2D plot of trajectory results. The original data will be
         shown as a scatter plot, color-coded according to trajectory membership.
         Trajectories will be plotted with line plots indicating the expected
@@ -3085,6 +3085,9 @@ class MultDPRegression:
     
         TODO: Update to accomodate binary target variables as necessary
         """
+        if set_vals is None:
+            set_vals = {}
+            
         has_shared = hasattr(self, 'num_shared_preds_') and \
             (self.num_shared_preds_ > 0)
     
@@ -3099,38 +3102,52 @@ class MultDPRegression:
                             num_dom_locs)
     
         target_index = np.where(np.array(self.target_names_) == y_axis)[0][0]
-    
+
         X_tmp = np.ones([num_dom_locs, self.M_])
         for (inc, pp) in enumerate(self.predictor_names_):
             tmp_pow = pp.split('^')
             tmp_int = pp.split('*')
     
+            if pp in set_vals:
+                X_tmp[:, inc] = set_vals[pp]
+                continue
+    
+            if pp.lower() in ['intercept']:
+                X_tmp[:, inc] = 1.0
+                continue
+    
             if len(tmp_pow) > 1:
-                if x_axis in tmp_pow:
-                    X_tmp[:, inc] = x_dom ** int(tmp_pow[1])
-                else:
-                    X_tmp[:, inc] = np.mean(self.df_[pp].values)
+                base_pred = tmp_pow[0]
+                power = int(tmp_pow[-1])
     
+                if x_axis == base_pred:
+                    X_tmp[:, inc] = x_dom ** power
+                elif base_pred in set_vals:
+                    X_tmp[:, inc] = set_vals[base_pred] ** power
+                else:
+                    X_tmp[:, inc] = np.mean(self.df_[base_pred].values) ** power
             elif len(tmp_int) > 1:
-                if x_axis in tmp_int:
-                    other_vars = [vv for vv in tmp_int if vv != x_axis]
-                    if len(other_vars) == 0:
-                        X_tmp[:, inc] = x_dom
+                vals = []
+                for pred_part in tmp_int:
+                    if pred_part == x_axis:
+                        vals.append(x_dom)
+                    elif pred_part in set_vals:
+                        vals.append(np.ones(num_dom_locs) * set_vals[pred_part])
+                    elif pred_part.lower() in ['intercept']:
+                        vals.append(np.ones(num_dom_locs))
                     else:
-                        prod_term = np.ones(num_dom_locs)
-                        for ov in other_vars:
-                            prod_term *= np.mean(self.df_[ov].values)
-                        X_tmp[:, inc] = x_dom * prod_term
-                else:
-                    X_tmp[:, inc] = np.mean(self.df_[pp].values)
-            else:
-                if pp == x_axis:
-                    X_tmp[:, inc] = x_dom
-                elif pp.lower() in ['intercept',]:
-                    X_tmp[:, inc] = 1.0
-                else:
-                    X_tmp[:, inc] = np.mean(self.df_[pp].values)            
+                        vals.append(np.ones(num_dom_locs) *
+                                    np.mean(self.df_[pred_part].values))
     
+                prod = np.ones(num_dom_locs)
+                for vv in vals:
+                    prod = prod * vv
+                X_tmp[:, inc] = prod
+            elif pp == x_axis:
+                X_tmp[:, inc] = x_dom
+            else:
+                X_tmp[:, inc] = np.mean(self.df_[pp].values)
+                            
         X_tmp_torch = torch.from_numpy(X_tmp).double()
     
         fig, ax = plt.subplots()
