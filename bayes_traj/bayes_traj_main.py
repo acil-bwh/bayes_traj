@@ -225,8 +225,22 @@ def main():
         if 'Sig0' in prior_file_info.keys():
             prior_data['Sig0'] = prior_file_info['Sig0']
         if 'ranef_indices' in prior_file_info.keys():
-            prior_data['ranef_indices'] = prior_file_info['ranef_indices']
-        
+            ranef_indices_traj = prior_file_info['ranef_indices']
+
+            if ranef_indices_traj is None:
+                prior_data['ranef_indices'] = None
+            else:
+                ranef_indices_traj = \
+                    np.asarray(ranef_indices_traj).astype(bool)
+
+                assert ranef_indices_traj.shape[0] == len(preds_traj), \
+                    "ranef_indices length does not match number of trajectory-specific predictors"
+
+                ranef_indices_full = np.zeros(len(preds), dtype=bool)
+                ranef_indices_full[:len(preds_traj)] = ranef_indices_traj
+
+                prior_data['ranef_indices'] = ranef_indices_full        
+            
         prior_data['alpha'] = prior_file_info['alpha']
         for (d, target) in enumerate(op.targets.split(',')):
             prior_data['lambda_a0'][d] = prior_file_info['lambda_a0'][target]
