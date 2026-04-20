@@ -574,6 +574,28 @@ class MultDPRegression:
                                               row_ids=row_ids,
                                               test_data=test_data)
         return shared + traj + ranef
+
+    def recenter_random_effects(self):
+        if self.ranef_indices_ is None:
+            return
+    
+        ranef_ids = np.where(self.ranef_indices_)[0]
+        group_weights = self.R_[self.group_first_index_, :] 
+    
+        for dd in range(self.D_):
+            if self.target_type_[dd] != 'gaussian':
+                continue
+    
+            for kk in np.where(self.sig_trajs_)[0]:
+                wk = group_weights[:, kk]
+                wk_sum = torch.sum(wk)
+                if wk_sum <= 0:
+                    continue
+    
+                for ri in ranef_ids:
+                    delta = torch.sum(wk * self.u_mu_[:, dd, kk, ri]) / wk_sum
+                    self.u_mu_[:, dd, kk, ri] -= delta
+                    self.w_mu_[ri, dd, kk] += delta
     
     def fit(self, target_names, predictor_names, df, groupby=None, iters=100,
             R=None, traj_probs=None, traj_probs_weight=None, v_a=None,
@@ -925,12 +947,14 @@ class MultDPRegression:
             self.update_v()
             if (self.ranef_indices_ is not None):
                 if np.sum(self.ranef_indices_) > 0:
-                    self.update_u()            
+                    self.update_u()
+                    self.recenter_random_effects()
             if self.num_binary_targets_ > 0:
                 self.update_w_logistic(em_iters=1)
             if (self.D_ - self.num_binary_targets_ > 0) and \
                (not weights_only):
-                self.update_w_gaussian()                
+                self.update_w_gaussian()
+                self.recenter_random_effects()
                 self.update_lambda()
             self.R_ = self.update_z(self.X_, self.Y_)
 
@@ -939,7 +963,6 @@ class MultDPRegression:
             if verbose:
                 torch.set_printoptions(precision=2)
                 print(f"iter {inc}, {torch.sum(self.R_, dim=0).numpy()}")
-
                 
     def update_v(self):
         """Updates the parameters of the Beta distributions for latent
@@ -3082,12 +3105,10 @@ class MultDPRegression:
         plotting routine will take care of the higher order terms). Predictor
         variables not specified to be on the x-axis will be set to their mean
         values for plotting.
-    
-        TODO: Update to accomodate binary target variables as necessary
         """
         if set_vals is None:
             set_vals = {}
-            
+    
         has_shared = hasattr(self, 'num_shared_preds_') and \
             (self.num_shared_preds_ > 0)
     
@@ -3102,7 +3123,7 @@ class MultDPRegression:
                             num_dom_locs)
     
         target_index = np.where(np.array(self.target_names_) == y_axis)[0][0]
-
+    
         X_tmp = np.ones([num_dom_locs, self.M_])
         for (inc, pp) in enumerate(self.predictor_names_):
             tmp_pow = pp.split('^')
@@ -3126,6 +3147,7 @@ class MultDPRegression:
                     X_tmp[:, inc] = set_vals[base_pred] ** power
                 else:
                     X_tmp[:, inc] = np.mean(self.df_[base_pred].values) ** power
+    
             elif len(tmp_int) > 1:
                 vals = []
                 for pred_part in tmp_int:
@@ -3143,14 +3165,16 @@ class MultDPRegression:
                 for vv in vals:
                     prod = prod * vv
                 X_tmp[:, inc] = prod
+    
             elif pp == x_axis:
                 X_tmp[:, inc] = x_dom
+    
             else:
                 X_tmp[:, inc] = np.mean(self.df_[pp].values)
-                            
+    
         X_tmp_torch = torch.from_numpy(X_tmp).double()
     
-        fig, ax = plt.subplots()
+        fig, ax = plt.subplots(figsize=(6, 6))
     
         # Scatter plot of observed data
         if not hide_scatter:
@@ -3173,7 +3197,7 @@ class MultDPRegression:
     
                 ax.scatter(df_traj.loc[ids, x_axis].values,
                            df_traj.loc[ids, y_axis].values,
-                           alpha=0.4, color=color)
+                           alpha=0.1, color=color, edgecolor='k')
     
         # Plot expected trajectory means
         inc = 0
@@ -3188,29 +3212,41 @@ class MultDPRegression:
             # ---------------------------------------------------------------
             # Mean trajectory prediction
             # ---------------------------------------------------------------
-            if self.target_type_[target_index] == 'gaussian':                
+            if self.target_type_[target_index] == 'gaussian':
                 mu = self._get_gaussian_mean(
                     X_tmp_torch,
                     target_index,
                     traj_ids=[kk],
-                    test_data=True).squeeze(1)                
+                    test_data=True
+                ).squeeze(1)
+    
             else:
                 mu = torch.sum(
                     X_tmp_torch * self.w_mu_[:, target_index, kk].unsqueeze(0),
-                    dim=1)
-                            
+                    dim=1
+                )
+    
             mu = mu.detach().cpu().numpy()
-            
+    
             # ---------------------------------------------------------------
-            # Residual band
+            # Plot scale and uncertainty
             # ---------------------------------------------------------------
             if self.target_type_[target_index] == 'gaussian':
+                y_plot = mu
                 sig = np.sqrt(
                     self.lambda_b_[target_index, kk].item() /
-                    self.lambda_a_[target_index, kk].item())
-                lower = mu - 2 * sig
-                upper = mu + 2 * sig
+                    self.lambda_a_[target_index, kk].item()
+                )
+                lower = y_plot - 2 * sig
+                upper = y_plot + 2 * sig
+    
+            elif self.target_type_[target_index] == 'binary':
+                y_plot = 1.0 / (1.0 + np.exp(-mu))
+                lower = None
+                upper = None
+    
             else:
+                y_plot = mu
                 lower = None
                 upper = None
     
@@ -3235,7 +3271,8 @@ class MultDPRegression:
             if traj_markers is not None:
                 marker = traj_markers[inc]
     
-            ax.plot(x_dom, mu, label=label, color=color, marker=marker)
+            ax.plot(x_dom, y_plot, label=label, color=color, marker=marker,
+                    linewidth=3)
     
             if self.target_type_[target_index] == 'gaussian':
                 ax.fill_between(x_dom, lower, upper, alpha=fill_alpha,
@@ -3250,12 +3287,17 @@ class MultDPRegression:
     
         ax.set_xlabel(x_label)
         ax.set_ylabel(y_label)
+    
+        if self.target_type_[target_index] == 'binary':
+            ax.set_ylim(-0.05, 1.05)
+    
         ax.legend()
     
         if show:
             plt.show()
         else:
             return ax
+    
     
     def plot_orig(self, x_axis, y_axis, x_label=None, y_label=None, which_trajs=None,
              show=True, min_traj_prob=0, max_traj_prob=1, traj_map=None,
