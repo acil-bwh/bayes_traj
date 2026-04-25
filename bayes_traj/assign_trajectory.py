@@ -11,11 +11,11 @@ def main():
     """
     """
     desc = """Assigns individuals to trajectory subgroups using data 
-    contained in the input csv file and a trajectory model. The individuals can 
-    be different from those used to train the model. However, it is assumed that 
-    the predictor names and target names match. If random effects were specified
-    for fitting the model, only the fixed effects will be used for the 
-    assignment."""
+    contained in the input csv file (if specified) and a trajectory model. 
+    The individuals can be different from those used to train the model. 
+    However, it is assumed that the predictor names and target names match. 
+    If random effects were specified for fitting the model, only the fixed 
+    effects will be used for the assignment."""
 
     args = ArgumentParser(desc)
     args.add_argument('--in_csv', help='Input csv data file. Individuals in \
@@ -23,7 +23,7 @@ def main():
         the specified data set is the same as the one used to train the model, \
         only the fixed effects will be used for the assignment. For more \
         accurate assignment in this case, it is recommended to specify an \
-        output csv file when invoking bayes_traj_main.', required=True,
+        output csv file when invoking bayes_traj_main.', default=None,
         type=str)
     args.add_argument('--groupby', help='Subject identifier column name in the \
         input data file to use for grouping.', required=False, type=str,
@@ -47,9 +47,6 @@ def main():
 
     op = args.parse_args()
     
-    print("Reading data...")
-    df = pd.read_csv(op.in_csv)
-
     print("Reading model...")
     mm = pd.read_pickle(op.model)['MultDPRegression']
     
@@ -63,8 +60,14 @@ def main():
         for ii in np.where(mm.sig_trajs_)[0]:
             traj_map[ii] = ii
     
-    print("Assigning...")    
-    df_out = mm.augment_df_with_traj_info(df, op.groupby, test_data=True)
+    print("Assigning...")
+    if op.in_csv is None:
+        df_out = mm.to_df()
+    else:
+        print("Reading data...")
+        df = pd.read_csv(op.in_csv)
+        df_out = mm.augment_df_with_traj_info(df, op.groupby, test_data=True)
+        
     df_out.replace({'traj': traj_map}, inplace=True)
 
     # Rename the columns containing the per-trajectory probabilities
