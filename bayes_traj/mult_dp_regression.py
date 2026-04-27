@@ -2410,6 +2410,215 @@ class MultDPRegression:
     def compute_waic2(self, S=100, seed=None):
         """Computes the Watanabe-Akaike (aka widely available) information
         criterion, using the variance of individual terms in the log predictive
+        density summed over the observed row-target entries.
+    
+        Missing target values are ignored by assigning likelihood contribution 1.0
+        (log contribution 0.0) for those row-target entries.
+    
+        Parameters
+        ----------
+        S : integer, optional
+            The number of draws from the posterior to use when computing the
+            required expectations.
+    
+        seed : int, optional
+            The seed to use for reproducibility. If None, the default
+            random seed will be used.
+    
+        Returns
+        -------
+        waic2 : float
+            The Watanabe-Akaike information criterion.
+        """
+        if seed is not None:
+            torch.manual_seed(seed)
+            np.random.seed(seed)
+    
+        if 'N_to_G_index_map_' not in dir(self):
+            self._set_N_to_G_index_map()
+    
+        if ('group_first_index_' not in dir(self)) or \
+           (self.group_first_index_ is None):
+            if self.gb_ is not None:
+                group_first_index = np.zeros(self.N_, dtype=bool)
+                for _, vv in self.gb_.groups.items():
+                    group_first_index[vv[0]] = True
+                self.group_first_index_ = group_first_index
+            else:
+                self.group_first_index_ = np.ones(self.N_, dtype=bool)
+    
+        if not hasattr(self, 'ranef_indices_'):
+            self.ranef_indices_ = None
+    
+        has_shared = hasattr(self, 'num_shared_preds_') and \
+            (self.num_shared_preds_ > 0)
+    
+        sig_traj_ids = np.where(self.sig_trajs_)[0]
+        num_trajs = len(sig_traj_ids)
+    
+        # ----------------------------------------------------------------------
+        # Sample trajectory assignments at the subject/group level, then repeat
+        # across rows belonging to each subject.
+        # ----------------------------------------------------------------------
+        group_probs = self.R_[:, self.sig_trajs_][self.group_first_index_, :]
+        if group_probs.ndim == 1:
+            group_probs = group_probs.unsqueeze(1)
+    
+        # Robust renormalization
+        group_probs = group_probs / group_probs.sum(dim=1, keepdim=True)
+    
+        traj_samples = torch.multinomial(
+            group_probs,
+            num_samples=S,
+            replacement=True
+        )[self.N_to_G_index_map_, :]
+    
+        traj_samples_one_hot = torch.zeros(
+            self.N_, S, num_trajs, dtype=torch.float64
+        )
+        traj_samples_one_hot.scatter_(2, traj_samples.unsqueeze(-1), 1.0)
+    
+        # ----------------------------------------------------------------------
+        # likelihood_samples[n, d, s] = p(y_nd | posterior draw s)
+        #
+        # For missing y_nd, set likelihood contribution to 1 so that:
+        #   log(mean_s likelihood)) = log(1) = 0
+        # and
+        #   var_s(log likelihood) = 0
+        # ----------------------------------------------------------------------
+        likelihood_samples = torch.ones(self.N_, self.D_, S, dtype=torch.float64)
+    
+        for dd in range(self.D_):
+            obs_ids = ~torch.isnan(self.Y_[:, dd])
+    
+            # If this target dimension is completely missing, skip it
+            if torch.sum(obs_ids) == 0:
+                continue
+    
+            co_x_preds = torch.zeros(self.N_, S, num_trajs, dtype=torch.float64)
+    
+            # ------------------------------------------------------------------
+            # Sample shared fixed effects once per target dimension
+            # ------------------------------------------------------------------
+            shared_linpred = torch.zeros(self.N_, S, dtype=torch.float64)
+            if has_shared and self.target_type_[dd] == 'gaussian':
+                shared_mu = self.w_mu_shared_[:, dd].expand(S, -1)
+                shared_std = torch.sqrt(self.w_var_shared_[:, dd].expand(S, -1))
+                shared_w_samples = torch.normal(mean=shared_mu, std=shared_std)
+    
+                X_shared = self.X_[:, self.shared_indices_]
+                shared_linpred = torch.matmul(X_shared, shared_w_samples.T)
+    
+            for ii, kk in enumerate(sig_traj_ids):
+                # --------------------------------------------------------------
+                # Sample trajectory-specific fixed effects
+                # --------------------------------------------------------------
+                w_samples = torch.normal(
+                    mean=self.w_mu_[:, dd, kk].expand(S, -1),
+                    std=torch.sqrt(self.w_var_[:, dd, kk].expand(S, -1))
+                )
+    
+                # Shared predictors should not contribute through the
+                # trajectory-specific Gaussian block
+                if has_shared and self.target_type_[dd] == 'gaussian':
+                    w_samples[:, self.shared_indices_] = 0.0
+    
+                # --------------------------------------------------------------
+                # Sample random effects for Gaussian targets, if present
+                # --------------------------------------------------------------
+                if self.ranef_indices_ is not None and self.target_type_[dd] == 'gaussian':
+                    u_mu_tmp = self.u_mu_[:, dd, kk, self.ranef_indices_].unsqueeze(1)
+    
+                    u_Sig_tmp = self.u_Sig_[:, dd, kk, self.ranef_indices_, :] \
+                        [:, :, self.ranef_indices_].unsqueeze(1)
+    
+                    mvn = MultivariateNormal(
+                        u_mu_tmp.expand(-1, S, -1),
+                        u_Sig_tmp.expand(-1, S, -1, -1)
+                    )
+    
+                    # Subject-level draws -> row-level draws
+                    ranef_samples = mvn.sample()[self.N_to_G_index_map_, :, :]
+    
+                    ranef_samples_holder = torch.zeros(
+                        self.N_, S, self.M_, dtype=torch.float64
+                    )
+                    ranef_samples_holder[:, :, self.ranef_indices_] = ranef_samples
+    
+                    co_samples = w_samples.unsqueeze(0).repeat(self.N_, 1, 1) + \
+                        ranef_samples_holder
+                else:
+                    co_samples = w_samples.unsqueeze(0).repeat(self.N_, 1, 1)
+    
+                assert co_samples.shape == (self.N_, S, self.M_)
+    
+                traj_ranef_linpred = torch.einsum('nsm,nm->ns', co_samples, self.X_)
+    
+                if self.target_type_[dd] == 'gaussian':
+                    co_x_preds[:, :, ii] = traj_ranef_linpred + shared_linpred
+                else:
+                    co_x_preds[:, :, ii] = traj_ranef_linpred
+    
+            # ------------------------------------------------------------------
+            # Select the prediction implied by the sampled trajectory draw
+            # ------------------------------------------------------------------
+            pred_samples = (co_x_preds * traj_samples_one_hot).sum(dim=2)  # (N, S)
+    
+            # ------------------------------------------------------------------
+            # Compute likelihood samples only on observed entries
+            # ------------------------------------------------------------------
+            if self.target_type_[dd] == 'gaussian':
+                lambda_b_ = self.lambda_b_[dd, sig_traj_ids].unsqueeze(0)
+                lambda_a_ = self.lambda_a_[dd, sig_traj_ids].unsqueeze(0)
+    
+                # Gamma(shape, rate)
+                prec_draws_by_traj = torch.distributions.Gamma(
+                    lambda_a_, lambda_b_
+                ).sample((S,)).squeeze(1)  # (S, K)
+    
+                prec_samples = (
+                    prec_draws_by_traj.unsqueeze(0) * traj_samples_one_hot
+                ).sum(dim=2)  # (N, S)
+    
+                y_obs = self.Y_[obs_ids, dd].unsqueeze(-1)
+                pred_obs = pred_samples[obs_ids, :]
+                prec_obs = prec_samples[obs_ids, :]
+    
+                likelihood_samples[obs_ids, dd, :] = \
+                    ((prec_obs / (2 * torch.pi)) ** 0.5) * \
+                    torch.exp(-0.5 * prec_obs * (y_obs - pred_obs) ** 2)
+    
+            elif self.target_type_[dd] == 'binary':
+                y_obs = self.Y_[obs_ids, dd].unsqueeze(-1)
+                pred_obs = pred_samples[obs_ids, :]
+    
+                # Stable Bernoulli probability computation
+                p_obs = torch.sigmoid(pred_obs)
+    
+                likelihood_samples[obs_ids, dd, :] = \
+                    (p_obs ** y_obs) * ((1.0 - p_obs) ** (1.0 - y_obs))
+    
+            else:
+                raise AttributeError('Unknown target type')
+    
+        # ----------------------------------------------------------------------
+        # Tally pointwise contributions over row-target cells
+        # ----------------------------------------------------------------------
+        likelihood_samples_clipped = torch.clamp(likelihood_samples, min=1e-45)
+    
+        log_mean_lik = torch.log(torch.mean(likelihood_samples_clipped, dim=2))
+        log_lik_draws = torch.log(likelihood_samples_clipped)
+    
+        lppd = torch.sum(log_mean_lik)
+        pwaic = torch.sum(torch.var(log_lik_draws, dim=2, unbiased=False))
+    
+        waic2 = -2.0 * (lppd - pwaic)
+    
+        return waic2.item() if torch.is_tensor(waic2) else waic2
+        
+    def compute_waic2_orig(self, S=100, seed=None):
+        """Computes the Watanabe-Akaike (aka widely available) information
+        criterion, using the variance of individual terms in the log predictive
         density summed over the n data points.
     
         TODO: Test implementation of binary target accomodation
