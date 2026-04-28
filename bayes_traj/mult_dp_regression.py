@@ -865,7 +865,7 @@ class MultDPRegression:
 
         self.num_binary_targets_ = 0
         for d in range(self.D_):
-            if set(self.Y_[:, d].tolist()) <= {1.0, 0.0}:
+            if set(self.Y_[~torch.isnan(self.Y_[:, d]), d].tolist()) <= {1.0, 0.0}:
                 self.target_type_[d] = 'binary'
                 self.num_binary_targets_ += 1
             else:
