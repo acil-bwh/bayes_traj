@@ -77,7 +77,10 @@ def main():
     parser.add_argument('--num_init_trajs', help='If specified, the \
         initialization procedure will attempt to ensure that the number of \
         initial trajectories in the fitting routine equals the specified \
-        number.', metavar='<int>', type=int, default=None)        
+        number.', metavar='<int>', type=int, default=None)
+    parser.add_argument('--num_fin_trajs', help='If specified, the \
+        the fitted model must have this number of trajectories to be saved.',
+        metavar='<int>', type=int, default=None)            
     parser.add_argument('--waic2_thresh', help='Model will only be written to \
         file provided that the WAIC2 value is below this threshold',
         dest='waic2_thresh', metavar='<float>', type=float,
@@ -420,8 +423,10 @@ def main():
                 
         if False: #op.use_pyro:
             pass
-        elif r == 0:
-            if (op.out_model is not None) and (waic2 < op.waic2_thresh):
+        elif r == 0:            
+            if (op.out_model is not None) and (waic2 < op.waic2_thresh) and \
+               (op.num_fin_trajs is None or \
+                op.num_fin_trajs == torch.sum(mm.sig_trajs_).item()):        
                 print("Saving model...")
                 pickle.dump({'MultDPRegression': mm}, open(op.out_model, 'wb'))
 
@@ -445,7 +450,9 @@ def main():
                 best_waic2 = waic2
         else:            
             print(f"Current WAIC2: {waic2}")
-            if (waic2 < best_waic2) and (waic2 < op.waic2_thresh):
+            if (waic2 < best_waic2) and (waic2 < op.waic2_thresh) and \
+               (op.num_fin_trajs is None or \
+                op.num_fin_trajs == torch.sum(mm.sig_trajs_).item()):                
                 best_waic2 = waic2
         
                 if op.out_model is not None:
