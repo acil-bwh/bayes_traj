@@ -420,21 +420,26 @@ def main():
                 torch.save(model, op.out_model)
 
         waic2 = mm.compute_waic2(op.s, op.seed)
-                
+        
         if False: #op.use_pyro:
             pass
-        elif r == 0:            
-            if (op.out_model is not None) and (waic2 < op.waic2_thresh) and \
+        elif r == 0:
+            if (waic2 < op.waic2_thresh) and \
                (op.num_fin_trajs is None or \
-                op.num_fin_trajs == torch.sum(mm.sig_trajs_).item()):        
-                print("Saving model...")
-                pickle.dump({'MultDPRegression': mm}, open(op.out_model, 'wb'))
+                op.num_fin_trajs == torch.sum(mm.sig_trajs_).item()):
+                if repeats > 1:
+                    best_waic2 = waic2                
+            
+                if (op.out_model is not None):        
+                    print("Saving model...")
+                    pickle.dump({'MultDPRegression': mm},
+                                open(op.out_model, 'wb'))
 
-                print("Saving model provenance info...")
-                provenance_desc = """ """
-                write_provenance_data(op.out_model, generator_args=op,
-                                      desc=provenance_desc,
-                                      module_name='bayes_traj')
+                    print("Saving model provenance info...")
+                    provenance_desc = """ """
+                    write_provenance_data(op.out_model, generator_args=op,
+                                          desc=provenance_desc,
+                                          module_name='bayes_traj')
 
             if op.out_csv is not None:
                 print("Saving data file with trajectory info...")
@@ -444,10 +449,7 @@ def main():
                 provenance_desc = """ """
                 write_provenance_data(op.out_csv, generator_args=op,
                                       desc=provenance_desc,
-                                      module_name='bayes_traj')
-                
-            if repeats > 1:
-                best_waic2 = waic2
+                                      module_name='bayes_traj')                
         else:            
             print(f"Current WAIC2: {waic2}")
             if (waic2 < best_waic2) and (waic2 < op.waic2_thresh) and \
