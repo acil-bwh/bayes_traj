@@ -441,15 +441,15 @@ def main():
                                           desc=provenance_desc,
                                           module_name='bayes_traj')
 
-            if op.out_csv is not None:
-                print("Saving data file with trajectory info...")
-                mm.to_df().to_csv(op.out_csv, index=False)
-
-                print("Saving data file provenance info...")
-                provenance_desc = """ """
-                write_provenance_data(op.out_csv, generator_args=op,
-                                      desc=provenance_desc,
-                                      module_name='bayes_traj')                
+                if op.out_csv is not None:
+                    print("Saving data file with trajectory info...")
+                    mm.to_df().to_csv(op.out_csv, index=False)
+ 
+                    print("Saving data file provenance info...")
+                    provenance_desc = """ """
+                    write_provenance_data(op.out_csv, generator_args=op,
+                                          desc=provenance_desc,
+                                          module_name='bayes_traj')                
         else:            
             print(f"Current WAIC2: {waic2}")
             if (waic2 < best_waic2) and (waic2 < op.waic2_thresh) and \
