@@ -896,6 +896,11 @@ class MultDPRegression:
                 self.init_R_mat(traj_probs, traj_probs_weight)
             else:
                 for ii in range(100):
+                    if traj_probs is None:
+                        traj_probs = np.zeros(self.K_)
+                        traj_probs[0:num_init_trajs] = 1./num_init_trajs
+                    if traj_probs_weight is None:
+                        traj_probs_weight = 1.
                     self.init_R_mat(traj_probs, traj_probs_weight)
                     if torch.sum(self.sig_trajs_).item() == num_init_trajs:
                         break
