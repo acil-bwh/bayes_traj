@@ -305,7 +305,14 @@ class MultDPRegression:
         try:
             self.group_first_index_ = np.array(mm.group_first_index_).astype(bool)
         except:
-            self._set_group_first_index(self.df_, self.gb_)
+            self.group_first_index_ = self._get_group_first_index(
+                self.df_, self.gb_)
+        try:
+            self.group_first_row_by_group_ = np.array(
+                mm.group_first_row_by_group_).astype(int)
+        except:
+            self.group_first_row_by_group_ = \
+                self._get_group_first_row_by_group(self.df_, self.gb_)
     
         try:
             self.xi_ = mm.xi_.clone()
@@ -376,10 +383,41 @@ class MultDPRegression:
 
     def _set_group_first_index(self, df, gb):
         """
+        Store both historical boolean first-row mask and an ordered vector of
+        representative row indices aligned to the internal group index.
+
+        ``group_first_index_`` is retained for backward compatibility. Boolean
+        indexing with it returns groups in dataframe-row order, which is not
+        guaranteed to match pandas GroupBy iteration order. Any quantity aligned
+        to G-dimensional state must instead use ``group_first_row_by_group_``.
         """
         self.group_first_index_ = self._get_group_first_index(df, gb)
+        self.group_first_row_by_group_ = \
+            self._get_group_first_row_by_group(df, gb)
 
-        
+    def _get_group_first_row_by_group(self, df, gb=None):
+        """Representative dataframe row for each group in internal G order."""
+        if gb is None:
+            return np.arange(df.shape[0], dtype=int)
+        return np.asarray(
+            [np.asarray(vv)[0] for _, vv in gb.groups.items()],
+            dtype=int)
+
+    def _ensure_group_first_row_by_group(self):
+        """Lazily construct ordered representative rows for older pickles."""
+        rows = getattr(self, 'group_first_row_by_group_', None)
+        if rows is None or len(rows) != self.G_:
+            rows = self._get_group_first_row_by_group(self.df_, self.gb_)
+            self.group_first_row_by_group_ = rows
+        return np.asarray(rows, dtype=int)
+
+    def _get_group_responsibilities(self, R=None):
+        """Return G x K responsibilities in the model's internal group order."""
+        if R is None:
+            R = self.R_
+        rows = self._ensure_group_first_row_by_group()
+        return R[rows, :]
+
     def _get_group_first_index(self, df, gb=None):
         """This function returns a boolean vector corresponding to the rows in 
         df. Vector elements are false except at those locations corresponding to
@@ -639,7 +677,7 @@ class MultDPRegression:
             return
     
         ranef_ids = np.where(self.ranef_indices_)[0]
-        group_weights = self.R_[self.group_first_index_, :] 
+        group_weights = self._get_group_responsibilities() 
     
         for dd in range(self.D_):
             if self.target_type_[dd] != 'gaussian':
@@ -1201,7 +1239,7 @@ class MultDPRegression:
         if getattr(self, 'ranef_factorization_', 'mean_field') != 'structured':
             raise RuntimeError(
                 'Structured occupancy diagnostics require structured mode')
-        rg = self.R_[self.group_first_index_, :].double()
+        rg = self._get_group_responsibilities().double()
         n_eff = torch.sum(rg, dim=0)
         # Numerically stable probability that a component is empty under the
         # factorized q(z). Clamp only for log1p stability; this is diagnostic.
@@ -1310,7 +1348,7 @@ class MultDPRegression:
         if getattr(self, 'ranef_cov_mode_', 'fixed') != 'estimate':
             return
         ranef_ids = np.where(self.ranef_indices_)[0]
-        r_group = self.R_[self.group_first_index_, :]
+        r_group = self._get_group_responsibilities()
         active = np.where(self.sig_trajs_)[0]
         for dd, tt in enumerate(self.target_names_):
             if self.target_type_[dd] != 'gaussian':
@@ -1531,7 +1569,7 @@ class MultDPRegression:
         """Compute the structured Gaussian ELBO used for convergence QC."""
         if local_scores is None:
             local_scores = self._structured_training_local_scores()
-        rg = self.R_[self.group_first_index_, :]
+        rg = self._get_group_responsibilities()
         safe_r = torch.clamp(rg, min=1e-300)
         elogpi = self._expected_log_stick_weights()[None, :]
         val = torch.sum(rg * (local_scores + elogpi - torch.log(safe_r)))
@@ -1662,8 +1700,8 @@ class MultDPRegression:
 
             local = self._structured_training_local_scores()
             elbo = self.compute_structured_elbo(local)
-            rg = self.R_[self.group_first_index_, :]
-            old_rg = old_r[self.group_first_index_, :]
+            rg = self._get_group_responsibilities()
+            old_rg = self._get_group_responsibilities(old_r)
             dr = float(torch.max(torch.abs(rg - old_rg)))
             dw = float(torch.max(torch.abs(self.w_mu_ - old_w)))
             if old_shared is not None:
@@ -1746,11 +1784,11 @@ class MultDPRegression:
         variable 'v' in the variational approximation.
         """
         self.v_a_ = 1.0 + \
-            torch.sum(self.R_[self.group_first_index_, :], dim=0)        
+            torch.sum(self._get_group_responsibilities(), dim=0)        
 
         for k in torch.arange(0, self.K_):
             self.v_b_[k] = self.alpha_ + \
-                torch.sum(self.R_[self.group_first_index_, k+1:])
+                torch.sum(self._get_group_responsibilities()[:, k+1:])
 
 
     def get_R_matrix(self, df=None, gb_col=None, df_helper=None,
@@ -2629,7 +2667,7 @@ class MultDPRegression:
                 # Compute the right part
                 # ---------------------------------------------------------------
                 tmp_vec = (self.lambda_a_[dd, kk] / self.lambda_b_[dd, kk]) * \
-                    self.R_[self.group_first_index_, kk]
+                    self._get_group_responsibilities()[:, kk]
     
                 tmp_mat = (self.G_r_r_.permute(2, 1, 0) *
                      tmp_vec[np.newaxis, np.newaxis, :]).permute(2, 1, 0) + \
@@ -2678,7 +2716,7 @@ class MultDPRegression:
                # Compute the right part
                #----------------------------------------------------------------
                tmp_vec = (self.lambda_a_[dd, kk]/self.lambda_b_[dd, kk])*\
-                   self.R_[self.group_first_index_, kk]
+                   self._get_group_responsibilities()[:, kk]
 
                tmp_mat = (self.G_r_r_.permute(2, 1, 0) * \
                     tmp_vec[np.newaxis, np.newaxis, :]).permute(2, 1, 0) + \
@@ -3246,7 +3284,7 @@ class MultDPRegression:
         # Sample trajectory assignments at the subject/group level, then repeat
         # across rows belonging to each subject.
         # ----------------------------------------------------------------------
-        group_probs = self.R_[:, self.sig_trajs_][self.group_first_index_, :]
+        group_probs = self._get_group_responsibilities()[:, self.sig_trajs_]
         if group_probs.ndim == 1:
             group_probs = group_probs.unsqueeze(1)
     
@@ -3458,7 +3496,7 @@ class MultDPRegression:
         # sample the traj assignments outside the loop over the target
         # dimensions because the model assumes conditional independenc.
         #-----------------------------------------------------------------------
-        group_probs = self.R_[:, self.sig_trajs_][self.group_first_index_, :]
+        group_probs = self._get_group_responsibilities()[:, self.sig_trajs_]
         if group_probs.ndim == 1:
             group_probs = group_probs.unsqueeze(1)
         
@@ -3645,7 +3683,7 @@ class MultDPRegression:
         # dimensions because the model assumes conditional independenc.
         #-----------------------------------------------------------------------
         traj_samples = torch.multinomial(\
-                        self.R_[:, self.sig_trajs_][self.group_first_index_, :],
+                        self._get_group_responsibilities()[:, self.sig_trajs_],
                     num_samples=S, replacement=True)[self.N_to_G_index_map_, :]
             
         traj_samples_one_hot = torch.zeros(self.N_, S, num_trajs,
@@ -4000,15 +4038,13 @@ class MultDPRegression:
             else:
                 self.group_first_index_ = np.ones(self.N_, dtype=bool)
     
-        group_first_index = self.group_first_index_.astype(bool)
-    
-        if torch.is_tensor(self.R_):
-            R_np = self.R_.numpy()
+        group_R = self._get_group_responsibilities()
+        if torch.is_tensor(group_R):
+            R_np = group_R.detach().cpu().numpy()
         else:
-            R_np = self.R_
-    
-        traj_probs = np.sum(R_np[group_first_index, :], 0) / \
-            np.sum(R_np[group_first_index, :])
+            R_np = np.asarray(group_R)
+
+        traj_probs = np.sum(R_np, 0) / np.sum(R_np)
     
         return traj_probs
     

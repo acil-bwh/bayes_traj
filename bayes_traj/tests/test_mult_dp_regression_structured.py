@@ -172,7 +172,7 @@ class TestStructuredCore(unittest.TestCase):
         mm.ranef_cov_mode_ = "estimate"
 
         active = np.where(mm.sig_trajs_)[0]
-        rg = mm.R_[mm.group_first_index_]
+        rg = mm._get_group_responsibilities()
         numer = torch.zeros((2, 2), dtype=torch.float64)
         denom = torch.tensor(0.0, dtype=torch.float64)
         for k in active:
@@ -276,3 +276,82 @@ def test_covariance_warmup_defers_updates():
     np.testing.assert_allclose(mm.ranef_cov_['y'].numpy(), start.numpy())
     assert not any(
         row['ranef_cov_update_attempted'] for row in mm.inference_history_)
+
+
+def _scramble_group_labels(mm):
+    """Make row-first group order differ from pandas GroupBy/internal G order."""
+    g = mm.G_
+    labels = np.array([f"g{g-i:03d}" for i in range(g)], dtype=object)
+    row_labels = labels[mm.N_to_G_index_map_]
+    mm.df_["id"] = row_labels
+    mm.df_helper_["id"] = row_labels
+    mm.gb_ = mm.df_helper_.groupby("id")
+    mm._set_N_to_G_index_map()
+    mm._set_group_first_index(mm.df_, mm.gb_)
+    mm._initialize_structured_random_effect_state()
+    return mm
+
+
+def test_group_responsibilities_follow_internal_group_order_not_row_order():
+    mm, _, _ = build_manual_model(g=8)
+    mm = _scramble_group_labels(mm)
+
+    row_first_group = np.repeat(np.arange(mm.G_), 5)
+    p = 0.05 + 0.9 * (row_first_group / max(1, mm.G_ - 1))
+    r = np.column_stack([p, 1.0 - p])
+    mm.R_ = torch.tensor(r, dtype=torch.float64)
+
+    group_r = mm._get_group_responsibilities()
+    reconstructed = group_r[
+        torch.as_tensor(mm.N_to_G_index_map_, dtype=torch.long)
+    ]
+    np.testing.assert_allclose(reconstructed.numpy(), mm.R_.numpy(), atol=0.0)
+
+
+def test_structured_qz_update_increases_elbo_with_nonmatching_group_orders():
+    mm, _, _ = build_manual_model(g=20)
+    mm = _scramble_group_labels(mm)
+    mm.update_v()
+    mm.update_u_structured()
+
+    before = mm.compute_structured_elbo()
+    mm.R_ = mm._update_z_structured_training()
+    after = mm.compute_structured_elbo()
+    assert after >= before - 1e-9, (before, after)
+
+
+def test_meanfield_update_u_uses_responsibility_for_correct_group():
+    mm, _, _ = build_manual_model(g=10)
+    mm = _scramble_group_labels(mm)
+    mm.ranef_factorization_ = "mean_field"
+    mm.G_r_r_ = mm.G_r_r_by_target_[0].clone()
+    mm.invSig0_ = {"y": torch.inverse(mm.Sig0_["y"])}
+
+    group_r = torch.zeros((mm.G_, mm.K_), dtype=torch.float64)
+    group_r[:, 0] = torch.linspace(0.05, 0.95, mm.G_)
+    group_r[:, 1] = 1.0 - group_r[:, 0]
+    mm.R_ = group_r[
+        torch.as_tensor(mm.N_to_G_index_map_, dtype=torch.long)
+    ].clone()
+
+    mm.update_u()
+
+    g = mm.G_ // 2
+    k = 0
+    rows = np.where(mm.N_to_G_index_map_ == g)[0]
+    z = mm.X_[rows][:, mm.ranef_indices_]
+    y = mm.Y_[rows, 0]
+    fixed = mm.X_[rows] @ mm.w_mu_[:, 0, k]
+    resid = y - fixed
+    r = group_r[g, k]
+    prec = mm.lambda_a_[0, k] / mm.lambda_b_[0, k]
+    d = mm.Sig0_["y"]
+    expected_cov = torch.linalg.inv(
+        torch.linalg.inv(d) + prec * r * (z.T @ z)
+    )
+    expected_mean = expected_cov @ (prec * r * z.T @ resid)
+
+    np.testing.assert_allclose(
+        mm.u_mu_[g, 0, k, mm.ranef_indices_].numpy(),
+        expected_mean.numpy(), rtol=1e-10, atol=1e-10
+    )
