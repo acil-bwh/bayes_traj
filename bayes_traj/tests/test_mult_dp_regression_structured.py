@@ -105,8 +105,11 @@ def build_manual_model(seed=3, g=30, nvis=5, k=2):
     mm.ranef_cov_warmup_iters_ = 0
     mm.inference_history_ = []
     mm.lower_bounds_ = []
+    mm.objective_converged_ = None
+    mm.parameter_converged_ = False
     mm.converged_ = False
     mm.n_iter_ = 0
+    mm.fit_segment_ = 0
     mm._initialize_structured_random_effect_state()
     return mm, cls, dtrue
 
@@ -355,3 +358,55 @@ def test_meanfield_update_u_uses_responsibility_for_correct_group():
         mm.u_mu_[g, 0, k, mm.ranef_indices_].numpy(),
         expected_mean.numpy(), rtol=1e-10, atol=1e-10
     )
+
+
+
+def test_structured_records_objective_and_parameter_convergence_separately():
+    mm, _, _ = build_manual_model(g=20)
+    mm.structured_tol_elbo_rel_ = 1.0
+    mm.structured_tol_r_ = 0.0
+    mm.structured_tol_w_ = 0.0
+    mm.structured_tol_lambda_ = 0.0
+    mm.structured_tol_ranef_cov_ = 0.0
+    mm.structured_min_iters_ = 1
+    mm.fit_coordinate_ascent_structured(1, verbose=False, weights_only=False)
+    assert mm.objective_converged_ is True
+    assert mm.parameter_converged_ is False
+    assert mm.converged_ is False
+    assert mm.inference_history_[-1]['objective_tolerance_met'] is True
+    assert mm.inference_history_[-1]['parameter_tolerances_met'] is False
+
+
+def test_continue_structured_fit_appends_history_and_iteration_numbers():
+    mm, _, _ = build_manual_model(g=20)
+    mm.fit_coordinate_ascent_structured(2, verbose=False, weights_only=False)
+    first_elbo = mm.inference_history_[-1]['elbo']
+    assert mm.n_iter_ == 2
+    assert mm.fit_segment_ == 0
+
+    mm.continue_structured_fit(
+        iters=2, verbose=False, ranef_cov_mode='fixed',
+        structured_tol_elbo_rel=1e-12,
+        ranef_cov_warmup_iters=0)
+
+    assert mm.n_iter_ == 4
+    assert mm.fit_segment_ == 1
+    assert len(mm.inference_history_) == 4
+    assert [x['iteration'] for x in mm.inference_history_] == [1, 2, 3, 4]
+    assert [x['fit_segment'] for x in mm.inference_history_] == [0, 0, 1, 1]
+    assert mm.inference_history_[2]['elbo'] >= first_elbo - 1e-8
+
+
+def test_continue_structured_fit_can_enable_covariance_estimation():
+    mm, _, _ = build_manual_model(g=30)
+    mm.fit_coordinate_ascent_structured(3, verbose=False, weights_only=False)
+    start_cov = mm.ranef_cov_['y'].clone()
+    mm.continue_structured_fit(
+        iters=2, verbose=False, ranef_cov_mode='estimate',
+        ranef_cov_warmup_iters=0)
+    assert mm.ranef_cov_mode_ == 'estimate'
+    assert any(
+        row['ranef_cov_update_attempted']
+        for row in mm.inference_history_ if row.get('fit_segment') == 1)
+    eig = torch.linalg.eigvalsh(mm.ranef_cov_['y'])
+    assert torch.all(eig >= mm.ranef_cov_min_eig_ * 0.999)

@@ -237,6 +237,14 @@ def main():
         help='Optional CSV path for per-repeat fit/occupancy diagnostics. If '
         'omitted and --out_model is supplied, defaults to '
         '<out_model>.repeat_summary.csv in structured mode.')
+    parser.add_argument('--resume_model', default=None,
+        help='Continue a previously saved structured MultDPRegression pickle '
+        'instead of reinitializing from the prior. --iters is interpreted as '
+        'additional iterations. Only one repeat is allowed when resuming.')
+    parser.add_argument('--resume_reset_history', action='store_true',
+        help='When resuming a structured model, discard prior inference '
+        'history and restart iteration numbering at zero. Model parameters '
+        'are still continued from the saved state.')
 #    parser.add_argument('--use_pyro', help='Use Pyro for inference',
 #        action='store_true')
     
@@ -401,7 +409,7 @@ def main():
     # mode instead treats -k as a truncation ceiling. If the prior contains
     # fewer initialized components, pad the initialization arrays so posterior
     # occupancy can move above the prior's starting K.
-    if op.ranef_factorization == 'structured':
+    if op.ranef_factorization == 'structured' and op.resume_model is None:
         requested_k = int(op.k)
         prior_k = int(K)
         if requested_k < prior_k:
@@ -483,6 +491,14 @@ def main():
     best_repeat = None
 
     structured_mode = op.ranef_factorization == 'structured'
+    resume_mode = op.resume_model is not None
+    if resume_mode and not structured_mode:
+        raise ValueError('--resume_model requires --ranef_factorization structured')
+    if resume_mode and repeats != 1:
+        raise ValueError('--resume_model currently requires --repeats 1')
+    if resume_mode and op.alpha is not None:
+        raise ValueError(
+            '--alpha cannot be changed while resuming; start a new fit instead')
     if structured_mode and op.num_fin_trajs is not None:
         warnings.warn(
             '--num_fin_trajs is ignored in structured DP mode; posterior '
@@ -499,6 +515,31 @@ def main():
         elif op.out_csv is not None:
             repeat_summary_path = str(op.out_csv) + '.repeat_summary.csv'
 
+    resume_mm = None
+    if resume_mode:
+        print(f"Reading structured model to resume: {op.resume_model}")
+        with open(op.resume_model, 'rb') as f:
+            resume_obj = pickle.load(f)
+        if isinstance(resume_obj, dict) and 'MultDPRegression' in resume_obj:
+            resume_obj = resume_obj['MultDPRegression']
+        if not isinstance(resume_obj, MultDPRegression):
+            raise TypeError(
+                '--resume_model did not contain a MultDPRegression object')
+        resume_mm = MultDPRegression(resume_obj)
+        if getattr(resume_mm, 'ranef_factorization_', None) != 'structured':
+            raise ValueError('--resume_model is not a structured fit')
+        if list(resume_mm.target_names_) != list(targets):
+            raise ValueError('resume model target names do not match --targets')
+        if list(resume_mm.predictor_names_) != list(preds):
+            raise ValueError(
+                'resume model predictors do not match the supplied prior')
+        if resume_mm.K_ != int(getattr(resume_mm, 'R_').shape[1]):
+            raise ValueError('resume model has inconsistent K/R dimensions')
+        K = int(resume_mm.K_)
+        print(
+            f"Continuing structured model at Kmax={K} from iteration "
+            f"{getattr(resume_mm, 'n_iter_', 0)}.")
+
     print("Fitting...")
     for r in np.arange(repeats):
         if r > 0:
@@ -509,7 +550,23 @@ def main():
                 print(
                     f"---------- Repeat {r}, Best WAIC2: {best_waic2} ----------")
 
-        if True: #not op.use_pyro:
+        if resume_mode:
+            mm = MultDPRegression(resume_mm)
+            mm.continue_structured_fit(
+                iters=iters, verbose=op.verbose,
+                weights_only=op.weights_only,
+                ranef_cov_mode=op.ranef_cov_mode,
+                ranef_cov_min_eig=op.ranef_cov_min_eig,
+                structured_tol_elbo_rel=op.structured_tol_elbo_rel,
+                structured_tol_r=op.structured_tol_r,
+                structured_tol_w=op.structured_tol_w,
+                structured_tol_lambda=op.structured_tol_lambda,
+                structured_tol_ranef_cov=op.structured_tol_ranef_cov,
+                structured_min_iters=op.structured_min_iters,
+                structured_r_damping=op.structured_r_damping,
+                ranef_cov_warmup_iters=op.ranef_cov_warmup_iters,
+                reset_history=op.resume_reset_history)
+        elif True: #not op.use_pyro:
             mm = MultDPRegression(prior_data['w_mu0'],
                                   prior_data['w_var0'],
                                   prior_data['lambda_a0'],
@@ -580,12 +637,43 @@ def main():
             waic2 = np.nan
             if op.structured_compute_waic:
                 waic2 = mm.compute_waic2(op.s, op.seed)
+            hist = mm.inference_history_
+            last = hist[-1] if len(hist) > 0 else {}
+            segment = int(last.get('fit_segment', getattr(mm, 'fit_segment_', 0)))
+            segment_rows = [
+                hh for hh in hist if int(hh.get('fit_segment', 0)) == segment]
+            deltas = np.asarray(
+                [hh.get('delta_elbo', np.nan) for hh in segment_rows],
+                dtype=float)
+            finite_deltas = deltas[np.isfinite(deltas)]
+            negative_steps = int(np.sum(finite_deltas < -1e-8))
             row = {
                 'repeat': int(r),
                 'selection_metric': 'elbo',
                 'final_elbo': float(final_elbo),
+                'objective_converged': mm.objective_converged_,
+                'parameter_converged': bool(mm.parameter_converged_),
                 'converged': bool(mm.converged_),
                 'iterations': int(mm.n_iter_),
+                'fit_segment': segment,
+                'segment_iterations': int(len(segment_rows)),
+                'final_delta_elbo': last.get('delta_elbo', np.nan),
+                'final_relative_delta_elbo': last.get(
+                    'relative_delta_elbo', np.nan),
+                'final_max_delta_r': last.get('max_delta_r', np.nan),
+                'final_max_delta_w_mean': last.get(
+                    'max_delta_w_mean', np.nan),
+                'final_max_delta_expected_precision': last.get(
+                    'max_delta_expected_precision', np.nan),
+                'final_max_delta_ranef_cov': last.get(
+                    'max_delta_ranef_cov', np.nan),
+                'final_map_agreement_previous': last.get(
+                    'map_agreement_previous', np.nan),
+                'negative_elbo_steps': negative_steps,
+                'elbo_monotone_within_tolerance': bool(negative_steps == 0),
+                'minimum_delta_elbo': (
+                    float(np.min(finite_deltas))
+                    if finite_deltas.size > 0 else np.nan),
                 'expected_occupied_k': occ['expected_occupied_k'],
                 'map_occupied_k': occ['map_occupied_k'],
                 'n_eff_ge_1_k': occ['n_eff_ge_1_k'],
@@ -607,7 +695,9 @@ def main():
                 f"E[Kocc]={occ['expected_occupied_k']:.2f}, "
                 f"MAPK={occ['map_occupied_k']}, "
                 f"tail stick={occ['tail_expected_stick_weight']:.3e}, "
-                f"converged={mm.converged_}")
+                f"objective_conv={mm.objective_converged_}, "
+                f"parameter_conv={mm.parameter_converged_}, "
+                f"joint_conv={mm.converged_}")
 
             if np.isfinite(final_elbo) and final_elbo > best_elbo:
                 best_elbo = float(final_elbo)
@@ -641,10 +731,16 @@ def main():
     if structured_mode:
         print(
             f"Selected repeat {best_repeat} with highest ELBO {best_elbo:.6f}.")
-        if op.structured_tol_elbo_rel is not None and not best_mm.converged_:
+        if op.structured_tol_elbo_rel is not None and \
+           best_mm.objective_converged_ is not True:
             warnings.warn(
                 'Highest-ELBO structured repeat did not meet the requested '
-                'convergence tolerances; inspect repeat summary before use.')
+                'objective convergence tolerance; inspect repeat summary.')
+        elif not best_mm.parameter_converged_:
+            warnings.warn(
+                'Highest-ELBO structured repeat is objective-converged but '
+                'did not meet all parameter-change tolerances; inspect the '
+                'repeat summary before use.')
     else:
         print(
             f"Selected repeat {best_repeat} with lowest WAIC2 {best_waic2}.")

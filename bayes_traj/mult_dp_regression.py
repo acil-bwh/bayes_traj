@@ -336,8 +336,13 @@ class MultDPRegression:
             getattr(mm, 'N_to_G_index_map_', np.arange(self.N_)))
         self.inference_history_ = copy.deepcopy(
             getattr(mm, 'inference_history_', []))
+        self.objective_converged_ = getattr(
+            mm, 'objective_converged_', None)
+        self.parameter_converged_ = getattr(
+            mm, 'parameter_converged_', False)
         self.converged_ = getattr(mm, 'converged_', False)
         self.n_iter_ = getattr(mm, 'n_iter_', 0)
+        self.fit_segment_ = getattr(mm, 'fit_segment_', 0)
         self.G_ = getattr(mm, 'G_', self.N_)
         self.df_helper_ = copy.deepcopy(getattr(mm, 'df_helper_', None))
         self.shared_predictor_names_ = copy.deepcopy(
@@ -379,6 +384,8 @@ class MultDPRegression:
             mm, 'ranef_cov_warmup_iters_', 10)
         self.structured_occupancy_diagnostics_ = copy.deepcopy(
             getattr(mm, 'structured_occupancy_diagnostics_', None))
+        self.final_convergence_diagnostics_ = copy.deepcopy(
+            getattr(mm, 'final_convergence_diagnostics_', None))
 
 
     def _set_group_first_index(self, df, gb):
@@ -906,8 +913,11 @@ class MultDPRegression:
         self.ranef_cov_warmup_iters_ = int(ranef_cov_warmup_iters)
         self.inference_history_ = []
         self.structured_occupancy_diagnostics_ = None
+        self.objective_converged_ = None
+        self.parameter_converged_ = False
         self.converged_ = False
         self.n_iter_ = 0
+        self.fit_segment_ = 0
 
         self.X_ = torch.tensor(df[predictor_names].values, dtype=torch.float64)
         self.Y_ = torch.tensor(df[target_names].values, dtype=torch.float64)
@@ -1100,9 +1110,97 @@ class MultDPRegression:
             # initialization only. Keep every truncated component available
             # throughout VI so a low-mass component can later revive.
             self.sig_trajs_ = torch.ones(self.K_, dtype=torch.bool)
-            self.fit_coordinate_ascent_structured(iters, verbose, weights_only)
+            self.fit_coordinate_ascent_structured(
+                iters, verbose, weights_only, iteration_offset=0)
         else:
             self.fit_coordinate_ascent(iters, verbose, weights_only)
+
+
+    def continue_structured_fit(self, iters=100, verbose=False,
+                                weights_only=False,
+                                ranef_cov_mode=None,
+                                ranef_cov_min_eig=None,
+                                structured_tol_elbo_rel=None,
+                                structured_tol_r=None,
+                                structured_tol_w=None,
+                                structured_tol_lambda=None,
+                                structured_tol_ranef_cov=None,
+                                structured_min_iters=None,
+                                structured_r_damping=None,
+                                ranef_cov_warmup_iters=None,
+                                reset_history=False):
+        """Continue VI from the current saved structured-model state.
+
+        Unlike :meth:`fit`, this method does not reinitialize responsibilities,
+        regression coefficients, residual precisions, stick parameters, or
+        random-effect covariance. It is intended for staged fitting, e.g. first
+        stabilizing a fixed-covariance structured DP fit and subsequently
+        enabling ``ranef_cov_mode='estimate'``.
+
+        ``iters`` is the number of *additional* iterations. History is appended
+        by default and iteration numbers continue from ``n_iter_``.
+        """
+        if getattr(self, 'ranef_factorization_', 'mean_field') != 'structured':
+            raise ValueError(
+                'continue_structured_fit requires a structured model')
+        if iters < 1:
+            raise ValueError('iters must be >= 1')
+
+        if ranef_cov_mode is not None:
+            if ranef_cov_mode not in ('fixed', 'estimate'):
+                raise ValueError("ranef_cov_mode must be 'fixed' or 'estimate'")
+            self.ranef_cov_mode_ = ranef_cov_mode
+        if ranef_cov_min_eig is not None:
+            if ranef_cov_min_eig <= 0:
+                raise ValueError('ranef_cov_min_eig must be > 0')
+            self.ranef_cov_min_eig_ = float(ranef_cov_min_eig)
+        if structured_tol_elbo_rel is not None:
+            self.structured_tol_elbo_rel_ = float(structured_tol_elbo_rel)
+        if structured_tol_r is not None:
+            self.structured_tol_r_ = float(structured_tol_r)
+        if structured_tol_w is not None:
+            self.structured_tol_w_ = float(structured_tol_w)
+        if structured_tol_lambda is not None:
+            self.structured_tol_lambda_ = float(structured_tol_lambda)
+        if structured_tol_ranef_cov is not None:
+            self.structured_tol_ranef_cov_ = float(
+                structured_tol_ranef_cov)
+        if structured_min_iters is not None:
+            if structured_min_iters < 1:
+                raise ValueError('structured_min_iters must be >= 1')
+            self.structured_min_iters_ = int(structured_min_iters)
+        if structured_r_damping is not None:
+            if structured_r_damping <= 0 or structured_r_damping > 1:
+                raise ValueError('structured_r_damping must be in (0,1]')
+            self.structured_r_damping_ = float(structured_r_damping)
+        if ranef_cov_warmup_iters is not None:
+            if ranef_cov_warmup_iters < 0:
+                raise ValueError('ranef_cov_warmup_iters must be >= 0')
+            self.ranef_cov_warmup_iters_ = int(ranef_cov_warmup_iters)
+
+        # Older pickles can be continued after reconstructing the ordered group
+        # representative rows introduced in v5.
+        self._ensure_group_first_row_by_group()
+
+        if reset_history:
+            self.inference_history_ = []
+            iteration_offset = 0
+            self.n_iter_ = 0
+            self.fit_segment_ = 0
+        else:
+            iteration_offset = int(getattr(self, 'n_iter_', 0))
+            self.fit_segment_ = int(getattr(self, 'fit_segment_', 0)) + 1
+
+        # Convergence flags describe the current continuation segment/final
+        # state, not an earlier segment from the loaded pickle.
+        self.objective_converged_ = None
+        self.parameter_converged_ = False
+        self.converged_ = False
+        self.sig_trajs_ = torch.ones(self.K_, dtype=torch.bool)
+        self.fit_coordinate_ascent_structured(
+            int(iters), verbose, weights_only,
+            iteration_offset=iteration_offset)
+        return self
 
 
     def _set_N_to_G_index_map(self):
@@ -1621,7 +1719,8 @@ class MultDPRegression:
         return float(val.detach().cpu())
 
     def fit_coordinate_ascent_structured(self, iters, verbose,
-                                         weights_only=False):
+                                         weights_only=False,
+                                         iteration_offset=0):
         """Coordinate ascent for q(z) q(b|z) Gaussian random effects.
 
         All K truncated-DP components remain computationally available. There
@@ -1721,8 +1820,19 @@ class MultDPRegression:
             ).double()))
             occ = self.get_structured_occupancy_diagnostics()
             self.structured_occupancy_diagnostics_ = occ
+            objective_pass = None
+            if self.structured_tol_elbo_rel_ is not None:
+                objective_pass = bool(
+                    rel < self.structured_tol_elbo_rel_)
+            parameter_pass = bool(
+                dr < self.structured_tol_r_ and
+                dw < self.structured_tol_w_ and
+                dl < self.structured_tol_lambda_ and
+                dcov < self.structured_tol_ranef_cov_)
+
             row = {
-                'iteration': inc,
+                'iteration': int(iteration_offset + inc),
+                'fit_segment': int(getattr(self, 'fit_segment_', 0)),
                 'elbo': elbo,
                 'delta_elbo': de,
                 'relative_delta_elbo': rel,
@@ -1731,6 +1841,10 @@ class MultDPRegression:
                 'max_delta_expected_precision': dl,
                 'max_delta_ranef_cov': dcov,
                 'map_agreement_previous': map_same,
+                'objective_tolerance_met': objective_pass,
+                'parameter_tolerances_met': parameter_pass,
+                'joint_convergence_met': bool(
+                    objective_pass is True and parameter_pass),
                 'mean_max_posterior': float(torch.mean(torch.max(rg, dim=1).values)),
                 'expected_occupied_k': occ['expected_occupied_k'],
                 'map_occupied_k': occ['map_occupied_k'],
@@ -1752,7 +1866,7 @@ class MultDPRegression:
             self.inference_history_.append(row)
             if isinstance(self.lower_bounds_, list):
                 self.lower_bounds_.append(elbo)
-            self.n_iter_ = inc
+            self.n_iter_ = int(iteration_offset + inc)
 
             if verbose:
                 print(
@@ -1762,22 +1876,34 @@ class MultDPRegression:
                     f"E[Kocc] {occ['expected_occupied_k']:.2f}, "
                     f"MAPK {occ['map_occupied_k']}")
 
-            tol_elbo = self.structured_tol_elbo_rel_
             convergence_min = self.structured_min_iters_
             if self.ranef_cov_mode_ == 'estimate':
                 convergence_min = builtins.max(
                     convergence_min, self.ranef_cov_warmup_iters_ + 1)
-            if tol_elbo is not None and inc >= convergence_min and \
-               rel < tol_elbo and dr < self.structured_tol_r_ and \
-               dw < self.structured_tol_w_ and dl < self.structured_tol_lambda_ and \
-               dcov < self.structured_tol_ranef_cov_:
-                self.converged_ = True
-                break
+            if inc >= convergence_min:
+                self.objective_converged_ = objective_pass
+                self.parameter_converged_ = parameter_pass
+                self.converged_ = bool(
+                    objective_pass is True and parameter_pass)
+                if self.converged_:
+                    break
             prev_elbo = elbo
 
         # Always leave a final occupancy/truncation summary on the model.
         self.structured_occupancy_diagnostics_ = \
             self.get_structured_occupancy_diagnostics()
+        if len(self.inference_history_) > 0:
+            last = self.inference_history_[-1]
+            self.final_convergence_diagnostics_ = {
+                key: last.get(key) for key in [
+                    'iteration', 'fit_segment', 'elbo', 'delta_elbo',
+                    'relative_delta_elbo', 'max_delta_r',
+                    'max_delta_w_mean', 'max_delta_expected_precision',
+                    'max_delta_ranef_cov', 'map_agreement_previous',
+                    'objective_tolerance_met',
+                    'parameter_tolerances_met',
+                    'joint_convergence_met']
+            }
 
     def update_v(self):
         """Updates the parameters of the Beta distributions for latent

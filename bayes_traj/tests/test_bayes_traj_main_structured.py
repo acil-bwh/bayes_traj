@@ -48,3 +48,14 @@ def test_expand_structured_prior_handles_absent_optional_initializers():
     for key in ('v_a', 'v_b', 'w_mu', 'w_var', 'lambda_a',
                 'lambda_b', 'traj_probs', 'R'):
         assert out[key] is None
+
+
+
+def test_structured_main_exposes_resume_cli_contract():
+    import inspect
+    import bayes_traj.bayes_traj_main as mod
+    src = inspect.getsource(mod.main)
+    assert '--resume_model' in src
+    assert 'continue_structured_fit' in src
+    assert 'objective_converged' in src
+    assert 'final_max_delta_r' in src
