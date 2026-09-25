@@ -491,8 +491,9 @@ def main():
                 ax, mm, df_traj, selected_subjects, id_col,
                 op.x_axis, op.y_axis, traj_map, op.hide_subject_fit
             )
-            # mm.plot() creates its legend before subject overlays are added.
-            ax.legend()
+            if not op.htd:
+                # mm.plot() creates its legend before subject overlays are added.
+                ax.legend()
 
         if op.ylim is not None:
             plt.ylim(float(op.ylim.strip('--').split(',')[0]),

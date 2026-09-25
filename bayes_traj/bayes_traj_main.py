@@ -12,7 +12,7 @@ from bayes_traj.fit_stats import compute_waic2
 import torch
 import pyro
 from bayes_traj.pyro_helper import *
-from provenance_tools.write_provenance_data import write_provenance_data
+from provenance_tools.provenance_tracker import write_provenance_data
 import pickle, sys, warnings
 
 torch.set_default_dtype(torch.double) # TODO -- may not be desirable to set this globally
@@ -134,6 +134,30 @@ def main():
         WAIC2', type=int, default=100)
     parser.add_argument('--seed', help='Seed to use for WAIC2 \
         sampling', type=int, default=None)
+    parser.add_argument('--ranef_factorization',
+        choices=['mean_field', 'structured'], default='mean_field',
+        help='Random-effect VI factorization. mean_field preserves historical '
+             'bayes_traj behavior; structured uses q(z_i)q(b_i|z_i).')
+    parser.add_argument('--ranef_cov_mode', choices=['fixed', 'estimate'],
+        default='fixed', help='In structured mode, keep the supplied random-'
+        'effect covariance fixed or estimate it during coordinate ascent.')
+    parser.add_argument('--ranef_cov_min_eig', type=float, default=1e-8,
+        help='Minimum eigenvalue for estimated random-effect covariance.')
+    parser.add_argument('--structured_tol_elbo_rel', type=float, default=None,
+        help='Optional relative ELBO convergence tolerance in structured mode. '
+        'If omitted, run the requested number of iterations.')
+    parser.add_argument('--structured_tol_r', type=float, default=1e-5,
+        help='Structured-mode max responsibility-change tolerance.')
+    parser.add_argument('--structured_tol_w', type=float, default=1e-5,
+        help='Structured-mode max coefficient-mean change tolerance.')
+    parser.add_argument('--structured_tol_lambda', type=float, default=1e-5,
+        help='Structured-mode max expected-precision change tolerance.')
+    parser.add_argument('--structured_tol_ranef_cov', type=float, default=1e-5,
+        help='Structured-mode max random-effect covariance change tolerance.')
+    parser.add_argument('--structured_min_iters', type=int, default=5,
+        help='Minimum structured iterations before convergence can be declared.')
+    parser.add_argument('--structured_r_damping', type=float, default=1.0,
+        help='Structured responsibility damping in (0,1].')
 #    parser.add_argument('--use_pyro', help='Use Pyro for inference',
 #        action='store_true')
     
@@ -402,7 +426,17 @@ def main():
                    w_mu0_override=w_mu0_override,
                    w_var0_override=w_var0_override,                   
                    w_mu_fixed=w_mu_fixed,
-                   shared_predictor_names=shared_predictors)
+                   shared_predictor_names=shared_predictors,
+                   ranef_factorization=op.ranef_factorization,
+                   ranef_cov_mode=op.ranef_cov_mode,
+                   ranef_cov_min_eig=op.ranef_cov_min_eig,
+                   structured_tol_elbo_rel=op.structured_tol_elbo_rel,
+                   structured_tol_r=op.structured_tol_r,
+                   structured_tol_w=op.structured_tol_w,
+                   structured_tol_lambda=op.structured_tol_lambda,
+                   structured_tol_ranef_cov=op.structured_tol_ranef_cov,
+                   structured_min_iters=op.structured_min_iters,
+                   structured_r_damping=op.structured_r_damping)
         else:
             restructured_data = get_restructured_data(df, preds, targets, op.groupby)
             model = MultPyro(
@@ -418,6 +452,8 @@ def main():
 
             if op.out_model is not None:
                 torch.save(model, op.out_model)
+                write_provenance_data(op.out_model, generator_args=op,
+                                      module_name='bayes_traj')
 
         waic2 = mm.compute_waic2(op.s, op.seed)
         

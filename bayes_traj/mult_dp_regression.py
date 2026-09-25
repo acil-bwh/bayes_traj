@@ -20,6 +20,7 @@ from scipy.stats import norm
 import pandas as pd
 import pdb, sys, pickle, time, warnings
 import copy
+import builtins
 
 
 
@@ -215,8 +216,7 @@ class MultDPRegression:
         The model instance that will be copied.
 
         """
-        # TODO: handle random effects
-        warnings.warn("copy method does not handle random effects")
+        # Copy legacy and structured random-effect state when present.
         
         # There are currently 31 member variables. Check that this holds.
         members = [attr for attr in dir(mm) \
@@ -264,7 +264,7 @@ class MultDPRegression:
         self.lambda_a_ = mm.lambda_a_.clone()
         self.lambda_b0_ = mm.lambda_b0_.clone()
         self.lambda_b_ = mm.lambda_b_.clone()
-        self.lower_bounds_ = mm.lower_bounds_.clone()
+        self.lower_bounds_ = copy.deepcopy(mm.lower_bounds_)
         self.predictor_names_ = copy.deepcopy(mm.predictor_names_)
         self.prob_thresh_ = mm.prob_thresh_
         self.sig_trajs_ = mm.sig_trajs_.clone()
@@ -313,6 +313,61 @@ class MultDPRegression:
             print("WARNING: xi_ is not an attribue of input model.")
             print("Setting copy version to None")
             self.xi_ = None
+
+        # Random-effect and structured-inference state. Older model pickles do
+        # not contain these attributes, so every field has a backward default.
+        self.Sig0_ = copy.deepcopy(getattr(mm, 'Sig0_', None))
+        self.ranef_indices_ = copy.deepcopy(getattr(mm, 'ranef_indices_', None))
+        self.ranef_factorization_ = getattr(mm, 'ranef_factorization_', 'mean_field')
+        self.ranef_cov_mode_ = getattr(mm, 'ranef_cov_mode_', 'fixed')
+        self.ranef_cov_min_eig_ = getattr(mm, 'ranef_cov_min_eig_', 1e-8)
+        self.ranef_cov_ = copy.deepcopy(getattr(mm, 'ranef_cov_', {}))
+        self.inv_ranef_cov_ = copy.deepcopy(getattr(mm, 'inv_ranef_cov_', {}))
+        self.u_mu_ = copy.deepcopy(getattr(mm, 'u_mu_', None))
+        self.u_Sig_ = copy.deepcopy(getattr(mm, 'u_Sig_', None))
+        self.N_to_G_index_map_ = copy.deepcopy(
+            getattr(mm, 'N_to_G_index_map_', np.arange(self.N_)))
+        self.inference_history_ = copy.deepcopy(
+            getattr(mm, 'inference_history_', []))
+        self.converged_ = getattr(mm, 'converged_', False)
+        self.n_iter_ = getattr(mm, 'n_iter_', 0)
+        self.G_ = getattr(mm, 'G_', self.N_)
+        self.df_helper_ = copy.deepcopy(getattr(mm, 'df_helper_', None))
+        self.shared_predictor_names_ = copy.deepcopy(
+            getattr(mm, 'shared_predictor_names_', []))
+        self.shared_indices_ = copy.deepcopy(
+            getattr(mm, 'shared_indices_', np.array([], dtype=int)))
+        self.traj_indices_ = copy.deepcopy(
+            getattr(mm, 'traj_indices_', np.arange(self.M_)))
+        self.num_shared_preds_ = getattr(mm, 'num_shared_preds_',
+                                         len(self.shared_indices_))
+        self.num_traj_preds_ = getattr(mm, 'num_traj_preds_',
+                                       len(self.traj_indices_))
+        self.w_mu0_shared_ = copy.deepcopy(getattr(mm, 'w_mu0_shared_', None))
+        self.w_var0_shared_ = copy.deepcopy(getattr(mm, 'w_var0_shared_', None))
+        self.w_mu_shared_ = copy.deepcopy(getattr(mm, 'w_mu_shared_', None))
+        self.w_var_shared_ = copy.deepcopy(getattr(mm, 'w_var_shared_', None))
+        self.w_mu_fixed_ = copy.deepcopy(getattr(mm, 'w_mu_fixed_', None))
+        self.w_var_fixed_ = copy.deepcopy(getattr(mm, 'w_var_fixed_', None))
+        self.fixed_ids_ = copy.deepcopy(getattr(mm, 'fixed_ids_', None))
+        self.w_mu0_override_ = copy.deepcopy(getattr(mm, 'w_mu0_override_', None))
+        self.w_var0_override_ = copy.deepcopy(getattr(mm, 'w_var0_override_', None))
+        self.G_r_r_ = copy.deepcopy(getattr(mm, 'G_r_r_', None))
+        self.invSig0_ = copy.deepcopy(getattr(mm, 'invSig0_', None))
+        self.G_r_r_by_target_ = copy.deepcopy(
+            getattr(mm, 'G_r_r_by_target_', None))
+        self.group_nobs_by_target_ = copy.deepcopy(
+            getattr(mm, 'group_nobs_by_target_', None))
+        self.structured_tol_elbo_rel_ = getattr(
+            mm, 'structured_tol_elbo_rel_', None)
+        self.structured_tol_r_ = getattr(mm, 'structured_tol_r_', 1e-5)
+        self.structured_tol_w_ = getattr(mm, 'structured_tol_w_', 1e-5)
+        self.structured_tol_lambda_ = getattr(
+            mm, 'structured_tol_lambda_', 1e-5)
+        self.structured_tol_ranef_cov_ = getattr(
+            mm, 'structured_tol_ranef_cov_', 1e-5)
+        self.structured_min_iters_ = getattr(mm, 'structured_min_iters_', 5)
+        self.structured_r_damping_ = getattr(mm, 'structured_r_damping_', 1.0)
 
 
     def _set_group_first_index(self, df, gb):
@@ -602,7 +657,12 @@ class MultDPRegression:
             v_b=None, w_mu=None, w_var=None, lambda_a=None, lambda_b=None,
             verbose=False, weights_only=False, num_init_trajs=None,
             w_mu0_override=None, w_var0_override=None, w_mu_fixed=None,
-            shared_predictor_names=None):
+            shared_predictor_names=None, ranef_factorization='mean_field',
+            ranef_cov_mode='fixed', ranef_cov_min_eig=1e-8,
+            structured_tol_elbo_rel=None, structured_tol_r=1e-5,
+            structured_tol_w=1e-5, structured_tol_lambda=1e-5,
+            structured_tol_ranef_cov=1e-5, structured_min_iters=5,
+            structured_r_damping=1.0):
         """Performs variational inference (coordinate ascent or SVI) given data
         and provided parameters.
 
@@ -724,10 +784,77 @@ class MultDPRegression:
 
         shared_predictor_names : list of strings
             Predictor names to treat as common across trajectories.
+
+        ranef_factorization : {'mean_field', 'structured'}, optional
+            Random-effect variational factorization. The default
+            'mean_field' preserves historical bayes_traj behavior.
+            'structured' uses q(z_i) q(b_i | z_i), so the class-conditional
+            random-effect posterior is not attenuated by the current class
+            responsibility. Structured mode currently supports Gaussian
+            targets only.
+
+        ranef_cov_mode : {'fixed', 'estimate'}, optional
+            In structured mode, either keep the supplied random-effect
+            covariance fixed (default) or estimate a common covariance per
+            Gaussian outcome from E[b b^T]. 'estimate' is unavailable with
+            the historical mean-field factorization.
+
+        ranef_cov_min_eig : float, optional
+            Minimum eigenvalue imposed on an estimated random-effect
+            covariance matrix.
+
+        structured_tol_elbo_rel : float or None, optional
+            If specified in structured mode, permit early stopping when the
+            relative ELBO change and parameter-change tolerances are met.
+            None preserves fixed-iteration behavior.
+
+        structured_tol_r, structured_tol_w, structured_tol_lambda : float
+            Structured-mode convergence tolerances for responsibilities,
+            coefficient posterior means, and expected residual precisions.
+
+        structured_tol_ranef_cov : float
+            Convergence tolerance for the maximum absolute change in the
+            estimated random-effect covariance (used only with
+            ranef_cov_mode='estimate').
+
+        structured_min_iters : int
+            Minimum number of structured iterations before convergence can be
+            declared.
+
+        structured_r_damping : float
+            Damping in (0,1] for structured responsibility updates.
         """
         if traj_probs_weight is not None:
             assert traj_probs_weight >= 0 and traj_probs_weight <=1, \
                 "Invalid traj_probs_weightd value"
+
+        if ranef_factorization not in ('mean_field', 'structured'):
+            raise ValueError("ranef_factorization must be 'mean_field' or 'structured'")
+        if ranef_cov_mode not in ('fixed', 'estimate'):
+            raise ValueError("ranef_cov_mode must be 'fixed' or 'estimate'")
+        if ranef_cov_mode == 'estimate' and ranef_factorization != 'structured':
+            raise ValueError(
+                "ranef_cov_mode='estimate' requires ranef_factorization='structured'")
+        if ranef_cov_min_eig <= 0:
+            raise ValueError("ranef_cov_min_eig must be > 0")
+        if structured_min_iters < 1:
+            raise ValueError("structured_min_iters must be >= 1")
+        if structured_r_damping <= 0 or structured_r_damping > 1:
+            raise ValueError("structured_r_damping must be in (0,1]")
+
+        self.ranef_factorization_ = ranef_factorization
+        self.ranef_cov_mode_ = ranef_cov_mode
+        self.ranef_cov_min_eig_ = float(ranef_cov_min_eig)
+        self.structured_tol_elbo_rel_ = structured_tol_elbo_rel
+        self.structured_tol_r_ = float(structured_tol_r)
+        self.structured_tol_w_ = float(structured_tol_w)
+        self.structured_tol_lambda_ = float(structured_tol_lambda)
+        self.structured_tol_ranef_cov_ = float(structured_tol_ranef_cov)
+        self.structured_min_iters_ = int(structured_min_iters)
+        self.structured_r_damping_ = float(structured_r_damping)
+        self.inference_history_ = []
+        self.converged_ = False
+        self.n_iter_ = 0
 
         self.X_ = torch.tensor(df[predictor_names].values, dtype=torch.float64)
         self.Y_ = torch.tensor(df[target_names].values, dtype=torch.float64)
@@ -871,6 +998,15 @@ class MultDPRegression:
             else:
                 self.target_type_[d] = 'gaussian'
 
+        if self.ranef_factorization_ == 'structured':
+            if self.ranef_indices_ is None or np.sum(self.ranef_indices_) == 0:
+                raise ValueError(
+                    "ranef_factorization='structured' requires random effects")
+            if self.num_binary_targets_ > 0:
+                raise NotImplementedError(
+                    "Structured random effects currently support Gaussian targets only")
+            self._initialize_structured_random_effect_state()
+
         print("Initializing parameters...")
         self.init_traj_params(traj_probs)
 
@@ -905,7 +1041,10 @@ class MultDPRegression:
                     if torch.sum(self.sig_trajs_).item() == num_init_trajs:
                         break
 
-        self.fit_coordinate_ascent(iters, verbose, weights_only)
+        if self.ranef_factorization_ == 'structured':
+            self.fit_coordinate_ascent_structured(iters, verbose, weights_only)
+        else:
+            self.fit_coordinate_ascent(iters, verbose, weights_only)
 
 
     def _set_N_to_G_index_map(self):
@@ -948,6 +1087,7 @@ class MultDPRegression:
         inc = 0
         while inc < iters:
             inc += 1
+            self.n_iter_ = inc
             
             self.update_v()
             if (self.ranef_indices_ is not None):
@@ -969,6 +1109,498 @@ class MultDPRegression:
                 torch.set_printoptions(precision=2)
                 print(f"iter {inc}, {torch.sum(self.R_, dim=0).numpy()}")
                 
+    # ------------------------------------------------------------------
+    # Structured Gaussian random-effect variational inference
+    # ------------------------------------------------------------------
+    def _initialize_structured_random_effect_state(self):
+        """Initialize covariance state and outcome-specific group support.
+
+        ``Sig0_`` remains the user-supplied starting covariance for backward
+        compatibility. ``ranef_cov_`` is the covariance actually used by the
+        structured factorization and can optionally be updated during fitting.
+        """
+        self.ranef_cov_ = {}
+        self.inv_ranef_cov_ = {}
+        for tt in self.target_names_:
+            cov = self.Sig0_[tt]
+            if not torch.is_tensor(cov):
+                cov = torch.tensor(cov, dtype=torch.float64)
+            else:
+                cov = cov.clone().detach().double()
+            # Cholesky is a stronger validation than a determinant check.
+            torch.linalg.cholesky(cov)
+            self.ranef_cov_[tt] = cov
+            self.inv_ranef_cov_[tt] = torch.inverse(cov)
+
+        q = int(np.sum(self.ranef_indices_))
+        self.G_r_r_by_target_ = torch.zeros(
+            (self.D_, self.G_, q, q), dtype=torch.float64)
+        self.group_nobs_by_target_ = torch.zeros(
+            (self.D_, self.G_), dtype=torch.float64)
+        group_index = torch.as_tensor(
+            self.N_to_G_index_map_, dtype=torch.long)
+        z_all = self.X_[:, self.ranef_indices_]
+        for dd in range(self.D_):
+            mask = ~torch.isnan(self.Y_[:, dd])
+            g = group_index[mask]
+            z = z_all[mask]
+            ones = torch.ones(z.shape[0], dtype=torch.float64)
+            self.group_nobs_by_target_[dd].index_add_(0, g, ones)
+            outer = torch.einsum('ni,nj->nij', z, z)
+            self.G_r_r_by_target_[dd].index_add_(0, g, outer)
+
+    def _get_structured_ranef_cov(self, target_name):
+        if hasattr(self, 'ranef_cov_') and target_name in self.ranef_cov_:
+            return self.ranef_cov_[target_name]
+        cov = self.Sig0_[target_name]
+        return cov.double() if torch.is_tensor(cov) else \
+            torch.tensor(cov, dtype=torch.float64)
+
+    def _expected_log_stick_weights(self):
+        v_a = self.v_a_.double()
+        v_b = self.v_b_.double()
+        elogv = torch.digamma(v_a) - torch.digamma(v_a + v_b)
+        elog1m = torch.digamma(v_b) - torch.digamma(v_a + v_b)
+        out = elogv.clone()
+        for kk in range(1, self.K_):
+            out[kk] += torch.sum(elog1m[:kk])
+        return out
+
+    @staticmethod
+    def _gaussian_kl_zero_mean_prior(mean, cov, prior_cov):
+        """KL[N(mean,cov) || N(0,prior_cov)] for a leading batch."""
+        q = mean.shape[-1]
+        prior_inv = torch.inverse(prior_cov)
+        sign_d, logdet_d = torch.linalg.slogdet(prior_cov)
+        sign_s, logdet_s = torch.linalg.slogdet(cov)
+        if sign_d <= 0 or torch.any(sign_s <= 0):
+            raise RuntimeError("Random-effect covariance is not positive definite")
+        tr = torch.einsum('ab,...ba->...', prior_inv, cov)
+        quad = torch.einsum('...a,ab,...b->...', mean, prior_inv, mean)
+        return 0.5 * (tr + quad - q + logdet_d - logdet_s)
+
+    def update_u_structured(self):
+        """Update q(b_i | z_i=k) without responsibility attenuation.
+
+        This is the key structured-factorization difference from the historical
+        ``update_u`` implementation: the local posterior asks what random effect
+        is supported *conditional on class k*. Class uncertainty is handled in
+        the responsibility update, not by multiplying the random-effect
+        likelihood by r_ik.
+        """
+        if self.ranef_indices_ is None:
+            return
+        ranef_ids = np.where(self.ranef_indices_)[0]
+        group_index_all = torch.as_tensor(
+            self.N_to_G_index_map_, dtype=torch.long)
+
+        for dd, tt in enumerate(self.target_names_):
+            if self.target_type_[dd] != 'gaussian':
+                continue
+            mask = ~torch.isnan(self.Y_[:, dd])
+            x = self.X_[mask, :]
+            z = x[:, self.ranef_indices_]
+            y = self.Y_[mask, dd]
+            g = group_index_all[mask]
+            shared = self._get_gaussian_shared_mean(x, dd)
+            traj = self._get_gaussian_traj_mean(x, dd)
+            prior_inv = torch.inverse(self._get_structured_ranef_cov(tt))
+
+            for kk in np.where(self.sig_trajs_)[0]:
+                residual = y - shared - traj[:, kk]
+                ztr = torch.zeros((self.G_, len(ranef_ids)), dtype=torch.float64)
+                ztr.index_add_(0, g, z * residual[:, None])
+                precision = self.lambda_a_[dd, kk] / self.lambda_b_[dd, kk]
+                post_prec = prior_inv[None, :, :] + \
+                    precision * self.G_r_r_by_target_[dd]
+                post_cov = torch.linalg.inv(post_prec)
+                post_mean = torch.einsum(
+                    'gab,gb->ga', post_cov, precision * ztr)
+
+                self.u_mu_[:, dd, kk, :] = 0.0
+                self.u_mu_[:, dd, kk, ranef_ids] = post_mean
+                # Keep non-random coordinates effectively zero variance while
+                # writing the full random-effect covariance block explicitly.
+                self.u_Sig_[:, dd, kk, :, :] = 1e-20
+                u_slice = self.u_Sig_[:, dd, kk, ranef_ids, :]
+                u_slice[:, :, ranef_ids] = post_cov
+                self.u_Sig_[:, dd, kk, ranef_ids, :] = u_slice
+
+    def update_ranef_covariance_structured(self):
+        """Estimate one common random-effect covariance per Gaussian outcome.
+
+        The point update is E[b b^T] averaged over subjects and classes using
+        q(z_i=k). Subjects with no observation for an outcome are excluded from
+        that outcome's update. A minimum eigenvalue is imposed for numerical
+        stability. ``Sig0_`` is left unchanged as the initialization record.
+        """
+        if getattr(self, 'ranef_cov_mode_', 'fixed') != 'estimate':
+            return
+        ranef_ids = np.where(self.ranef_indices_)[0]
+        r_group = self.R_[self.group_first_index_, :]
+        active = np.where(self.sig_trajs_)[0]
+        for dd, tt in enumerate(self.target_names_):
+            if self.target_type_[dd] != 'gaussian':
+                continue
+            observed = self.group_nobs_by_target_[dd] > 0
+            if torch.sum(observed) == 0:
+                continue
+            numer = torch.zeros(
+                (len(ranef_ids), len(ranef_ids)), dtype=torch.float64)
+            denom = torch.tensor(0.0, dtype=torch.float64)
+            for kk in active:
+                w = r_group[:, kk] * observed.double()
+                mean = self.u_mu_[:, dd, kk, ranef_ids]
+                cov = self.u_Sig_[:, dd, kk, :, :][
+                    :, ranef_ids, :][:, :, ranef_ids]
+                second = cov + torch.einsum('gi,gj->gij', mean, mean)
+                numer += torch.sum(w[:, None, None] * second, dim=0)
+                denom += torch.sum(w)
+            if denom <= 0:
+                continue
+            cov_new = numer / denom
+            cov_new = 0.5 * (cov_new + cov_new.T)
+            vals, vecs = torch.linalg.eigh(cov_new)
+            vals = torch.clamp(vals, min=self.ranef_cov_min_eig_)
+            cov_new = vecs @ torch.diag(vals) @ vecs.T
+            self.ranef_cov_[tt] = cov_new
+            self.inv_ranef_cov_[tt] = torch.inverse(cov_new)
+
+    def _structured_training_local_scores(self):
+        """Return G x K local Gaussian evidence including random-effect KL."""
+        scores = torch.zeros((self.G_, self.K_), dtype=torch.float64)
+        group_index_all = torch.as_tensor(
+            self.N_to_G_index_map_, dtype=torch.long)
+        has_shared = hasattr(self, 'num_shared_preds_') and \
+            self.num_shared_preds_ > 0
+        active = np.where(self.sig_trajs_)[0]
+        ranef_ids = np.where(self.ranef_indices_)[0]
+
+        for dd, tt in enumerate(self.target_names_):
+            if self.target_type_[dd] != 'gaussian':
+                raise NotImplementedError(
+                    "Structured local scores currently support Gaussian targets only")
+            mask = ~torch.isnan(self.Y_[:, dd])
+            x = self.X_[mask, :]
+            y = self.Y_[mask, dd]
+            g = group_index_all[mask]
+
+            shared_mean = self._get_gaussian_shared_mean(x, dd)
+            traj_mean = self._get_gaussian_traj_mean(x, dd)
+            ranef_mean = self._get_gaussian_ranef_mean(
+                self.X_, dd, traj_ids=np.arange(self.K_),
+                row_ids=mask, test_data=False)
+
+            shared_var = torch.zeros(x.shape[0], dtype=torch.float64)
+            if has_shared:
+                xs = x[:, self.shared_indices_]
+                shared_var = torch.sum(
+                    xs ** 2 * self.w_var_shared_[:, dd].unsqueeze(0), dim=1)
+            if has_shared:
+                xt = x[:, self.traj_indices_]
+                wv = self.w_var_[self.traj_indices_, dd, :]
+                traj_var = torch.sum(
+                    xt[:, None, :] ** 2 * wv.T[None, :, :], dim=2)
+            else:
+                traj_var = torch.sum(
+                    x[:, None, :] ** 2 * self.w_var_[:, dd, :].T[None, :, :],
+                    dim=2)
+
+            us = self.u_Sig_[self.N_to_G_index_map_, dd, :, :, :][mask]
+            us = us[:, :, ranef_ids, :][:, :, :, ranef_ids]
+            z = x[:, self.ranef_indices_]
+            ranef_var = torch.einsum('ni,nkij,nj->nk', z, us, z)
+
+            resid = y[:, None] - shared_mean[:, None] - traj_mean - ranef_mean
+            esq = resid ** 2 + shared_var[:, None] + traj_var + ranef_var
+            eloglam = torch.digamma(self.lambda_a_[dd, :]) - \
+                torch.log(self.lambda_b_[dd, :])
+            elam = self.lambda_a_[dd, :] / self.lambda_b_[dd, :]
+            row_ll = 0.5 * (eloglam[None, :] - np.log(2 * np.pi)) - \
+                0.5 * elam[None, :] * esq
+            scores.index_add_(0, g, row_ll)
+
+            prior_cov = self._get_structured_ranef_cov(tt)
+            for kk in active:
+                mean = self.u_mu_[:, dd, kk, ranef_ids]
+                cov = self.u_Sig_[:, dd, kk, :, :][
+                    :, ranef_ids, :][:, :, ranef_ids]
+                scores[:, kk] -= self._gaussian_kl_zero_mean_prior(
+                    mean, cov, prior_cov)
+        return scores
+
+    def _responsibilities_from_group_scores(self, group_scores, group_index):
+        logits = group_scores + self._expected_log_stick_weights()[None, :]
+        logits[:, ~self.sig_trajs_] = -torch.inf
+        new_r = torch.softmax(logits, dim=1)
+        new_r[new_r <= self.prob_thresh_] = 0.0
+        row_sums = torch.sum(new_r, dim=1, keepdim=True)
+        if torch.any(row_sums <= 0):
+            raise RuntimeError("All structured trajectory probabilities were thresholded")
+        new_r = new_r / row_sums
+        return new_r[group_index, :]
+
+    def _update_z_structured_training(self):
+        local = self._structured_training_local_scores()
+        group_index = torch.as_tensor(
+            self.N_to_G_index_map_, dtype=torch.long)
+        r_new = self._responsibilities_from_group_scores(local, group_index)
+        damping = getattr(self, 'structured_r_damping_', 1.0)
+        if damping != 1.0:
+            r_new = (1.0 - damping) * self.R_ + damping * r_new
+            r_new = r_new / torch.sum(r_new, dim=1, keepdim=True)
+        return r_new
+
+    def get_R_matrix_structured(self, df=None, gb_col=None, df_helper=None,
+                                test_data=False):
+        """Infer class probabilities with fresh q(b_i|z_i=k) local factors.
+
+        For new longitudinal subjects this analytically conditions their random
+        effects within every candidate class. This is intentionally different
+        from the historical ``test_data=True`` behavior, which set random
+        effects to zero.
+        """
+        if df is None or df_helper is not None:
+            return self._update_z_structured_training()
+        if self.num_binary_targets_ > 0:
+            raise NotImplementedError(
+                "Structured prediction currently supports Gaussian targets only")
+
+        x = torch.tensor(df[self.predictor_names_].values, dtype=torch.float64)
+        y = torch.tensor(df[self.target_names_].values, dtype=torch.float64)
+        n = x.shape[0]
+        if gb_col is None:
+            group_index = torch.arange(n, dtype=torch.long)
+            g_count = n
+        else:
+            codes, _ = pd.factorize(df[gb_col], sort=False)
+            group_index = torch.tensor(codes, dtype=torch.long)
+            g_count = int(np.max(codes)) + 1
+        z_all = x[:, self.ranef_indices_]
+        ranef_ids = np.where(self.ranef_indices_)[0]
+        active = np.where(self.sig_trajs_)[0]
+        scores = torch.zeros((g_count, self.K_), dtype=torch.float64)
+        has_shared = hasattr(self, 'num_shared_preds_') and \
+            self.num_shared_preds_ > 0
+
+        for dd, tt in enumerate(self.target_names_):
+            mask = ~torch.isnan(y[:, dd])
+            xm = x[mask]
+            ym = y[mask, dd]
+            gm = group_index[mask]
+            zm = z_all[mask]
+            shared_mean = self._get_gaussian_shared_mean(xm, dd)
+            traj_mean = self._get_gaussian_traj_mean(xm, dd)
+
+            shared_var = torch.zeros(xm.shape[0], dtype=torch.float64)
+            if has_shared:
+                xs = xm[:, self.shared_indices_]
+                shared_var = torch.sum(
+                    xs ** 2 * self.w_var_shared_[:, dd].unsqueeze(0), dim=1)
+            if has_shared:
+                xt = xm[:, self.traj_indices_]
+                wv = self.w_var_[self.traj_indices_, dd, :]
+                traj_var = torch.sum(
+                    xt[:, None, :] ** 2 * wv.T[None, :, :], dim=2)
+            else:
+                traj_var = torch.sum(
+                    xm[:, None, :] ** 2 * self.w_var_[:, dd, :].T[None, :, :],
+                    dim=2)
+
+            ztz = torch.zeros(
+                (g_count, len(ranef_ids), len(ranef_ids)), dtype=torch.float64)
+            ztz.index_add_(0, gm, torch.einsum('ni,nj->nij', zm, zm))
+            nobs = torch.zeros(g_count, dtype=torch.float64)
+            nobs.index_add_(0, gm, torch.ones(zm.shape[0], dtype=torch.float64))
+            prior_cov = self._get_structured_ranef_cov(tt)
+            prior_inv = torch.inverse(prior_cov)
+
+            for kk in active:
+                residual = ym - shared_mean - traj_mean[:, kk]
+                ztr = torch.zeros((g_count, len(ranef_ids)), dtype=torch.float64)
+                ztr.index_add_(0, gm, zm * residual[:, None])
+                prec = self.lambda_a_[dd, kk] / self.lambda_b_[dd, kk]
+                post_cov = torch.linalg.inv(
+                    prior_inv[None, :, :] + prec * ztz)
+                post_mean = torch.einsum(
+                    'gab,gb->ga', post_cov, prec * ztr)
+                bmean = torch.einsum('ni,ni->n', zm, post_mean[gm])
+                bvar = torch.einsum('ni,nij,nj->n', zm, post_cov[gm], zm)
+                resid2 = ym - shared_mean - traj_mean[:, kk] - bmean
+                esq = resid2 ** 2 + shared_var + traj_var[:, kk] + bvar
+                eloglam = torch.digamma(self.lambda_a_[dd, kk]) - \
+                    torch.log(self.lambda_b_[dd, kk])
+                row_ll = 0.5 * (eloglam - np.log(2 * np.pi)) - 0.5 * prec * esq
+                grouped = torch.zeros(g_count, dtype=torch.float64)
+                grouped.index_add_(0, gm, row_ll)
+                kl = self._gaussian_kl_zero_mean_prior(
+                    post_mean, post_cov, prior_cov)
+                scores[:, kk] += grouped - kl
+
+        return self._responsibilities_from_group_scores(scores, group_index)
+
+    @staticmethod
+    def _normal_kl_diag(mu, var, mu0, var0):
+        return 0.5 * torch.sum(
+            (var + (mu - mu0) ** 2) / var0 - 1.0 + torch.log(var0 / var))
+
+    @staticmethod
+    def _gamma_kl_rate(a, b, a0, b0):
+        a0 = torch.broadcast_to(a0, a.shape)
+        b0 = torch.broadcast_to(b0, b.shape)
+        return torch.sum(
+            (a - a0) * torch.digamma(a)
+            - torch.lgamma(a) + torch.lgamma(a0)
+            + a0 * (torch.log(b) - torch.log(b0))
+            + a * (b0 / b - 1.0))
+
+    def compute_structured_elbo(self, local_scores=None):
+        """Compute the structured Gaussian ELBO used for convergence QC."""
+        if local_scores is None:
+            local_scores = self._structured_training_local_scores()
+        rg = self.R_[self.group_first_index_, :]
+        safe_r = torch.clamp(rg, min=1e-300)
+        elogpi = self._expected_log_stick_weights()[None, :]
+        val = torch.sum(rg * (local_scores + elogpi - torch.log(safe_r)))
+        active = np.where(self.sig_trajs_)[0]
+
+        mu0_eff = self.w_mu0_[:, :, None].expand(-1, -1, self.K_).clone()
+        var0_eff = self.w_var0_[:, :, None].expand(-1, -1, self.K_).clone()
+        if hasattr(self, 'w_mu0_override_') and self.w_mu0_override_ is not None:
+            mask = ~torch.isnan(self.w_mu0_override_)
+            mu0_eff[mask] = self.w_mu0_override_[mask]
+            var0_eff[mask] = self.w_var0_override_[mask]
+
+        fixed_mask = getattr(self, 'fixed_ids_', None)
+        for dd in range(self.D_):
+            for kk in active:
+                ids = self.traj_indices_
+                mu = self.w_mu_[ids, dd, kk]
+                var = self.w_var_[ids, dd, kk]
+                p_mu = mu0_eff[ids, dd, kk]
+                p_var = var0_eff[ids, dd, kk]
+                if fixed_mask is not None:
+                    keep = ~fixed_mask[ids, dd, kk]
+                    mu, var, p_mu, p_var = mu[keep], var[keep], p_mu[keep], p_var[keep]
+                if mu.numel() > 0:
+                    val -= self._normal_kl_diag(mu, var, p_mu, p_var)
+            if getattr(self, 'num_shared_preds_', 0) > 0:
+                val -= self._normal_kl_diag(
+                    self.w_mu_shared_[:, dd], self.w_var_shared_[:, dd],
+                    self.w_mu0_shared_[:, dd], self.w_var0_shared_[:, dd])
+
+            a = self.lambda_a_[dd, active]
+            b = self.lambda_b_[dd, active]
+            a0 = self.lambda_a0_mod_[dd].expand_as(a)
+            b0 = self.lambda_b0_mod_[dd].expand_as(b)
+            val -= self._gamma_kl_rate(a, b, a0, b0)
+
+        # Beta KL for the truncated stick-breaking weights.
+        a, b = self.v_a_.double(), self.v_b_.double()
+        a0 = torch.ones_like(a)
+        b0 = torch.full_like(b, float(self.alpha_))
+        log_b0 = torch.lgamma(a0) + torch.lgamma(b0) - torch.lgamma(a0 + b0)
+        log_b = torch.lgamma(a) + torch.lgamma(b) - torch.lgamma(a + b)
+        beta_kl = torch.sum(
+            log_b0 - log_b
+            + (a - a0) * torch.digamma(a)
+            + (b - b0) * torch.digamma(b)
+            + (a0 + b0 - a - b) * torch.digamma(a + b))
+        val -= beta_kl
+        return float(val.detach().cpu())
+
+    def fit_coordinate_ascent_structured(self, iters, verbose,
+                                         weights_only=False):
+        """Coordinate ascent for q(z) q(b|z) Gaussian random effects."""
+        # Local factors must correspond to the starting global parameters.
+        self.update_v()
+        self.update_u_structured()
+        local = self._structured_training_local_scores()
+        prev_elbo = self.compute_structured_elbo(local)
+        if verbose:
+            print(f"initial structured ELBO {prev_elbo:.6f}")
+
+        for inc in range(1, iters + 1):
+            old_r = self.R_.clone()
+            old_w = self.w_mu_.clone()
+            old_shared = self.w_mu_shared_.clone() if \
+                getattr(self, 'num_shared_preds_', 0) > 0 else None
+            old_lam = self.lambda_a_ / self.lambda_b_
+            old_cov = {
+                tt: self._get_structured_ranef_cov(tt).clone()
+                for tt in self.target_names_
+            }
+
+            self.update_v()
+            self.update_u_structured()
+            if not weights_only:
+                self.update_w_gaussian()
+                self.update_lambda()
+                if self.ranef_cov_mode_ == 'estimate':
+                    self.update_ranef_covariance_structured()
+                # Local q(b|z) must match the newly updated globals/covariance.
+                self.update_u_structured()
+            self.R_ = self._update_z_structured_training()
+            self.sig_trajs_ = torch.max(self.R_, dim=0).values > self.prob_thresh_
+            self.update_v()
+
+            local = self._structured_training_local_scores()
+            elbo = self.compute_structured_elbo(local)
+            rg = self.R_[self.group_first_index_, :]
+            old_rg = old_r[self.group_first_index_, :]
+            dr = float(torch.max(torch.abs(rg - old_rg)))
+            dw = float(torch.max(torch.abs(self.w_mu_ - old_w)))
+            if old_shared is not None:
+                dw = builtins.max(dw, float(torch.max(torch.abs(
+                    self.w_mu_shared_ - old_shared))))
+            lam = self.lambda_a_ / self.lambda_b_
+            dl = float(torch.max(torch.abs(lam - old_lam)))
+            dcov = max(
+                float(torch.max(torch.abs(
+                    self._get_structured_ranef_cov(tt) - old_cov[tt])))
+                for tt in self.target_names_
+            ) if self.ranef_cov_mode_ == 'estimate' else 0.0
+            de = float(elbo - prev_elbo)
+            rel = abs(de) / builtins.max(1.0, abs(prev_elbo))
+            map_same = float(torch.mean((
+                torch.argmax(rg, dim=1) == torch.argmax(old_rg, dim=1)
+            ).double()))
+            row = {
+                'iteration': inc,
+                'elbo': elbo,
+                'delta_elbo': de,
+                'relative_delta_elbo': rel,
+                'max_delta_r': dr,
+                'max_delta_w_mean': dw,
+                'max_delta_expected_precision': dl,
+                'max_delta_ranef_cov': dcov,
+                'map_agreement_previous': map_same,
+                'mean_max_posterior': float(torch.mean(torch.max(rg, dim=1).values)),
+            }
+            if self.ranef_cov_mode_ == 'estimate':
+                row['ranef_cov'] = {
+                    tt: self.ranef_cov_[tt].detach().cpu().numpy().tolist()
+                    for tt in self.target_names_}
+            self.inference_history_.append(row)
+            if isinstance(self.lower_bounds_, list):
+                self.lower_bounds_.append(elbo)
+            self.n_iter_ = inc
+
+            if verbose:
+                print(
+                    f"iter {inc}, structured ELBO {elbo:.6f}, "
+                    f"dELBO {de:+.3e}, dR {dr:.3e}, dW {dw:.3e}, "
+                    f"dLam {dl:.3e}, dD {dcov:.3e}, MAPsame {map_same:.4f}")
+
+            tol_elbo = self.structured_tol_elbo_rel_
+            if tol_elbo is not None and inc >= self.structured_min_iters_ and \
+               rel < tol_elbo and dr < self.structured_tol_r_ and \
+               dw < self.structured_tol_w_ and dl < self.structured_tol_lambda_ and \
+               dcov < self.structured_tol_ranef_cov_:
+                self.converged_ = True
+                break
+            prev_elbo = elbo
+
     def update_v(self):
         """Updates the parameters of the Beta distributions for latent
         variable 'v' in the variational approximation.
@@ -983,10 +1615,18 @@ class MultDPRegression:
 
     def get_R_matrix(self, df=None, gb_col=None, df_helper=None,
                      test_data=False):
-        """For each individual, computes the probability that he/she belongs to
-        each of the trajectories.
-        Supports shared continuous fixed effects across trajectories.
+        """For each individual, computes trajectory posterior probabilities.
+
+        With historical mean-field random effects this preserves the original
+        implementation. With structured random effects, new/grouped data are
+        classified by analytically optimizing q(b_i | z_i=k) for every class
+        and using its local ELBO contribution, so new subjects no longer have
+        their random-effect contribution silently set to zero.
         """
+        if getattr(self, 'ranef_factorization_', 'mean_field') == 'structured':
+            return self.get_R_matrix_structured(
+                df=df, gb_col=gb_col, df_helper=df_helper,
+                test_data=test_data)
         def _to_double_tensor(x):
             if torch.is_tensor(x):
                 return x.double()
@@ -1338,8 +1978,9 @@ class MultDPRegression:
         return torch.from_numpy(R).double()            
             
     def update_z(self, X, Y):
-        """
-        """
+        """Update trajectory responsibilities."""
+        if getattr(self, 'ranef_factorization_', 'mean_field') == 'structured':
+            return self._update_z_structured_training()
         return self.get_R_matrix(df_helper=self.df_helper_)
 
     
