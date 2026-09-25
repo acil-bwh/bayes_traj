@@ -1555,7 +1555,11 @@ class MultDPRegression:
                     self.w_mu_shared_ - old_shared))))
             lam = self.lambda_a_ / self.lambda_b_
             dl = float(torch.max(torch.abs(lam - old_lam)))
-            dcov = max(
+            # NOTE: numpy.max is imported into this module as `max`.
+            # Use builtins.max here because the argument is a Python generator.
+            # numpy.max(generator) returns the generator object itself, which
+            # later fails when formatted as a float in verbose output.
+            dcov = builtins.max(
                 float(torch.max(torch.abs(
                     self._get_structured_ranef_cov(tt) - old_cov[tt])))
                 for tt in self.target_names_
