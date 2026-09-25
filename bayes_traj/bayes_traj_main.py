@@ -452,8 +452,7 @@ def main():
 
             if op.out_model is not None:
                 torch.save(model, op.out_model)
-                write_provenance_data(op.out_model, generator_args=op,
-                                      module_name='bayes_traj')
+                write_provenance_data(op.out_model, generator_args=op)
 
         waic2 = mm.compute_waic2(op.s, op.seed)
         
@@ -473,9 +472,7 @@ def main():
 
                     print("Saving model provenance info...")
                     provenance_desc = """ """
-                    write_provenance_data(op.out_model, generator_args=op,
-                                          desc=provenance_desc,
-                                          module_name='bayes_traj')
+                    write_provenance_data(op.out_model, generator_args=op)
 
                 if op.out_csv is not None:
                     print("Saving data file with trajectory info...")
@@ -483,9 +480,7 @@ def main():
  
                     print("Saving data file provenance info...")
                     provenance_desc = """ """
-                    write_provenance_data(op.out_csv, generator_args=op,
-                                          desc=provenance_desc,
-                                          module_name='bayes_traj')                
+                    write_provenance_data(op.out_csv, generator_args=op)                
         else:            
             print(f"Current WAIC2: {waic2}")
             if (waic2 < best_waic2) and (waic2 < op.waic2_thresh) and \
@@ -500,9 +495,7 @@ def main():
     
                     print("Saving model provenance info...")
                     provenance_desc = """ """
-                    write_provenance_data(op.out_model, generator_args=op,
-                                          desc=provenance_desc,
-                                          module_name='bayes_traj')
+                    write_provenance_data(op.out_model, generator_args=op)
 
                 if op.out_csv is not None:
                     print("Saving data file with trajectory info...")
@@ -510,9 +503,7 @@ def main():
     
                     print("Saving data file provenance info...")
                     provenance_desc = """ """
-                    write_provenance_data(op.out_csv, generator_args=op,
-                                          desc=provenance_desc,
-                                          module_name='bayes_traj')                    
+                    write_provenance_data(op.out_csv, generator_args=op)                    
                     
     print("DONE.")
 
