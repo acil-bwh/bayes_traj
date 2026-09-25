@@ -13,9 +13,78 @@ import torch
 import pyro
 from bayes_traj.pyro_helper import *
 from provenance_tools.provenance_tracker import write_provenance_data
-import pickle, sys, warnings
+import pickle, sys, warnings, os, json
+from pathlib import Path
+from contextlib import contextmanager
 
 torch.set_default_dtype(torch.double) # TODO -- may not be desirable to set this globally
+
+
+def _find_git_checkout_for_provenance():
+    """Find the git checkout containing this bayes_traj source file."""
+    here = Path(__file__).resolve()
+    for parent in [here.parent] + list(here.parents):
+        if (parent / '.git').exists():
+            return parent
+    return None
+
+
+@contextmanager
+def _provenance_working_directory():
+    """Run provenance_tools from the source checkout, not output cwd."""
+    old = Path.cwd()
+    repo = _find_git_checkout_for_provenance()
+    try:
+        if repo is not None:
+            os.chdir(repo)
+        yield
+    finally:
+        os.chdir(old)
+
+
+def _write_provenance(output_path, op):
+    with _provenance_working_directory():
+        write_provenance_data(output_path, generator_args=op)
+
+
+def _pad_axis(arr, new_k, axis, fill_value):
+    if arr is None:
+        return None
+    is_torch = torch.is_tensor(arr)
+    a = arr.detach().cpu().numpy() if is_torch else np.asarray(arr)
+    old_k = a.shape[axis]
+    if old_k >= new_k:
+        return arr
+    shape = list(a.shape)
+    shape[axis] = new_k - old_k
+    pad = np.full(shape, fill_value, dtype=float)
+    out = np.concatenate([a.astype(float, copy=False), pad], axis=axis)
+    return torch.tensor(out, dtype=torch.float64) if is_torch else out
+
+
+def _expand_structured_prior_to_truncation(prior_data, old_k, new_k):
+    """Pad trajectory-indexed initialization arrays for structured DP VI.
+
+    Existing prior-informed components are retained. Added truncation slots get
+    neutral stick parameters and otherwise uninformative/randomizable values.
+    They are initialization slots, not pre-declared occupied trajectories.
+    """
+    if new_k <= old_k:
+        return prior_data
+    prior_data['v_a'] = _pad_axis(prior_data['v_a'], new_k, 0, 1.0)
+    prior_data['v_b'] = _pad_axis(
+        prior_data['v_b'], new_k, 0, float(prior_data['alpha']))
+    prior_data['w_mu'] = _pad_axis(prior_data['w_mu'], new_k, 2, np.nan)
+    prior_data['w_var'] = _pad_axis(prior_data['w_var'], new_k, 2, np.nan)
+    prior_data['lambda_a'] = _pad_axis(
+        prior_data['lambda_a'], new_k, 1, np.nan)
+    prior_data['lambda_b'] = _pad_axis(
+        prior_data['lambda_b'], new_k, 1, np.nan)
+    prior_data['traj_probs'] = _pad_axis(
+        prior_data['traj_probs'], new_k, 0, 0.0)
+    prior_data['R'] = _pad_axis(prior_data['R'], new_k, 1, 0.0)
+    return prior_data
+
 
 def main():
     """
@@ -62,25 +131,25 @@ def main():
         metavar='<string>', default=None, required=False)
     parser.add_argument('--iters', help='Number of inference iterations',
         dest='iters', metavar='<int>', default=100)
-    parser.add_argument('--repeats', help='Number of repeats to attempt. If a \
-        value greater than 1 is specified, the WAIC2 fit criterion will be \
-        computed at the end of each repeat. If, for a given repeat, the WAIC2 \
-        score is lower than the lowest score seen at that point, the model \
-        will be saved to file.', type=int, metavar='<int>', default=1)
-    parser.add_argument('-k', help='Number of columns in the truncated \
-        assignment matrix', metavar='<int>', default=30)
-    parser.add_argument('--prob_thresh', help='If during data fitting the \
-        probability of a data instance belonging to a given trajectory drops \
-        below this threshold, then the probabality of that data instance \
-        belonging to the trajectory will be set to 0', metavar='<float>',
-        type=float, default=0.001)
-    parser.add_argument('--num_init_trajs', help='If specified, the \
-        initialization procedure will attempt to ensure that the number of \
-        initial trajectories in the fitting routine equals the specified \
-        number.', metavar='<int>', type=int, default=None)
-    parser.add_argument('--num_fin_trajs', help='If specified, the \
-        the fitted model must have this number of trajectories to be saved.',
-        metavar='<int>', type=int, default=None)            
+    parser.add_argument('--repeats', help='Number of repeats to attempt. In '
+        'structured mode, repeats of the same truncated-DP specification are '
+        'ranked by final ELBO (higher is better). Historical mean-field mode '
+        'retains WAIC2-based repeat selection.', type=int, metavar='<int>', default=1)
+    parser.add_argument('-k', help='Truncation ceiling for the assignment '
+        'matrix. In structured DP mode this is a computational ceiling, not '
+        'an enforced number of occupied trajectories. If a prior contains '
+        'fewer components, it is padded up to this ceiling.', metavar='<int>', default=30)
+    parser.add_argument('--prob_thresh', help='Historical mean-field '
+        'probability-pruning threshold. Structured DP mode does not hard-prune '
+        'responsibilities and ignores this threshold during optimization.',
+        metavar='<float>', type=float, default=0.001)
+    parser.add_argument('--num_init_trajs', help='Initialization hint. In '
+        'structured DP mode this affects only the starting responsibilities; '
+        'all truncated components remain eligible to gain posterior mass.',
+        metavar='<int>', type=int, default=None)
+    parser.add_argument('--num_fin_trajs', help='Legacy mean-field save '
+        'filter. Ignored in structured DP mode, where posterior occupancy is '
+        'allowed to be data-driven.', metavar='<int>', type=int, default=None)
     parser.add_argument('--waic2_thresh', help='Model will only be written to \
         file provided that the WAIC2 value is below this threshold',
         dest='waic2_thresh', metavar='<float>', type=float,
@@ -158,6 +227,16 @@ def main():
         help='Minimum structured iterations before convergence can be declared.')
     parser.add_argument('--structured_r_damping', type=float, default=1.0,
         help='Structured responsibility damping in (0,1].')
+    parser.add_argument('--ranef_cov_warmup_iters', type=int, default=10,
+        help='Iterations to hold the supplied random-effect covariance fixed '
+        'before estimated-covariance updates begin in structured mode.')
+    parser.add_argument('--structured_compute_waic', action='store_true',
+        help='Also compute WAIC2 for each structured repeat as a diagnostic. '
+        'WAIC2 is not used to select the best structured repeat.')
+    parser.add_argument('--repeat_summary', default=None,
+        help='Optional CSV path for per-repeat fit/occupancy diagnostics. If '
+        'omitted and --out_model is supplied, defaults to '
+        '<out_model>.repeat_summary.csv in structured mode.')
 #    parser.add_argument('--use_pyro', help='Use Pyro for inference',
 #        action='store_true')
     
@@ -318,6 +397,26 @@ def main():
     if op.alpha is not None:
         prior_data['alpha'] = float(op.alpha)
 
+    # Historical mode preserves the prior-defined K behavior. Structured DP
+    # mode instead treats -k as a truncation ceiling. If the prior contains
+    # fewer initialized components, pad the initialization arrays so posterior
+    # occupancy can move above the prior's starting K.
+    if op.ranef_factorization == 'structured':
+        requested_k = int(op.k)
+        prior_k = int(K)
+        if requested_k < prior_k:
+            warnings.warn(
+                f"Structured truncation -k={requested_k} is below the prior's "
+                f"K={prior_k}; using K={prior_k} instead.")
+            requested_k = prior_k
+        if requested_k > prior_k:
+            print(
+                f"Structured DP: expanding prior initialization from K={prior_k} "
+                f"to truncation K={requested_k}.")
+            prior_data = _expand_structured_prior_to_truncation(
+                prior_data, prior_k, requested_k)
+        K = requested_k
+
     print("Reading data...")
     df = pd.read_csv(in_csv)
     
@@ -377,18 +476,38 @@ def main():
     #---------------------------------------------------------------------------
     # Set up and run the traj alg
     #---------------------------------------------------------------------------
-    waics_tracker = []
-    bics_tracker = []
-    num_tracker = []
+    repeat_rows = []
     best_mm = None
     best_waic2 = sys.float_info.max
-    bic_thresh = -sys.float_info.max
-    best_bics = (bic_thresh, bic_thresh)
+    best_elbo = -sys.float_info.max
+    best_repeat = None
+
+    structured_mode = op.ranef_factorization == 'structured'
+    if structured_mode and op.num_fin_trajs is not None:
+        warnings.warn(
+            '--num_fin_trajs is ignored in structured DP mode; posterior '
+            'occupancy is data-driven.')
+    if structured_mode and op.waic2_thresh < sys.float_info.max:
+        warnings.warn(
+            '--waic2_thresh is ignored for structured repeat selection; '
+            'final ELBO is used instead.')
+
+    repeat_summary_path = op.repeat_summary
+    if structured_mode and repeat_summary_path is None:
+        if op.out_model is not None:
+            repeat_summary_path = str(op.out_model) + '.repeat_summary.csv'
+        elif op.out_csv is not None:
+            repeat_summary_path = str(op.out_csv) + '.repeat_summary.csv'
 
     print("Fitting...")
-    for r in np.arange(repeats):        
+    for r in np.arange(repeats):
         if r > 0:
-            print(f"---------- Repeat {r}, Best WAIC2: {best_waic2} ----------")
+            if structured_mode:
+                print(
+                    f"---------- Repeat {r}, Best ELBO: {best_elbo:.6f} ----------")
+            else:
+                print(
+                    f"---------- Repeat {r}, Best WAIC2: {best_waic2} ----------")
 
         if True: #not op.use_pyro:
             mm = MultDPRegression(prior_data['w_mu0'],
@@ -401,15 +520,12 @@ def main():
                                   ranef_indices=prior_data['ranef_indices'],
                                   prob_thresh=op.prob_thresh)
 
-            # Added w_mu0_shared_ / w_var0_shared_ to the model state, but these
-            # are not part of the original constructor signature. So we need to
-            # populate them from the new prior file schema before fitting.            
             if len(shared_predictors) > 0:
                 mm.w_mu0_shared_ = \
                     torch.from_numpy(prior_data['w_mu0_shared']).double()
                 mm.w_var0_shared_ = \
                     torch.from_numpy(prior_data['w_var0_shared']).double()
-            
+
             mm.fit(target_names=targets, predictor_names=preds, df=df,
                    groupby=op.groupby, iters=iters, verbose=op.verbose,
                    R=prior_data['R'],
@@ -424,7 +540,7 @@ def main():
                    weights_only=op.weights_only,
                    num_init_trajs=op.num_init_trajs,
                    w_mu0_override=w_mu0_override,
-                   w_var0_override=w_var0_override,                   
+                   w_var0_override=w_var0_override,
                    w_mu_fixed=w_mu_fixed,
                    shared_predictor_names=shared_predictors,
                    ranef_factorization=op.ranef_factorization,
@@ -436,75 +552,121 @@ def main():
                    structured_tol_lambda=op.structured_tol_lambda,
                    structured_tol_ranef_cov=op.structured_tol_ranef_cov,
                    structured_min_iters=op.structured_min_iters,
-                   structured_r_damping=op.structured_r_damping)
+                   structured_r_damping=op.structured_r_damping,
+                   ranef_cov_warmup_iters=op.ranef_cov_warmup_iters)
         else:
-            restructured_data = get_restructured_data(df, preds, targets, op.groupby)
+            restructured_data = get_restructured_data(
+                df, preds, targets, op.groupby)
             model = MultPyro(
                 alpha0=torch.full((K,), 100.0, dtype=torch.double),
                 w_mu0=torch.from_numpy(prior_data['w_mu0'].T).double(),
                 w_var0=torch.from_numpy(prior_data['w_var0'].T).double(),
                 lambda_a0=torch.from_numpy(prior_data['lambda_a0']).double(),
                 lambda_b0=torch.from_numpy(prior_data['lambda_b0']).double(),
-                **restructured_data
-            )
-
+                **restructured_data)
             model.fit(num_steps=iters)
-
             if op.out_model is not None:
                 torch.save(model, op.out_model)
-                write_provenance_data(op.out_model, generator_args=op)
+                _write_provenance(op.out_model, op)
+            continue
 
-        waic2 = mm.compute_waic2(op.s, op.seed)
-        
-        if False: #op.use_pyro:
-            pass
-        elif r == 0:
-            if (waic2 < op.waic2_thresh) and \
-               (op.num_fin_trajs is None or \
-                op.num_fin_trajs == torch.sum(mm.sig_trajs_).item()):
-                if repeats > 1:
-                    best_waic2 = waic2                
-            
-                if (op.out_model is not None):        
-                    print("Saving model...")
-                    pickle.dump({'MultDPRegression': mm},
-                                open(op.out_model, 'wb'))
+        if structured_mode:
+            final_elbo = (
+                mm.inference_history_[-1]['elbo']
+                if len(mm.inference_history_) > 0
+                else mm.compute_structured_elbo())
+            occ = mm.get_structured_occupancy_diagnostics()
+            mm.structured_occupancy_diagnostics_ = occ
+            waic2 = np.nan
+            if op.structured_compute_waic:
+                waic2 = mm.compute_waic2(op.s, op.seed)
+            row = {
+                'repeat': int(r),
+                'selection_metric': 'elbo',
+                'final_elbo': float(final_elbo),
+                'converged': bool(mm.converged_),
+                'iterations': int(mm.n_iter_),
+                'expected_occupied_k': occ['expected_occupied_k'],
+                'map_occupied_k': occ['map_occupied_k'],
+                'n_eff_ge_1_k': occ['n_eff_ge_1_k'],
+                'residual_stick_mass_beyond_truncation': (
+                    occ['residual_stick_mass_beyond_truncation']),
+                'tail_expected_membership': occ['tail_expected_membership'],
+                'tail_expected_stick_weight': occ['tail_expected_stick_weight'],
+                'effective_membership_json': json.dumps(
+                    occ['effective_membership']),
+                'probability_occupied_json': json.dumps(
+                    occ['probability_occupied']),
+                'expected_stick_weights_json': json.dumps(
+                    occ['expected_stick_weights']),
+                'waic2_diagnostic': float(waic2) if np.isfinite(waic2) else np.nan,
+            }
+            repeat_rows.append(row)
+            print(
+                f"Repeat {r}: ELBO={final_elbo:.6f}, "
+                f"E[Kocc]={occ['expected_occupied_k']:.2f}, "
+                f"MAPK={occ['map_occupied_k']}, "
+                f"tail stick={occ['tail_expected_stick_weight']:.3e}, "
+                f"converged={mm.converged_}")
 
-                    print("Saving model provenance info...")
-                    provenance_desc = """ """
-                    write_provenance_data(op.out_model, generator_args=op)
-
-                if op.out_csv is not None:
-                    print("Saving data file with trajectory info...")
-                    mm.to_df().to_csv(op.out_csv, index=False)
- 
-                    print("Saving data file provenance info...")
-                    provenance_desc = """ """
-                    write_provenance_data(op.out_csv, generator_args=op)                
-        else:            
-            print(f"Current WAIC2: {waic2}")
+            if np.isfinite(final_elbo) and final_elbo > best_elbo:
+                best_elbo = float(final_elbo)
+                best_mm = mm
+                best_repeat = int(r)
+        else:
+            waic2 = mm.compute_waic2(op.s, op.seed)
+            nfin = int(torch.sum(mm.sig_trajs_).item())
+            repeat_rows.append({
+                'repeat': int(r),
+                'selection_metric': 'waic2',
+                'waic2': float(waic2),
+                'num_final_trajs': nfin,
+            })
             if (waic2 < best_waic2) and (waic2 < op.waic2_thresh) and \
-               (op.num_fin_trajs is None or \
-                op.num_fin_trajs == torch.sum(mm.sig_trajs_).item()):                
-                best_waic2 = waic2
-        
-                if op.out_model is not None:
-                    print("Saving model...")
-                    pickle.dump({'MultDPRegression': mm},
-                                open(op.out_model, 'wb'))
-    
-                    print("Saving model provenance info...")
-                    provenance_desc = """ """
-                    write_provenance_data(op.out_model, generator_args=op)
+               (op.num_fin_trajs is None or op.num_fin_trajs == nfin):
+                best_waic2 = float(waic2)
+                best_mm = mm
+                best_repeat = int(r)
 
-                if op.out_csv is not None:
-                    print("Saving data file with trajectory info...")
-                    mm.to_df().to_csv(op.out_csv, index=False)
-    
-                    print("Saving data file provenance info...")
-                    provenance_desc = """ """
-                    write_provenance_data(op.out_csv, generator_args=op)                    
-                    
+        if repeat_summary_path is not None:
+            pd.DataFrame(repeat_rows).to_csv(repeat_summary_path, index=False)
+
+    if best_mm is None:
+        raise RuntimeError('No finite/eligible fit was produced across repeats')
+
+    best_mm.repeat_selection_metric_ = 'elbo' if structured_mode else 'waic2'
+    best_mm.best_repeat_ = best_repeat
+    best_mm.repeat_summary_ = repeat_rows
+
+    if structured_mode:
+        print(
+            f"Selected repeat {best_repeat} with highest ELBO {best_elbo:.6f}.")
+        if op.structured_tol_elbo_rel is not None and not best_mm.converged_:
+            warnings.warn(
+                'Highest-ELBO structured repeat did not meet the requested '
+                'convergence tolerances; inspect repeat summary before use.')
+    else:
+        print(
+            f"Selected repeat {best_repeat} with lowest WAIC2 {best_waic2}.")
+
+    if op.out_model is not None:
+        print("Saving model...")
+        with open(op.out_model, 'wb') as f:
+            pickle.dump({'MultDPRegression': best_mm}, f)
+        print("Saving model provenance info...")
+        _write_provenance(op.out_model, op)
+
+    if op.out_csv is not None:
+        print("Saving data file with trajectory info...")
+        best_mm.to_df().to_csv(op.out_csv, index=False)
+        print("Saving data file provenance info...")
+        _write_provenance(op.out_csv, op)
+
+    if repeat_summary_path is not None:
+        pd.DataFrame(repeat_rows).to_csv(repeat_summary_path, index=False)
+        print(f"Saved repeat summary: {repeat_summary_path}")
+        _write_provenance(repeat_summary_path, op)
+
     print("DONE.")
 
 if __name__ == "__main__":

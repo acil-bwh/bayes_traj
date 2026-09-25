@@ -102,6 +102,7 @@ def build_manual_model(seed=3, g=30, nvis=5, k=2):
     mm.structured_tol_lambda_ = 1e-5
     mm.structured_tol_ranef_cov_ = 1e-5
     mm.structured_min_iters_ = 5
+    mm.ranef_cov_warmup_iters_ = 0
     mm.inference_history_ = []
     mm.lower_bounds_ = []
     mm.converged_ = False
@@ -216,3 +217,62 @@ class TestStructuredCore(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_structured_estimated_cov_verbose_does_not_format_generator(capsys):
+    """Regression test for numpy.max(generator) in structured verbose QC."""
+    mm, _, _ = build_manual_model(g=12)
+    mm.ranef_cov_mode_ = "estimate"
+    mm.structured_tol_elbo_rel_ = None
+    mm.fit_coordinate_ascent_structured(
+        iters=1, verbose=True, weights_only=False
+    )
+    captured = capsys.readouterr()
+    assert "structured ELBO" in captured.out
+    assert "dD" in captured.out
+    assert len(mm.inference_history_) >= 1
+    assert isinstance(
+        mm.inference_history_[-1]["max_delta_ranef_cov"], float
+    )
+
+
+
+def test_structured_responsibilities_do_not_hard_prune_components():
+    mm, _, _ = build_manual_model(g=8, k=2)
+    mm.prob_thresh_ = 0.49
+    # Even with an absurd historical threshold, structured responsibilities
+    # remain soft and every row is normalized.
+    mm.update_v()
+    mm.update_u_structured()
+    r = mm._update_z_structured_training()
+    assert torch.all(r > 0)
+    np.testing.assert_allclose(r.sum(dim=1).numpy(), 1.0, atol=1e-12)
+
+
+def test_structured_fit_keeps_truncation_components_available():
+    mm, _, _ = build_manual_model(g=12, k=2)
+    mm.sig_trajs_[1] = False
+    mm.fit_coordinate_ascent_structured(1, verbose=False, weights_only=False)
+    assert torch.all(mm.sig_trajs_)
+
+
+def test_structured_occupancy_diagnostics_are_probabilistic():
+    mm, _, _ = build_manual_model(g=10, k=2)
+    mm.update_v()
+    d = mm.get_structured_occupancy_diagnostics(tail_components=1)
+    assert d['truncation_k'] == 2
+    assert 0.0 <= d['expected_occupied_k'] <= 2.0
+    assert 1 <= d['map_occupied_k'] <= 2
+    assert len(d['effective_membership']) == 2
+    assert 0.0 <= d['residual_stick_mass_beyond_truncation'] <= 1.0
+
+
+def test_covariance_warmup_defers_updates():
+    mm, _, _ = build_manual_model(g=20)
+    mm.ranef_cov_mode_ = 'estimate'
+    mm.ranef_cov_warmup_iters_ = 2
+    start = mm.ranef_cov_['y'].clone()
+    mm.fit_coordinate_ascent_structured(2, verbose=False, weights_only=False)
+    np.testing.assert_allclose(mm.ranef_cov_['y'].numpy(), start.numpy())
+    assert not any(
+        row['ranef_cov_update_attempted'] for row in mm.inference_history_)

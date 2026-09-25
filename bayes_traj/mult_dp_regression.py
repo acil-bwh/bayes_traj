@@ -368,6 +368,10 @@ class MultDPRegression:
             mm, 'structured_tol_ranef_cov_', 1e-5)
         self.structured_min_iters_ = getattr(mm, 'structured_min_iters_', 5)
         self.structured_r_damping_ = getattr(mm, 'structured_r_damping_', 1.0)
+        self.ranef_cov_warmup_iters_ = getattr(
+            mm, 'ranef_cov_warmup_iters_', 10)
+        self.structured_occupancy_diagnostics_ = copy.deepcopy(
+            getattr(mm, 'structured_occupancy_diagnostics_', None))
 
 
     def _set_group_first_index(self, df, gb):
@@ -662,7 +666,7 @@ class MultDPRegression:
             structured_tol_elbo_rel=None, structured_tol_r=1e-5,
             structured_tol_w=1e-5, structured_tol_lambda=1e-5,
             structured_tol_ranef_cov=1e-5, structured_min_iters=5,
-            structured_r_damping=1.0):
+            structured_r_damping=1.0, ranef_cov_warmup_iters=10):
         """Performs variational inference (coordinate ascent or SVI) given data
         and provided parameters.
 
@@ -823,6 +827,13 @@ class MultDPRegression:
 
         structured_r_damping : float
             Damping in (0,1] for structured responsibility updates.
+
+        ranef_cov_warmup_iters : int
+            In structured mode with estimated random-effect covariance, hold
+            the supplied covariance fixed for this many initial iterations
+            before covariance updates begin. This prevents early global-model
+            residuals from being immediately absorbed as random-effect
+            variance.
         """
         if traj_probs_weight is not None:
             assert traj_probs_weight >= 0 and traj_probs_weight <=1, \
@@ -841,6 +852,8 @@ class MultDPRegression:
             raise ValueError("structured_min_iters must be >= 1")
         if structured_r_damping <= 0 or structured_r_damping > 1:
             raise ValueError("structured_r_damping must be in (0,1]")
+        if ranef_cov_warmup_iters < 0:
+            raise ValueError("ranef_cov_warmup_iters must be >= 0")
 
         self.ranef_factorization_ = ranef_factorization
         self.ranef_cov_mode_ = ranef_cov_mode
@@ -852,7 +865,9 @@ class MultDPRegression:
         self.structured_tol_ranef_cov_ = float(structured_tol_ranef_cov)
         self.structured_min_iters_ = int(structured_min_iters)
         self.structured_r_damping_ = float(structured_r_damping)
+        self.ranef_cov_warmup_iters_ = int(ranef_cov_warmup_iters)
         self.inference_history_ = []
+        self.structured_occupancy_diagnostics_ = None
         self.converged_ = False
         self.n_iter_ = 0
 
@@ -1042,6 +1057,11 @@ class MultDPRegression:
                         break
 
         if self.ranef_factorization_ == 'structured':
+            # In structured DP mode K is a truncation ceiling, not an enforced
+            # number of occupied trajectories. ``num_init_trajs`` influences
+            # initialization only. Keep every truncated component available
+            # throughout VI so a low-mass component can later revive.
+            self.sig_trajs_ = torch.ones(self.K_, dtype=torch.bool)
             self.fit_coordinate_ascent_structured(iters, verbose, weights_only)
         else:
             self.fit_coordinate_ascent(iters, verbose, weights_only)
@@ -1164,6 +1184,59 @@ class MultDPRegression:
         out = elogv.clone()
         for kk in range(1, self.K_):
             out[kk] += torch.sum(elog1m[:kk])
+        return out
+
+    def get_structured_occupancy_diagnostics(self, tail_components=3):
+        """Posterior DP occupancy and truncation diagnostics.
+
+        No threshold from this method feeds back into optimization. The
+        expected occupied-component count uses the variational posterior
+        probability that at least one subject occupies each component:
+
+            P(n_k > 0) = 1 - prod_i (1 - r_ik).
+
+        ``map_occupied_k`` and the number of components with expected
+        membership >= 1 are descriptive integer summaries only.
+        """
+        if getattr(self, 'ranef_factorization_', 'mean_field') != 'structured':
+            raise RuntimeError(
+                'Structured occupancy diagnostics require structured mode')
+        rg = self.R_[self.group_first_index_, :].double()
+        n_eff = torch.sum(rg, dim=0)
+        # Numerically stable probability that a component is empty under the
+        # factorized q(z). Clamp only for log1p stability; this is diagnostic.
+        rr = torch.clamp(rg, min=0.0, max=1.0 - 1e-15)
+        log_p_empty = torch.sum(torch.log1p(-rr), dim=0)
+        p_occupied = 1.0 - torch.exp(log_p_empty)
+
+        map_ids = torch.argmax(rg, dim=1)
+        map_counts = torch.bincount(map_ids, minlength=self.K_).double()
+
+        va = self.v_a_.double()
+        vb = self.v_b_.double()
+        ev = va / (va + vb)
+        e1m = vb / (va + vb)
+        expected_weights = torch.zeros(self.K_, dtype=torch.float64)
+        remaining = torch.tensor(1.0, dtype=torch.float64)
+        for kk in range(self.K_):
+            expected_weights[kk] = remaining * ev[kk]
+            remaining = remaining * e1m[kk]
+
+        tail_n = int(min(builtins.max(1, tail_components), self.K_))
+        out = {
+            'truncation_k': int(self.K_),
+            'expected_occupied_k': float(torch.sum(p_occupied)),
+            'map_occupied_k': int(torch.sum(map_counts > 0)),
+            'n_eff_ge_1_k': int(torch.sum(n_eff >= 1.0)),
+            'effective_membership': n_eff.detach().cpu().numpy().tolist(),
+            'probability_occupied': p_occupied.detach().cpu().numpy().tolist(),
+            'map_counts': map_counts.detach().cpu().numpy().astype(int).tolist(),
+            'expected_stick_weights': expected_weights.detach().cpu().numpy().tolist(),
+            'residual_stick_mass_beyond_truncation': float(remaining),
+            'tail_components_reported': tail_n,
+            'tail_expected_membership': float(torch.sum(n_eff[-tail_n:])),
+            'tail_expected_stick_weight': float(torch.sum(expected_weights[-tail_n:])),
+        }
         return out
 
     @staticmethod
@@ -1330,14 +1403,14 @@ class MultDPRegression:
         return scores
 
     def _responsibilities_from_group_scores(self, group_scores, group_index):
+        # Structured DP mode deliberately does NOT hard-threshold or prune
+        # components. K is only a truncation ceiling. A component with tiny
+        # current mass remains eligible to revive on a later coordinate update.
         logits = group_scores + self._expected_log_stick_weights()[None, :]
-        logits[:, ~self.sig_trajs_] = -torch.inf
         new_r = torch.softmax(logits, dim=1)
-        new_r[new_r <= self.prob_thresh_] = 0.0
-        row_sums = torch.sum(new_r, dim=1, keepdim=True)
-        if torch.any(row_sums <= 0):
-            raise RuntimeError("All structured trajectory probabilities were thresholded")
-        new_r = new_r / row_sums
+        if torch.any(~torch.isfinite(new_r)):
+            raise RuntimeError(
+                "Non-finite structured trajectory responsibilities")
         return new_r[group_index, :]
 
     def _update_z_structured_training(self):
@@ -1511,7 +1584,15 @@ class MultDPRegression:
 
     def fit_coordinate_ascent_structured(self, iters, verbose,
                                          weights_only=False):
-        """Coordinate ascent for q(z) q(b|z) Gaussian random effects."""
+        """Coordinate ascent for q(z) q(b|z) Gaussian random effects.
+
+        All K truncated-DP components remain computationally available. There
+        is no probability threshold or irreversible component death in this
+        path. Posterior occupancy is summarized diagnostically after updates.
+        """
+        # Structured DP mode always treats K as a truncation ceiling.
+        self.sig_trajs_ = torch.ones(self.K_, dtype=torch.bool)
+
         # Local factors must correspond to the starting global parameters.
         self.update_v()
         self.update_u_structured()
@@ -1533,15 +1614,50 @@ class MultDPRegression:
 
             self.update_v()
             self.update_u_structured()
+            cov_attempted = False
+            cov_accepted = False
+            cov_elbo_before = np.nan
+            cov_elbo_after = np.nan
+
             if not weights_only:
                 self.update_w_gaussian()
                 self.update_lambda()
-                if self.ranef_cov_mode_ == 'estimate':
-                    self.update_ranef_covariance_structured()
-                # Local q(b|z) must match the newly updated globals/covariance.
+                # Re-optimize q(b|z) for the just-updated globals before any
+                # covariance M-step.
                 self.update_u_structured()
+
+                if self.ranef_cov_mode_ == 'estimate' and \
+                   inc > self.ranef_cov_warmup_iters_:
+                    cov_attempted = True
+                    local_before_cov = self._structured_training_local_scores()
+                    cov_elbo_before = self.compute_structured_elbo(
+                        local_before_cov)
+                    cov_backup = {
+                        tt: self._get_structured_ranef_cov(tt).clone()
+                        for tt in self.target_names_
+                    }
+                    self.update_ranef_covariance_structured()
+                    self.update_u_structured()
+                    local_after_cov = self._structured_training_local_scores()
+                    cov_elbo_after = self.compute_structured_elbo(
+                        local_after_cov)
+
+                    # The covariance block should not lower the ELBO. Reject
+                    # a candidate update if numerical/model-update mismatch
+                    # violates that coordinate-ascent property.
+                    guard = 1e-10 * builtins.max(1.0, abs(cov_elbo_before))
+                    if cov_elbo_after + guard < cov_elbo_before:
+                        for tt in self.target_names_:
+                            self.ranef_cov_[tt] = cov_backup[tt]
+                            self.inv_ranef_cov_[tt] = torch.inverse(
+                                cov_backup[tt])
+                        self.update_u_structured()
+                    else:
+                        cov_accepted = True
+
             self.R_ = self._update_z_structured_training()
-            self.sig_trajs_ = torch.max(self.R_, dim=0).values > self.prob_thresh_
+            # Never prune structured-DP components.
+            self.sig_trajs_ = torch.ones(self.K_, dtype=torch.bool)
             self.update_v()
 
             local = self._structured_training_local_scores()
@@ -1555,10 +1671,6 @@ class MultDPRegression:
                     self.w_mu_shared_ - old_shared))))
             lam = self.lambda_a_ / self.lambda_b_
             dl = float(torch.max(torch.abs(lam - old_lam)))
-            # NOTE: numpy.max is imported into this module as `max`.
-            # Use builtins.max here because the argument is a Python generator.
-            # numpy.max(generator) returns the generator object itself, which
-            # later fails when formatted as a float in verbose output.
             dcov = builtins.max(
                 float(torch.max(torch.abs(
                     self._get_structured_ranef_cov(tt) - old_cov[tt])))
@@ -1569,6 +1681,8 @@ class MultDPRegression:
             map_same = float(torch.mean((
                 torch.argmax(rg, dim=1) == torch.argmax(old_rg, dim=1)
             ).double()))
+            occ = self.get_structured_occupancy_diagnostics()
+            self.structured_occupancy_diagnostics_ = occ
             row = {
                 'iteration': inc,
                 'elbo': elbo,
@@ -1580,6 +1694,18 @@ class MultDPRegression:
                 'max_delta_ranef_cov': dcov,
                 'map_agreement_previous': map_same,
                 'mean_max_posterior': float(torch.mean(torch.max(rg, dim=1).values)),
+                'expected_occupied_k': occ['expected_occupied_k'],
+                'map_occupied_k': occ['map_occupied_k'],
+                'n_eff_ge_1_k': occ['n_eff_ge_1_k'],
+                'residual_stick_mass_beyond_truncation': (
+                    occ['residual_stick_mass_beyond_truncation']),
+                'tail_expected_stick_weight': occ['tail_expected_stick_weight'],
+                'ranef_cov_update_attempted': bool(cov_attempted),
+                'ranef_cov_update_accepted': bool(cov_accepted),
+                'ranef_cov_block_elbo_before': (
+                    float(cov_elbo_before) if np.isfinite(cov_elbo_before) else np.nan),
+                'ranef_cov_block_elbo_after': (
+                    float(cov_elbo_after) if np.isfinite(cov_elbo_after) else np.nan),
             }
             if self.ranef_cov_mode_ == 'estimate':
                 row['ranef_cov'] = {
@@ -1594,16 +1720,26 @@ class MultDPRegression:
                 print(
                     f"iter {inc}, structured ELBO {elbo:.6f}, "
                     f"dELBO {de:+.3e}, dR {dr:.3e}, dW {dw:.3e}, "
-                    f"dLam {dl:.3e}, dD {dcov:.3e}, MAPsame {map_same:.4f}")
+                    f"dLam {dl:.3e}, dD {dcov:.3e}, MAPsame {map_same:.4f}, "
+                    f"E[Kocc] {occ['expected_occupied_k']:.2f}, "
+                    f"MAPK {occ['map_occupied_k']}")
 
             tol_elbo = self.structured_tol_elbo_rel_
-            if tol_elbo is not None and inc >= self.structured_min_iters_ and \
+            convergence_min = self.structured_min_iters_
+            if self.ranef_cov_mode_ == 'estimate':
+                convergence_min = builtins.max(
+                    convergence_min, self.ranef_cov_warmup_iters_ + 1)
+            if tol_elbo is not None and inc >= convergence_min and \
                rel < tol_elbo and dr < self.structured_tol_r_ and \
                dw < self.structured_tol_w_ and dl < self.structured_tol_lambda_ and \
                dcov < self.structured_tol_ranef_cov_:
                 self.converged_ = True
                 break
             prev_elbo = elbo
+
+        # Always leave a final occupancy/truncation summary on the model.
+        self.structured_occupancy_diagnostics_ = \
+            self.get_structured_occupancy_diagnostics()
 
     def update_v(self):
         """Updates the parameters of the Beta distributions for latent
