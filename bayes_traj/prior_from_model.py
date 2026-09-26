@@ -1,93 +1,111 @@
+"""Generate a compact hyperprior from a fitted bayes_traj model.
+
+This helper predates :mod:`bayes_traj.generate_prior` and is retained for
+backward compatibility. Structured-DP models use posterior-reportable
+components rather than ``sig_trajs_`` because all truncation components remain
+computationally alive by design.
+"""
+
 import pickle
-import numpy as np
-from bayes_traj.mult_dp_regression import MultDPRegression
 from argparse import ArgumentParser
 
+import numpy as np
+from provenance_tools.write_provenance_data import write_provenance_data
+
+
+def _reportable_ids(mm):
+    if hasattr(mm, 'get_reportable_trajectory_ids'):
+        return np.asarray(mm.get_reportable_trajectory_ids(), dtype=int)
+    sig = mm.sig_trajs_.detach().cpu().numpy() \
+        if hasattr(mm.sig_trajs_, 'detach') else np.asarray(mm.sig_trajs_)
+    return np.where(sig)[0]
+
+
 def prior_from_model(mm):
-    """Computes and returns a MultDPRegression prior given an input model by 
-    considering samples from non-zero trajectory posteriors.
+    """Compute a hyperprior from a fitted model.
 
-    Parameters
-    ----------
-    mm : MultDPRegression instance
-        Model from which the prior will be estimated.
-
-    Returns
-    -------
-    prior : dict
-        Prior with keys w_mu0, w_var0, lambda_a0, lambda_b0, traj_probs, alpha.
+    The trajectory-specific posterior parameters are sampled in proportion to
+    posterior subject-level trajectory mass. Non-reportable truncation slots in
+    structured DP models are ignored.
     """
-    traj_ids = np.where(mm.sig_trajs_)[0]
+    traj_ids = _reportable_ids(mm)
+    if traj_ids.size == 0:
+        raise ValueError('No reportable trajectories in fitted model')
 
     M = mm.M_
     D = mm.D_
-
     w_mu0_post = np.zeros([M, D])
     w_var0_post = np.ones([M, D])
 
-    # Compute the weights of each trajectory by marginalizing over individuals
-    traj_probs = np.sum(mm.R_, 0)/np.sum(mm.R_)        
-    
-    # Each trajectory regression coefficient is a draw from the corresponding
-    # prior. That prior is characterized by a mean (held in mm.w_mu0_) and
-    # a variance (held in mm.w_var0_). We can examine the actual regression
-    # coefficients found after the fitting routine to update our belief about
-    # what the prior should be. In order to do this, we'll draw samples from
-    # w_mu_ (the per-trajectory posterior mean) scaled by the variance in
-    # the posterior estimate w_var_ and marginalized over the probability
-    # of each trajectory. The mean and variance of the resulting sample
-    # provides an update for prior over coefficients.
-    num_traj_samples = np.random.multinomial(10000, traj_probs)
+    traj_probs = np.asarray(mm.get_traj_probs(), dtype=float)
+    selected_probs = traj_probs[traj_ids]
+    selected_probs = selected_probs / np.sum(selected_probs)
+    num_selected_samples = np.random.multinomial(10000, selected_probs)
+    num_traj_samples = np.zeros(mm.K_, dtype=int)
+    num_traj_samples[traj_ids] = num_selected_samples
+
+    w_mu = mm.w_mu_.detach().cpu().numpy() if hasattr(mm.w_mu_, 'detach') else np.asarray(mm.w_mu_)
+    w_var = mm.w_var_.detach().cpu().numpy() if hasattr(mm.w_var_, 'detach') else np.asarray(mm.w_var_)
+    lambda_a = mm.lambda_a_.detach().cpu().numpy() if hasattr(mm.lambda_a_, 'detach') else np.asarray(mm.lambda_a_)
+    lambda_b = mm.lambda_b_.detach().cpu().numpy() if hasattr(mm.lambda_b_, 'detach') else np.asarray(mm.lambda_b_)
 
     for m in range(M):
         for d in range(D):
             samples = []
             for t in traj_ids:
-                samples.append(mm.w_mu_[m, d, t] + \
-                               np.sqrt(mm.w_var_[m, d, t])*\
-                               np.random.randn(num_traj_samples[t]))
+                n = num_traj_samples[t]
+                if n == 0:
+                    continue
+                samples.append(
+                    w_mu[m, d, t] + np.sqrt(w_var[m, d, t]) * np.random.randn(n))
+            sample = np.hstack(samples)
+            w_mu0_post[m, d] = np.mean(sample)
+            w_var0_post[m, d] = np.var(sample)
 
-            w_mu0_post[m, d] = np.mean(np.hstack(samples))
-            w_var0_post[m, d] = np.var(np.hstack(samples))
-
-    # For precision parameters, we'll use a similar sample-based procedure as
-    # was done for the coefficients
     lambda_a0_post = np.ones(D)
     lambda_b0_post = np.ones(D)
     for d in range(D):
         samples = []
         for t in traj_ids:
-            scale_tmp = 1./mm.lambda_b_[d, t]
-            shape_tmp = mm.lambda_a_[d, t]
-            samples.append(np.random.gamma(shape_tmp, scale_tmp,
-                                           num_traj_samples[t]))
-    
-        lambda_a0_post[d] = np.mean(np.hstack(samples))**2/\
-            np.var(np.hstack(samples))
-        lambda_b0_post[d] = np.mean(np.hstack(samples))/\
-            np.var(np.hstack(samples))
-        
-    prior = {'w_mu0': w_mu0_post, 'w_var0': w_var0_post,
-             'lambda_a0': lambda_a0_post, 'lambda_b0': lambda_b0_post,
-             'traj_probs': traj_probs, 'alpha': mm.alpha_}
+            n = num_traj_samples[t]
+            if n == 0:
+                continue
+            samples.append(np.random.gamma(
+                lambda_a[d, t], 1.0 / lambda_b[d, t], n))
+        sample = np.hstack(samples)
+        mu = np.mean(sample)
+        var = np.var(sample)
+        lambda_a0_post[d] = mu ** 2 / var
+        lambda_b0_post[d] = mu / var
 
+    prior_traj_probs = np.zeros(mm.K_, dtype=float)
+    prior_traj_probs[traj_ids] = selected_probs
+    prior = {
+        'w_mu0': w_mu0_post,
+        'w_var0': w_var0_post,
+        'lambda_a0': lambda_a0_post,
+        'lambda_b0': lambda_b0_post,
+        'traj_probs': prior_traj_probs,
+        'alpha': mm.alpha_,
+        'source_trajectory_ids': traj_ids,
+    }
     return prior
 
-if __name__ == "__main__":
-    desc = """This script generates a prior based on a fit input model"""
-    args = ArgumentParser()
-    args.add_argument('--model', help='Pickled MultDPRegression object that \
-      has been fit to data and from which we will extract information to \
-      produce an updated prior file', dest='model', default=None)
-    args.add_argument('--prior', help='Output pickle file containing updated \
-      prior settings', dest='prior', default=None)
 
-    op.parse_args()
-    
-    mm = pickle.load(open(op.model, 'rb'))['MultDPRegression']
+def main():
+    parser = ArgumentParser(
+        description='Generate a compact prior from a fitted bayes_traj model')
+    parser.add_argument('--model', required=True)
+    parser.add_argument('--prior', required=True)
+    op = parser.parse_args()
+
+    with open(op.model, 'rb') as f:
+        mm = pickle.load(f)['MultDPRegression']
     prior = prior_from_model(mm)
-    
-    pickle.dump(prior, open(op.prior, 'wb'))
-    
-    desc = """  """
-    write_provenance_data(op.prior, generator_args=op, desc=desc)    
+    with open(op.prior, 'wb') as f:
+        pickle.dump(prior, f)
+    write_provenance_data(op.prior, generator_args=op, desc='')
+
+
+if __name__ == '__main__':
+    main()

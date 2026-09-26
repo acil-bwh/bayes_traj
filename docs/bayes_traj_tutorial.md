@@ -918,25 +918,21 @@ The *summarize_traj_model* utility allows us to inspect trajectory models quanti
 ```
 
     usage: summarize_traj_model [-h] --model MODEL [--trajs TRAJS]
-                                [--min_traj_prob MIN_TRAJ_PROB] [--hide_ic]
+                                [--min_traj_prob MIN_TRAJ_PROB]
+                                [--min_effective_membership MIN_EFFECTIVE_MEMBERSHIP]
+                                [--hide_ic] [--compute_waic] [-s S] [--seed SEED]
     
-    options:
-      -h, --help            show this help message and exit
-      --model MODEL         Bayesian trajectory model to summarize
-      --trajs TRAJS         Comma-separated list of integers indicating
-                            trajectories for which to print results. If none
-                            specified, results for all trajectories will be
-                            printed
-      --min_traj_prob MIN_TRAJ_PROB
-                            The probability of a given trajectory must be at least
-                            this value in order for results to be printed for that
-                            trajectory. Value should be between 0 and 1 inclusive.
-      --hide_ic             Use this flag to hide compuation and display of
-                            information criterai (BIC and WAIC2), which can take
-                            several moments to compute.
+    important options:
+      --min_effective_membership MIN_EFFECTIVE_MEMBERSHIP
+                            Reporting threshold for structured-DP posterior
+                            effective membership. This does not alter the fit.
+      --hide_ic             Hide plug-in Gaussian information criteria.
+      --compute_waic        Also compute the historical WAIC2 diagnostic. WAIC
+                            is off by default and is not used for structured-DP
+                            restart selection.
 
 
-Lets use this utility to inspect the model that used *intercept*, *age*, and  *age^2* as predictors:
+Lets use this utility to inspect the model that used *intercept*, *age*, and  *age^2* as predictors. The numerical output below comes from the original tutorial model and therefore shows the historical BIC/WAIC fields. Current versions additionally report subject-level assignment entropy/max-posterior diagnostics, structured-DP occupancy/convergence information when applicable, and plug-in Gaussian AIC/BIC/SABIC/ICL summaries. Historical WAIC is only computed when `--compute_waic` is requested.
 
 
 ```python
@@ -1046,7 +1042,7 @@ Lets use this utility to inspect the model that used *intercept*, *age*, and  *a
     
 
 
-The print-out shows information for the model as a whole in the 'Summary' section at the top. Included here are three information criterion measures: BIC1, BIC2, and WAIC2. These measures reward goodness of fit while penalizing model complexity. The penalty terms is a function of *N*; BIC1 takes *N* to be the number of observations, while BIC2 takes *N* to be the number of groups. Generally, a higher BIC value is preferred. WAIC2 is an alternative information criterion measure which has been recommended in the Bayesian context; lower WAIC2 scores are preferred.
+The print-out shows information for the model as a whole in the 'Summary' section at the top. In current versions, longitudinal classification diagnostics are computed at the subject/group level. For all-Gaussian models, `summarize_traj_model` also reports a plug-in subject-level marginal log likelihood together with AIC, BIC, SABIC, and ICL-style summaries. Gaussian random effects are integrated analytically, while global parameters are held at fitted posterior means/expected precisions. These are useful descriptive/model-comparison summaries but are not a full Bayesian marginal likelihood and should not be assumed numerically identical to criteria from another mixed-model implementation. Historical WAIC2 remains available with `--compute_waic`, but is treated as a diagnostic rather than the criterion for selecting structured-DP restarts.
 
 Below the overall summary is per-trajectory information. This includes posterior estimates for residual precisions and predictor coefficients. Note that STD is not the same as *standard error*, and 95% Cred. Int. (credible interval) is not the same as a *confidence interval*. Rather, these are quantities that describe the Bayesian posterior distribution over these parameters. (Side note: the trajectory fitting routine uses a technique called *variational inference*, which is fast and scales well, but is known to *underestimate* posterior variances. Posterior standard deviations and credible intervals should be interpreted with this in mind). 
 
@@ -1481,3 +1477,61 @@ Finally, let's visualize the results and inspect the *y1* and *y2* trends:
 ![png](bayes_traj_tutorial_files/bayes_traj_tutorial_91_2.png)
     
 The detected trajectories capture the underlying trends. Note that the trajectory numbers assigned by the algorithm are arbitrary.
+
+
+# Structured Gaussian random-effect workflow (current implementation)
+
+The command examples earlier in this tutorial were written for the historical
+mean-field implementation. For new longitudinal Gaussian analyses with random
+effects, use structured inference explicitly. A recommended workflow is:
+
+```bash
+bayes_traj_main \
+  --in_csv data.csv \
+  --targets y1,y2 \
+  --groupby id \
+  --prior prior.p \
+  --out_model model.p \
+  --ranef_factorization structured \
+  --ranef_cov_mode staged \
+  -k 15 \
+  --repeats 10 \
+  --iters 500 \
+  --fit_seed 2026
+```
+
+Here `-k` is a DP truncation ceiling, not a requested final number of
+trajectories. In `staged` covariance mode, `--iters` is the maximum number of
+iterations **per phase**: first fixed-D optimization and then, after objective
+convergence, estimated-D optimization. Structured repeats are QC-filtered and
+then ranked by final ELBO. The companion `<out_model>.repeat_summary.csv`
+records convergence, eligibility, occupancy, tail-stick, and selection
+information.
+
+To apply the fitted model to an independent cohort without refitting global
+trajectory parameters:
+
+```bash
+assign_trajectory \
+  --model model.p \
+  --in_csv validation.csv \
+  --groupby id \
+  --out_csv validation_assignments.csv \
+  --inference_mode strict \
+  --out_ranef_npz validation_random_effects.npz
+```
+
+`strict` is the default and is appropriate for external validation.
+`adapt_prevalence` is an explicit alternative when cohort-level trajectory
+prevalence is allowed to adapt while trajectory coefficients, residual
+precisions, and the random-effect covariance remain fixed.
+
+For structured DP models, `summarize_traj_model` reports posterior occupancy
+rather than treating all truncation components as occupied. It also reports
+subject-level assignment diagnostics and, for all-Gaussian models, plug-in
+marginal AIC/BIC/SABIC/ICL-style summaries. These plug-in criteria analytically
+integrate Gaussian random effects but hold global parameters at fitted
+expectations; they are descriptive/model-comparison summaries rather than a
+full Bayesian marginal likelihood. Historical WAIC is opt-in via
+`--compute_waic`; it remains a diagnostic and is not used to select structured
+random restarts.

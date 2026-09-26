@@ -2,7 +2,7 @@
 
 from argparse import ArgumentParser
 from bayes_traj.mult_dp_regression import MultDPRegression
-from provenance_tools.write_provenance_data import write_provenance_data
+from provenance_tools.provenance_tracker import write_provenance_data
 import pdb, pickle, sys, warnings
 
 def main():
@@ -32,10 +32,7 @@ def main():
             pickle.dump({'MultDPRegression': mm_out}, open(op.out_model, 'wb'))
     
             print("Saving model provenance info...")
-            provenance_desc = """ """
-            write_provenance_data(op.out_model, generator_args=op,
-                                  desc=provenance_desc,
-                                  module_name='bayes_traj')
+            write_provenance_data(op.out_model, generator_args=op)
 
     print("DONE.")
     

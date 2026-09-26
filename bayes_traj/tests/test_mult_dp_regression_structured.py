@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
+import pytest
 import torch
 
 from bayes_traj.mult_dp_regression import MultDPRegression
@@ -410,3 +411,110 @@ def test_continue_structured_fit_can_enable_covariance_estimation():
         for row in mm.inference_history_ if row.get('fit_segment') == 1)
     eig = torch.linalg.eigvalsh(mm.ranef_cov_['y'])
     assert torch.all(eig >= mm.ranef_cov_min_eig_ * 0.999)
+
+
+def test_external_inference_allows_absent_target_columns():
+    mm, _, _ = build_manual_model(g=8)
+    mm.update_v()
+    df = mm.df_.drop(columns=['y'])
+    out = mm.infer_new_data(df, gb_col='id', mode='strict')
+    assert out['R'].shape == (mm.N_, mm.K_)
+    np.testing.assert_allclose(
+        out['R'].sum(dim=1).detach().cpu().numpy(), 1.0, atol=1e-12)
+
+
+def test_external_inference_returns_posterior_marginal_random_effect_moments():
+    mm, _, _ = build_manual_model(g=8)
+    mm.update_v()
+    out = mm.infer_new_data(mm.df_, gb_col='id', mode='strict')
+    assert out['u_mu_marginal'].shape == (mm.G_, mm.D_, mm.M_)
+    assert out['u_Sig_marginal'].shape == (mm.G_, mm.D_, mm.M_, mm.M_)
+
+    g = 0
+    d = 0
+    r = out['R_group'][g]
+    mu = out['u_mu'][g, d]
+    sig = out['u_Sig'][g, d]
+    expected_mu = torch.sum(r[:, None] * mu, dim=0)
+    expected_second = torch.sum(
+        r[:, None, None] * (
+            sig + torch.einsum('ki,kj->kij', mu, mu)), dim=0)
+    expected_sig = expected_second - torch.outer(expected_mu, expected_mu)
+    np.testing.assert_allclose(
+        out['u_mu_marginal'][g, d].numpy(), expected_mu.numpy(),
+        rtol=1e-11, atol=1e-11)
+    np.testing.assert_allclose(
+        out['u_Sig_marginal'][g, d].numpy(), expected_sig.numpy(),
+        rtol=1e-11, atol=1e-11)
+
+
+def test_external_inference_reports_local_convergence():
+    mm, _, _ = build_manual_model(g=8)
+    strict = mm.infer_new_data(mm.df_, gb_col='id', mode='strict')
+    assert strict['converged'] is True
+    assert strict['iterations'] == 1
+    assert strict['max_responsibility_change'] == 0.0
+
+    adapted = mm.infer_new_data(
+        mm.df_, gb_col='id', mode='adapt_prevalence', max_iters=100,
+        tol=1e-8)
+    assert isinstance(adapted['converged'], bool)
+    assert adapted['iterations'] >= 1
+    assert np.isfinite(adapted['max_responsibility_change'])
+    if adapted['converged']:
+        assert adapted['max_responsibility_change'] <= 1e-8
+
+    with pytest.raises(ValueError, match='max_iters'):
+        mm.infer_new_data(
+            mm.df_, gb_col='id', mode='adapt_prevalence', max_iters=0)
+
+
+def test_external_inference_does_not_mutate_trained_globals():
+    mm, _, _ = build_manual_model(g=10)
+    mm.update_v()
+    before = {
+        'w': mm.w_mu_.clone(),
+        'lambda_a': mm.lambda_a_.clone(),
+        'lambda_b': mm.lambda_b_.clone(),
+        'v_a': mm.v_a_.clone(),
+        'v_b': mm.v_b_.clone(),
+        'D': mm.ranef_cov_['y'].clone(),
+    }
+    mm.infer_new_data(mm.df_, gb_col='id', mode='strict')
+    mm.infer_new_data(
+        mm.df_, gb_col='id', mode='adapt_prevalence', max_iters=10)
+    np.testing.assert_allclose(mm.w_mu_.numpy(), before['w'].numpy())
+    np.testing.assert_allclose(mm.lambda_a_.numpy(), before['lambda_a'].numpy())
+    np.testing.assert_allclose(mm.lambda_b_.numpy(), before['lambda_b'].numpy())
+    np.testing.assert_allclose(mm.v_a_.numpy(), before['v_a'].numpy())
+    np.testing.assert_allclose(mm.v_b_.numpy(), before['v_b'].numpy())
+    np.testing.assert_allclose(mm.ranef_cov_['y'].numpy(), before['D'].numpy())
+
+
+def test_structured_reportable_ids_use_posterior_occupancy_not_sig_trajs():
+    mm, _, _ = build_manual_model(g=20)
+    mm.R_[:, 0] = 0.99
+    mm.R_[:, 1] = 0.01
+    mm.sig_trajs_[:] = True
+    ids = mm.get_reportable_trajectory_ids(min_effective_membership=1.0)
+    np.testing.assert_array_equal(ids, np.array([0]))
+
+
+def test_staged_covariance_mode_releases_D_after_fixed_objective_convergence():
+    mm, _, _ = build_manual_model(g=20)
+    start = mm.ranef_cov_['y'].clone()
+    mm.continue_structured_fit(
+        iters=4, verbose=False, ranef_cov_mode='staged',
+        structured_tol_elbo_rel=1.0, structured_min_iters=1,
+        ranef_cov_warmup_iters=0)
+    assert mm.ranef_cov_release_iteration_ is not None
+    assert mm.ranef_cov_stage_ == 'estimate'
+    assert mm.fit_complete_ is True
+    diag = mm.staged_covariance_diagnostics_
+    assert diag['release_iteration'] == mm.ranef_cov_release_iteration_
+    assert np.isfinite(diag['fixed_phase_final_elbo'])
+    assert np.isfinite(diag['final_elbo'])
+    assert diag['final_stage'] == 'estimate'
+    assert diag['fit_complete'] is True
+    np.testing.assert_allclose(
+        np.asarray(diag['initial_covariance']['y']), start.numpy())

@@ -190,21 +190,36 @@ class PriorGenerator:
 
         model_trajs : array, optional
             Array of integers indicating which trajectories to use for creating
-            the prior. If None, all model trajectories with non-zero probability
-            will be considered.
+            the prior. If None, posterior-reportable trajectories are used for
+            structured DP models; historical active trajectories are used
+            otherwise.
         """
         self.mm_ = mm
 
-        # The following are independent of the targets and predictors
+        # The following are independent of the targets and predictors.
         self.K_ = mm.K_
 
-        if model_trajs is not None:
-            self.prior_info_['traj_probs'] = np.zeros(self.K_)
-            self.prior_info_['traj_probs'][model_trajs] = \
-                self.mm_.get_traj_probs()[model_trajs]/\
-                np.sum(self.mm_.get_traj_probs()[model_trajs])            
-        else:         
-            self.prior_info_['traj_probs'] = self.mm_.get_traj_probs()
+        # In structured-DP models sig_trajs_ intentionally contains the entire
+        # truncation and is not an occupancy estimate. If components are not
+        # supplied explicitly, use posterior reportable/occupied components.
+        if model_trajs is None:
+            if hasattr(mm, 'get_reportable_trajectory_ids'):
+                model_trajs = mm.get_reportable_trajectory_ids()
+            else:
+                sig = mm.sig_trajs_.detach().cpu().numpy() \
+                    if torch.is_tensor(mm.sig_trajs_) else np.asarray(mm.sig_trajs_)
+                model_trajs = np.where(sig)[0]
+        self.model_trajs_ = np.asarray(model_trajs, dtype=int)
+        if self.model_trajs_.size == 0:
+            raise ValueError('No model trajectories selected for prior generation')
+
+        raw_probs = np.asarray(self.mm_.get_traj_probs(), dtype=float)
+        denom = np.sum(raw_probs[self.model_trajs_])
+        if denom <= 0:
+            raise ValueError('Selected model trajectories have zero posterior mass')
+        self.prior_info_['traj_probs'] = np.zeros(self.K_)
+        self.prior_info_['traj_probs'][self.model_trajs_] = \
+            raw_probs[self.model_trajs_] / denom
             
         self.prior_info_['v_a'] = self.mm_.v_a_
         self.prior_info_['v_b'] = self.mm_.v_b_
@@ -459,11 +474,14 @@ class PriorGenerator:
             w_mu = self.mm_.w_mu_
             w_var = self.mm_.w_var_            
 
-        if torch.is_tensor(self.mm_.sig_trajs_):
-            sig_trajs = self.mm_.sig_trajs_.numpy()
-        else:
-            sig_trajs = self.mm_.sig_trajs_
-            
+        selected = getattr(self, 'model_trajs_', None)
+        if selected is None:
+            selected = self.mm_.get_reportable_trajectory_ids() \
+                if hasattr(self.mm_, 'get_reportable_trajectory_ids') \
+                else np.where(np.asarray(self.mm_.sig_trajs_))[0]
+        sig_trajs = np.zeros(self.K_, dtype=bool)
+        sig_trajs[np.asarray(selected, dtype=int)] = True
+
         probs = self.prior_info_['traj_probs']
         for m in self.preds_:
             pred_index = \
@@ -547,17 +565,25 @@ class PriorGenerator:
                 lambda_b[target_index][sig_trajs][0]
 
     def ranef_covmat_from_model(self, mm, ranefs):
-        """Computes estimate of random effects covariance matrix given input
-        model. The procedure is to compute residuals using all predictors and
-        then to perform OLS regression on the residuals using only the ranef
-        predictors. The regression is done for each individual, and the 
-        regression parameters are tallied. The covariance matrix is computed 
-        from these tallied parameters
+        """Return/estimate a random-effect covariance prior from a fitted model.
+
+        Corrected structured models carry a fitted population covariance ``D``;
+        use it directly. Historical models retain the residual/OLS heuristic.
         """
+        if getattr(mm, 'ranef_factorization_', 'mean_field') == 'structured' and \
+           hasattr(mm, '_get_structured_ranef_cov'):
+            return {
+                tt: mm._get_structured_ranef_cov(tt).clone().detach()
+                for tt in mm.target_names_
+            }
+
         Sig0 = {}
         for dd, tt in enumerate(mm.target_names_):
             resids_tmp = torch.zeros(mm.N_)
-            for kk in np.where(mm.sig_trajs_)[0]:        
+            traj_ids = mm.get_reportable_trajectory_ids() \
+                if hasattr(mm, 'get_reportable_trajectory_ids') \
+                else np.where(mm.sig_trajs_)[0]
+            for kk in traj_ids:        
                 resids_tmp += mm.R_[:, kk]*\
                     np.dot(mm.X_, mm.w_mu_[:, dd, kk])
 
@@ -773,8 +799,8 @@ def main():
         indicating which trajectories to use from the specified model. If a model \
         is not specified, the values specified with this flag will be ignored. If \
         a model is specified, and specific trajectories are not specified with \
-        this flag, then all trajectories will be used to inform the prior', \
-        default=None)
+        this flag, posterior-reportable trajectories will be used for structured \
+        DP models (historical active trajectories otherwise).', default=None)
     parser.add_argument('--groupby', help='Column name in input data file \
         indicating those data instances that must be in the same trajectory. This \
         is typically a subject identifier (e.g. in the case of a longitudinal data \
@@ -958,8 +984,7 @@ def main():
     if op.out_file is not None:                    
         pickle.dump(prior_info, open(op.out_file, 'wb'))
         desc = """ """
-        write_provenance_data(op.out_file, generator_args=op, desc=desc,
-                              module_name='bayes_traj')
+        write_provenance_data(op.out_file, generator_args=op, desc=desc)
         
 if __name__ == "__main__":
     main()

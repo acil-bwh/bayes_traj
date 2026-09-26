@@ -1,44 +1,65 @@
+#!/usr/bin/env python
+"""Continue a saved bayes_traj structured fit.
+
+This command is retained for compatibility with historical workflows.  New
+workflows may equivalently use ``bayes_traj_main --resume_model``.  The old
+refiner re-entered the obsolete mean-field ``fit`` API and could inadvertently
+reinitialize model state; this implementation performs a true structured-state
+continuation instead.
+"""
+
 from argparse import ArgumentParser
-import numpy as np
-from bayes_traj.mult_dp_regression import MultDPRegression
-from bayes_traj.get_longitudinal_constraints_graph \
-  import get_longitudinal_constraints_graph
-#from bayes_traj.get_constraints_graph import get_constraints_graph
+import pickle
+
 from provenance_tools.provenance_tracker import write_provenance_data
-import pdb, pickle, sys, git, os
 
-np.set_printoptions(precision = 1, suppress = True, threshold=1e6,
-                    linewidth=300)
 
-desc = """Reads an instance of MultDPRegression and performs additional \
-iterations in order to refine the model"""
+def main():
+    parser = ArgumentParser(
+        description='Continue variational inference from a saved structured '
+                    'MultDPRegression model without reinitialization.')
+    parser.add_argument('--in_p', required=True,
+        help='Input pickle containing MultDPRegression')
+    parser.add_argument('--out_file', required=True,
+        help='Output pickle for the continued model')
+    parser.add_argument('--iters', type=int, default=100,
+        help='Maximum number of additional iterations')
+    parser.add_argument('--ranef_cov_mode', choices=['fixed', 'estimate', 'staged'],
+        default=None, help='Optional covariance strategy override for continuation')
+    parser.add_argument('--structured_tol_elbo_rel', type=float, default=None)
+    parser.add_argument('--structured_tol_r', type=float, default=None)
+    parser.add_argument('--structured_tol_w', type=float, default=None)
+    parser.add_argument('--structured_tol_lambda', type=float, default=None)
+    parser.add_argument('--structured_tol_ranef_cov', type=float, default=None)
+    parser.add_argument('--structured_min_iters', type=int, default=None)
+    parser.add_argument('--ranef_cov_warmup_iters', type=int, default=None)
+    parser.add_argument('--verbose', action='store_true')
+    op = parser.parse_args()
 
-parser = ArgumentParser(description=desc)
-parser.add_argument('--in_p', help='Input pickle file containing instance of \
-  MultDPRegression to refine', dest='in_p', metavar='<string>', default=None)
-parser.add_argument('--out_file', help='Pickle file name to which to dump the \
-  refined instance of MultDPRegression', dest='out_file', metavar='<string>',
-  default=None)
-parser.add_argument('--iters', help='Number of iterations to refine',
-    dest='iters', metavar='<int>', default=100)
+    with open(op.in_p, 'rb') as f:
+        mm = pickle.load(f)['MultDPRegression']
 
-op = parser.parse_args()
-iters = int(op.iters)
-in_p = op.in_p
-out_file = op.out_file
+    if getattr(mm, 'ranef_factorization_', 'mean_field') != 'structured':
+        raise RuntimeError(
+            'bayes_traj_refiner now supports corrected structured inference only. '
+            'Historical mean-field refinement is intentionally not maintained.')
 
-mm = pickle.load(open(in_p, 'rb'))['MultDPRegression']
+    mm.continue_structured_fit(
+        iters=op.iters,
+        verbose=op.verbose,
+        ranef_cov_mode=op.ranef_cov_mode,
+        structured_tol_elbo_rel=op.structured_tol_elbo_rel,
+        structured_tol_r=op.structured_tol_r,
+        structured_tol_w=op.structured_tol_w,
+        structured_tol_lambda=op.structured_tol_lambda,
+        structured_tol_ranef_cov=op.structured_tol_ranef_cov,
+        structured_min_iters=op.structured_min_iters,
+        ranef_cov_warmup_iters=op.ranef_cov_warmup_iters)
 
-#------------------------------------------------------------------------------
-# Set up and run the traj alg
-#------------------------------------------------------------------------------
-mm.fit(mm.X_, mm.Y_, iters=iters, R=mm.R_, v_a=mm.v_a_, v_b=mm.v_b_,
-  w_mu=mm.w_mu_, w_var=mm.w_var_, lambda_a=mm.lambda_a_, lambda_b=mm.lambda_b_,
-  constraints=mm.constraints_, data_names=mm.data_names_,
-  target_names=mm.target_names_, predictor_names=mm.predictor_names_,
-  verbose=True)
+    with open(op.out_file, 'wb') as f:
+        pickle.dump({'MultDPRegression': mm}, f)
+    write_provenance_data(op.out_file, generator_args=op)
 
-with open(out_file, 'wb') as f:
-    pickle.dump({'MultDPRegression': mm}, f)
 
-write_provenance_data(out_file, generator_args=op)
+if __name__ == '__main__':
+    main()

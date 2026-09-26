@@ -7,7 +7,10 @@ import pickle
 import pandas as pd
 from argparse import ArgumentParser
 from provenance_tools.write_provenance_data import write_provenance_data
-from bayes_traj.fit_stats import ave_pp, odds_correct_classification
+from bayes_traj.fit_stats import (
+    ave_pp, odds_correct_classification, prob_prop, assignment_diagnostics,
+    gaussian_information_criteria, reportable_trajectory_ids,
+    group_responsibilities)
 
 def compute_weighted_posterior_population_cov(mu_list, Sigma_list, weights):
     """
@@ -81,12 +84,13 @@ def get_ranef_cov_mat_output_str(mm, d, k, precision=3,
     output_str : str
         Formatted string representation of the covariance matrix
     """
-    probs = mm.R_[mm.group_first_index_, k]
+    probs = torch.as_tensor(
+        group_responsibilities(mm)[:, k], dtype=torch.float64)
 
     cov_mat = compute_weighted_posterior_population_cov(\
         mm.u_mu_[:, d, k, mm.ranef_indices_],
         mm.u_Sig_[:, d, k, mm.ranef_indices_, :][:, :, mm.ranef_indices_],
-        mm.R_[mm.group_first_index_, k])
+        probs)
 
     # Predictor names
     preds_sel = np.array(mm.predictor_names_)[mm.ranef_indices_]
@@ -134,9 +138,16 @@ def main():
         trajectory must be at least this value in order for results to be printed \
         for that trajectory. Value should be between 0 and 1 inclusive.', \
         type=float, default=0)
-    parser.add_argument('--hide_ic', help='Use this flag to hide compuation \
-        and display of information criterai (BIC and WAIC2), which can take \
-        several moments to compute.', action="store_true")
+    parser.add_argument('--min_effective_membership', type=float, default=1.0,
+        help='Structured-DP reporting threshold on posterior effective membership. '
+        'This is descriptive only and does not alter the fitted model.')
+    parser.add_argument('--hide_ic', help='Hide plug-in Gaussian information '
+        'criteria. Assignment/occupancy diagnostics are still reported.',
+        action="store_true")
+    parser.add_argument('--compute_waic', action='store_true',
+        help='Also compute the historical WAIC2 diagnostic. This is off by '
+        'default because it is comparatively expensive and is not recommended '
+        'for structured-DP model selection.')
     parser.add_argument('-s', help='Number of samples to use when computing \
         WAIC2', type=int, default=100)
     parser.add_argument('--seed', help='Seed to use for WAIC2 \
@@ -149,30 +160,44 @@ def main():
     with open(op.model, 'rb') as f:
         mm = pd.read_pickle(f)['MultDPRegression']
 
-    if torch.is_tensor(mm.R_):
-        traj_probs = np.sum(mm.R_.numpy(), 0)/np.sum(mm.R_.numpy())
-    else:
-        traj_probs = np.sum(mm.R_, 0)/np.sum(mm.R_)
-        
+    traj_probs = mm.get_traj_probs() if hasattr(mm, 'get_traj_probs') else \
+        np.mean(group_responsibilities(mm), axis=0)
+
+    reportable_ids = reportable_trajectory_ids(
+        mm, min_effective_membership=op.min_effective_membership)
     if op.trajs is not None:
         traj_ids = np.array(op.trajs.split(','), dtype=int)
     else:
-        traj_ids = np.where(mm.sig_trajs_)[0]
-    
-    all_traj_ids = np.where(mm.sig_trajs_)[0]
+        traj_ids = reportable_ids
+    all_traj_ids = reportable_ids
 
-    if op.hide_ic:
-        bic = None
-        waic2 = None
-    else:
-        bic = mm.bic()
+    # Information criteria based on the Gaussian plug-in subject-level marginal
+    # likelihood. Historical WAIC is deliberately opt-in: it is retained as a
+    # diagnostic for backward compatibility, not as the structured-DP model
+    # selection criterion.
+    ic = None
+    waic2 = None
+    fit_stat_notes = []
+    if not op.hide_ic:
+        try:
+            ic = gaussian_information_criteria(mm, traj_ids=reportable_ids)
+        except (NotImplementedError, ValueError, np.linalg.LinAlgError) as exc:
+            fit_stat_notes.append(str(exc))
+    if op.compute_waic:
         assert isinstance(op.s, int), 'Number of samples must be an integer.'
         assert op.s > 0, 'Number of samples must be greater than 0.'
-        waic2 = mm.compute_waic2(op.s, op.seed)
-    
+        try:
+            waic2 = mm.compute_waic2(op.s, op.seed)
+        except Exception as exc:
+            # Summary metrics should remain usable if the legacy WAIC path is not
+            # applicable to a newer model configuration.
+            fit_stat_notes.append(f'WAIC unavailable: {exc}')
+
     # Compute fit stats
-    ave_pps = ave_pp(mm)
-    occs = odds_correct_classification(mm)
+    ave_pps = ave_pp(mm, traj_ids=reportable_ids)
+    occs = odds_correct_classification(mm, traj_ids=reportable_ids)
+    prop_probs = prob_prop(mm, traj_ids=reportable_ids)
+    assign_diag = assignment_diagnostics(mm, traj_ids=reportable_ids)
     
     df_traj = mm.to_df()
     
@@ -197,35 +222,63 @@ def main():
     first_col_width = max_tar_name_len + max_pred_name_len + 3
     row_width = first_col_width + 60
 
-    if torch.is_tensor(mm.sig_trajs_):
-        sig_trajs = mm.sig_trajs_.numpy()
-    else:
-        sig_trajs = mm.sig_trajs_
-    
     print("Summary".center(row_width))
     print("="*row_width)
-    print("{}{}".format("Num. Trajs:".ljust(20),
-                        "{}".format(np.sum(sig_trajs))))
-    print("{}{}".format("Trajectories:".ljust(20),
+    print("{}{}".format("Reportable Trajs:".ljust(24),
+                        "{}".format(len(all_traj_ids))))
+    print("{}{}".format("Trajectories:".ljust(24),
         "{}".format(','.join(list(all_traj_ids.astype('str')))).ljust(40)))
-    
-    print("{}{}".format("No. Observations:".ljust(20), "{}".\
-                        format(df_traj.shape[0]).ljust(15)))
-    print("{}{}".format("No. Groups:".ljust(20), "{}".\
-                        format(num_groups).ljust(15)))
+    print("{}{}".format("Truncation K:".ljust(24), str(mm.K_)))
+    print("{}{}".format("No. Observations:".ljust(24),
+                        str(df_traj.shape[0]).ljust(15)))
+    print("{}{}".format("No. Groups:".ljust(24), str(num_groups).ljust(15)))
 
+    if getattr(mm, 'ranef_factorization_', 'mean_field') == 'structured':
+        occ = mm.get_structured_occupancy_diagnostics()
+        print("{}{:0.3f}".format("Expected occupied K:".ljust(24),
+                                 occ['expected_occupied_k']))
+        print("{}{}".format("MAP occupied K:".ljust(24),
+                            occ['map_occupied_k']))
+        print("{}{:.3e}".format("Residual stick mass:".ljust(24),
+                                occ['residual_stick_mass_beyond_truncation']))
+        print("{}{}".format("Covariance strategy:".ljust(24),
+            getattr(mm, 'ranef_cov_strategy_', getattr(mm, 'ranef_cov_mode_', 'fixed'))))
+        print("{}{}".format("Objective converged:".ljust(24),
+                            getattr(mm, 'objective_converged_', None)))
+        print("{}{}".format("Parameter converged:".ljust(24),
+                            getattr(mm, 'parameter_converged_', None)))
+        if getattr(mm, 'ranef_cov_strategy_', None) == 'staged':
+            staged = getattr(mm, 'staged_covariance_diagnostics_', None) or {}
+            print("{}{}".format("D release iteration:".ljust(24),
+                                staged.get('release_iteration', None)))
+            if staged.get('fixed_phase_final_elbo') is not None:
+                print("{}{:.3f}".format("Fixed-D terminal ELBO:".ljust(24),
+                    staged['fixed_phase_final_elbo']))
+
+    print("{}{:.4f}".format("Entropy:".ljust(24), assign_diag['entropy']))
+    print("{}{:.4f}".format("Mean max posterior:".ljust(24),
+                            assign_diag['mean_max_posterior']))
+    print("{}{:.4f}".format("Median max posterior:".ljust(24),
+                            assign_diag['median_max_posterior']))
+    for thr in (0.7, 0.8, 0.9):
+        key = f'proportion_max_posterior_ge_{thr:g}'
+        print("{}{:.3f}".format(f"P(max PP >= {thr:.1f}):".ljust(24),
+                                assign_diag[key]))
+
+    if ic is not None:
+        print("\nGaussian plug-in marginal information criteria")
+        print("(random effects integrated; global parameters held at fitted expectations)")
+        print("{}{:,.3f}".format("Log likelihood:".ljust(24), ic['log_likelihood']))
+        print("{}{}".format("Global parameters:".ljust(24), ic['num_parameters']))
+        print("{}{:,.3f}".format("AIC:".ljust(24), ic['aic']))
+        print("{}{:,.3f}".format("BIC:".ljust(24), ic['bic']))
+        print("{}{:,.3f}".format("SABIC:".ljust(24), ic['sabic']))
+        print("{}{:,.3f}".format("ICL1 (log-max):".ljust(24), ic['icl1']))
+        print("{}{:,.3f}".format("ICL2 (entropy):".ljust(24), ic['icl2']))
     if waic2 is not None:
-        print("{}{}".format("WAIC2:".ljust(20), "{}".\
-                            format(int(waic2)).ljust(10))) 
-    if bic is not None:
-        if len(bic) == 2:
-            print("{}{}".format("BIC1:".ljust(20), "{}".\
-                                format(int(bic[0])).ljust(10)))
-            print("{}{}".format("BIC2:".ljust(20), "{}".\
-                                format(int(bic[1])).ljust(10))) 
-        else:
-            print("{}{}".format("BIC:".ljust(20), "{}".\
-                                format(int(bic)).ljust(10)))         
+        print("{}{:,.3f}".format("Legacy WAIC2:".ljust(24), float(waic2)))
+    for note in fit_stat_notes:
+        print(f"Fit-stat note: {note}")
 
     #---------------------------------------------------------------------------
     # Shared continuous fixed effects
@@ -289,6 +342,12 @@ def main():
                                 format(occs[traj]).rjust(15))) 
             print("{}{}".format("Ave. Post. Prob. of Assignment:".ljust(35), \
                                 "{:.2f}".format(ave_pps[traj]).rjust(15)))     
+            if traj in prop_probs:
+                prop, prob = prop_probs[traj]
+                print("{}{}".format("MAP Proportion:".ljust(35),
+                                    "{:.3f}".format(prop).rjust(15)))
+                print("{}{}".format("Posterior Mean Probability:".ljust(35),
+                                    "{:.3f}".format(prob).rjust(15)))
         
             print("")
             print("{}{}{}{}".format(" "*first_col_width, "Residual STD".center(20),

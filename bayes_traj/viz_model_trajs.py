@@ -510,8 +510,7 @@ def main():
             plt.savefig(op.fig_file)
             if write_provenance_data is not None:
                 print("Writing provenance info...")
-                write_provenance_data(op.fig_file, generator_args=op, desc=""" """,
-                                      module_name='bayes_traj')
+                write_provenance_data(op.fig_file, generator_args=op, desc=""" """)
             else:
                 print("Skipping provenance info; provenance_tools is not installed.")
             print("DONE.")

@@ -135,8 +135,7 @@ def main():
     if op.out_file is not None:
         print("Writing to file...")
         df_out.to_csv(op.out_file, index=False)
-        write_provenance_data(op.out_file, generator_args=op,
-                              module_name='bayes_traj')
+        write_provenance_data(op.out_file, generator_args=op)
     
     print("DONE.")    
 

@@ -327,6 +327,17 @@ class MultDPRegression:
         self.ranef_indices_ = copy.deepcopy(getattr(mm, 'ranef_indices_', None))
         self.ranef_factorization_ = getattr(mm, 'ranef_factorization_', 'mean_field')
         self.ranef_cov_mode_ = getattr(mm, 'ranef_cov_mode_', 'fixed')
+        self.ranef_cov_strategy_ = getattr(
+            mm, 'ranef_cov_strategy_', self.ranef_cov_mode_)
+        self.ranef_cov_stage_ = getattr(
+            mm, 'ranef_cov_stage_', self.ranef_cov_mode_)
+        self.ranef_cov_release_iteration_ = getattr(
+            mm, 'ranef_cov_release_iteration_', None)
+        self.ranef_cov_initial_ = copy.deepcopy(
+            getattr(mm, 'ranef_cov_initial_', None))
+        self.staged_covariance_diagnostics_ = copy.deepcopy(
+            getattr(mm, 'staged_covariance_diagnostics_', None))
+        self.fit_complete_ = getattr(mm, 'fit_complete_', False)
         self.ranef_cov_min_eig_ = getattr(mm, 'ranef_cov_min_eig_', 1e-8)
         self.ranef_cov_ = copy.deepcopy(getattr(mm, 'ranef_cov_', {}))
         self.inv_ranef_cov_ = copy.deepcopy(getattr(mm, 'inv_ranef_cov_', {}))
@@ -411,12 +422,60 @@ class MultDPRegression:
             dtype=int)
 
     def _ensure_group_first_row_by_group(self):
-        """Lazily construct ordered representative rows for older pickles."""
+        """Lazily construct ordered representative rows for older pickles.
+
+        Some historical pickles contain pandas ``GroupBy`` objects created by
+        older pandas versions whose cached ``groups``/``indices`` properties no
+        longer deserialize cleanly.  When possible, reconstruct the grouping
+        from ``df_`` and the stored groupby key before falling back to the
+        historical first-row mask.
+        """
         rows = getattr(self, 'group_first_row_by_group_', None)
-        if rows is None or len(rows) != self.G_:
-            rows = self._get_group_first_row_by_group(self.df_, self.gb_)
-            self.group_first_row_by_group_ = rows
-        return np.asarray(rows, dtype=int)
+        gb = getattr(self, 'gb_', None)
+        expected_g = getattr(self, 'G_', None)
+        if expected_g is None and gb is not None:
+            try:
+                expected_g = int(gb.ngroups)
+            except Exception:
+                expected_g = None
+        if expected_g is None:
+            first = getattr(self, 'group_first_index_', None)
+            if first is not None:
+                expected_g = int(np.sum(np.asarray(first).astype(bool)))
+        if rows is not None and (expected_g is None or len(rows) == expected_g):
+            return np.asarray(rows, dtype=int)
+
+        df = getattr(self, 'df_', None)
+        try:
+            rows = self._get_group_first_row_by_group(df, gb)
+        except (AttributeError, TypeError, ValueError):
+            rows = None
+
+        if rows is None and df is not None and gb is not None:
+            key = getattr(gb, 'keys', None)
+            if callable(key):
+                try:
+                    key = key()
+                except Exception:
+                    key = None
+            if isinstance(key, str) and key in df.columns:
+                rebuilt = df[[key]].groupby(key)
+                rows = self._get_group_first_row_by_group(df, rebuilt)
+                self.gb_ = rebuilt
+
+        if rows is None:
+            first = getattr(self, 'group_first_index_', None)
+            if first is None:
+                raise AttributeError(
+                    'Cannot reconstruct group representative rows for model')
+            first = np.asarray(first).astype(bool)
+            rows = np.where(first)[0]
+            if expected_g is not None and len(rows) != expected_g:
+                raise ValueError(
+                    'Historical group_first_index_ does not match group count')
+
+        self.group_first_row_by_group_ = np.asarray(rows, dtype=int)
+        return self.group_first_row_by_group_
 
     def _get_group_responsibilities(self, R=None):
         """Return G x K responsibilities in the model's internal group order."""
@@ -690,7 +749,8 @@ class MultDPRegression:
             if self.target_type_[dd] != 'gaussian':
                 continue
     
-            for kk in np.where(self.sig_trajs_)[0]:
+            plot_ids = self.get_reportable_trajectory_ids()
+        for kk in plot_ids:
                 wk = group_weights[:, kk]
                 wk_sum = torch.sum(wk)
                 if wk_sum <= 0:
@@ -842,11 +902,14 @@ class MultDPRegression:
             responsibility. Structured mode currently supports Gaussian
             targets only.
 
-        ranef_cov_mode : {'fixed', 'estimate'}, optional
+        ranef_cov_mode : {'fixed', 'estimate', 'staged'}, optional
             In structured mode, either keep the supplied random-effect
-            covariance fixed (default) or estimate a common covariance per
-            Gaussian outcome from E[b b^T]. 'estimate' is unavailable with
-            the historical mean-field factorization.
+            covariance fixed, estimate a common covariance per Gaussian
+            outcome from E[b b^T], or use 'staged': first optimize with D
+            fixed until the ELBO objective converges, then release D and
+            continue until the post-release objective converges. 'estimate'
+            and 'staged' are unavailable with the historical mean-field
+            factorization.
 
         ranef_cov_min_eig : float, optional
             Minimum eigenvalue imposed on an estimated random-effect
@@ -886,11 +949,16 @@ class MultDPRegression:
 
         if ranef_factorization not in ('mean_field', 'structured'):
             raise ValueError("ranef_factorization must be 'mean_field' or 'structured'")
-        if ranef_cov_mode not in ('fixed', 'estimate'):
-            raise ValueError("ranef_cov_mode must be 'fixed' or 'estimate'")
-        if ranef_cov_mode == 'estimate' and ranef_factorization != 'structured':
+        if ranef_cov_mode not in ('fixed', 'estimate', 'staged'):
             raise ValueError(
-                "ranef_cov_mode='estimate' requires ranef_factorization='structured'")
+                "ranef_cov_mode must be 'fixed', 'estimate', or 'staged'")
+        if ranef_cov_mode in ('estimate', 'staged') and            ranef_factorization != 'structured':
+            raise ValueError(
+                "ranef_cov_mode='estimate'/'staged' requires "
+                "ranef_factorization='structured'")
+        if ranef_cov_mode == 'staged' and structured_tol_elbo_rel is None:
+            raise ValueError(
+                "ranef_cov_mode='staged' requires structured_tol_elbo_rel")
         if ranef_cov_min_eig <= 0:
             raise ValueError("ranef_cov_min_eig must be > 0")
         if structured_min_iters < 1:
@@ -901,7 +969,13 @@ class MultDPRegression:
             raise ValueError("ranef_cov_warmup_iters must be >= 0")
 
         self.ranef_factorization_ = ranef_factorization
-        self.ranef_cov_mode_ = ranef_cov_mode
+        self.ranef_cov_strategy_ = ranef_cov_mode
+        self.ranef_cov_stage_ = 'fixed' if ranef_cov_mode == 'staged' else ranef_cov_mode
+        self.ranef_cov_mode_ = self.ranef_cov_stage_
+        self.ranef_cov_release_iteration_ = None
+        self.ranef_cov_initial_ = None
+        self.staged_covariance_diagnostics_ = None
+        self.fit_complete_ = False
         self.ranef_cov_min_eig_ = float(ranef_cov_min_eig)
         self.structured_tol_elbo_rel_ = structured_tol_elbo_rel
         self.structured_tol_r_ = float(structured_tol_r)
@@ -916,6 +990,7 @@ class MultDPRegression:
         self.objective_converged_ = None
         self.parameter_converged_ = False
         self.converged_ = False
+        self.fit_complete_ = False
         self.n_iter_ = 0
         self.fit_segment_ = 0
 
@@ -1069,6 +1144,21 @@ class MultDPRegression:
                 raise NotImplementedError(
                     "Structured random effects currently support Gaussian targets only")
             self._initialize_structured_random_effect_state()
+            if self.ranef_cov_strategy_ == 'staged':
+                self.ranef_cov_initial_ = {
+                    tt: self._get_structured_ranef_cov(tt).clone().detach()
+                    for tt in self.target_names_}
+                self.staged_covariance_diagnostics_ = {
+                    'strategy': 'staged',
+                    'initial_covariance': {
+                        tt: self.ranef_cov_initial_[tt].detach().cpu().numpy().tolist()
+                        for tt in self.target_names_},
+                    'release_iteration': None,
+                    'fixed_phase_final_elbo': None,
+                    'final_stage': 'fixed',
+                    'final_elbo': None,
+                    'fit_complete': False,
+                }
 
         print("Initializing parameters...")
         self.init_traj_params(traj_probs)
@@ -1147,9 +1237,35 @@ class MultDPRegression:
             raise ValueError('iters must be >= 1')
 
         if ranef_cov_mode is not None:
-            if ranef_cov_mode not in ('fixed', 'estimate'):
-                raise ValueError("ranef_cov_mode must be 'fixed' or 'estimate'")
-            self.ranef_cov_mode_ = ranef_cov_mode
+            if ranef_cov_mode not in ('fixed', 'estimate', 'staged'):
+                raise ValueError(
+                    "ranef_cov_mode must be 'fixed', 'estimate', or 'staged'")
+            if ranef_cov_mode == 'staged' and                self.structured_tol_elbo_rel_ is None and                structured_tol_elbo_rel is None:
+                raise ValueError(
+                    "ranef_cov_mode='staged' requires structured_tol_elbo_rel")
+            self.ranef_cov_strategy_ = ranef_cov_mode
+            if ranef_cov_mode == 'staged':
+                self.ranef_cov_mode_ = 'fixed'
+                self.ranef_cov_stage_ = 'fixed'
+                self.ranef_cov_release_iteration_ = None
+                self.ranef_cov_initial_ = {
+                    tt: self._get_structured_ranef_cov(tt).clone().detach()
+                    for tt in self.target_names_}
+                self.staged_covariance_diagnostics_ = {
+                    'strategy': 'staged',
+                    'initial_covariance': {
+                        tt: self.ranef_cov_initial_[tt].detach().cpu().numpy().tolist()
+                        for tt in self.target_names_},
+                    'release_iteration': None,
+                    'fixed_phase_final_elbo': None,
+                    'final_stage': 'fixed',
+                    'final_elbo': None,
+                    'fit_complete': False,
+                }
+            else:
+                self.ranef_cov_mode_ = ranef_cov_mode
+                self.ranef_cov_stage_ = ranef_cov_mode
+                self.ranef_cov_release_iteration_ = None
         if ranef_cov_min_eig is not None:
             if ranef_cov_min_eig <= 0:
                 raise ValueError('ranef_cov_min_eig must be > 0')
@@ -1196,6 +1312,7 @@ class MultDPRegression:
         self.objective_converged_ = None
         self.parameter_converged_ = False
         self.converged_ = False
+        self.fit_complete_ = False
         self.sig_trajs_ = torch.ones(self.K_, dtype=torch.bool)
         self.fit_coordinate_ascent_structured(
             int(iters), verbose, weights_only,
@@ -1375,6 +1492,314 @@ class MultDPRegression:
         }
         return out
 
+    def get_reportable_trajectory_ids(self, min_effective_membership=1.0):
+        """Return trajectory IDs appropriate for summaries and visualization.
+
+        In historical mean-field models ``sig_trajs_`` represented the set of
+        components retained by hard pruning. Structured DP inference deliberately
+        keeps every component in the truncation alive, so ``sig_trajs_`` is not
+        an occupancy estimate there. For structured fits this method instead
+        returns components whose posterior effective membership
+        ``sum_i q(z_i=k)`` is at least ``min_effective_membership``.
+
+        The threshold is descriptive only and never feeds back into inference.
+        """
+        if getattr(self, 'ranef_factorization_', 'mean_field') == 'structured':
+            occ = self.get_structured_occupancy_diagnostics()
+            n_eff = np.asarray(occ['effective_membership'], dtype=float)
+            ids = np.where(n_eff >= float(min_effective_membership))[0]
+            # A pathological tiny-data fit can have every n_eff < 1. Preserve
+            # at least the MAP-occupied components for reporting in that case.
+            if ids.size == 0:
+                ids = np.where(np.asarray(occ['map_counts']) > 0)[0]
+            return ids.astype(int)
+        sig = self.sig_trajs_.detach().cpu().numpy()             if torch.is_tensor(self.sig_trajs_) else np.asarray(self.sig_trajs_)
+        return np.where(sig)[0].astype(int)
+
+    def get_reportable_trajectory_mask(self, min_effective_membership=1.0):
+        """Boolean K-vector corresponding to ``get_reportable_trajectory_ids``."""
+        mask = np.zeros(self.K_, dtype=bool)
+        mask[self.get_reportable_trajectory_ids(min_effective_membership)] = True
+        return mask
+
+    @staticmethod
+    def _expected_log_stick_weights_from_params(v_a, v_b):
+        v_a = v_a.double()
+        v_b = v_b.double()
+        elogv = torch.digamma(v_a) - torch.digamma(v_a + v_b)
+        elog1m = torch.digamma(v_b) - torch.digamma(v_a + v_b)
+        out = elogv.clone()
+        for kk in range(1, v_a.shape[0]):
+            out[kk] += torch.sum(elog1m[:kk])
+        return out
+
+    def _structured_new_data_local_state(self, df, gb_col=None):
+        """Compute class-conditional local random-effect posteriors for new data.
+
+        Global trajectory parameters are never modified. The returned local
+        state is indexed in the new cohort's group order and can therefore be
+        used for strict external inference or for test-cohort prevalence
+        adaptation.
+        """
+        if getattr(self, 'ranef_factorization_', 'mean_field') != 'structured':
+            raise RuntimeError(
+                'New-data local random-effect inference requires structured mode')
+        if self.num_binary_targets_ > 0:
+            raise NotImplementedError(
+                'Structured new-data inference currently supports Gaussian targets only')
+        missing_predictors = [c for c in self.predictor_names_
+                              if c not in df.columns]
+        if missing_predictors:
+            raise ValueError(
+                'New data are missing required predictor columns: ' +
+                ', '.join(missing_predictors))
+
+        x = torch.tensor(df[self.predictor_names_].values, dtype=torch.float64)
+        # Targets are evidence, not design variables.  Permit an absent target
+        # column and treat it as entirely missing so a model with additional
+        # target dimensions can still be applied when only a subset is
+        # observed in a validation cohort.  This is particularly useful for
+        # forward-compatible multimodal models (e.g. future qCT targets).
+        y_np = np.full((df.shape[0], self.D_), np.nan, dtype=float)
+        for dd, target in enumerate(self.target_names_):
+            if target in df.columns:
+                y_np[:, dd] = pd.to_numeric(
+                    df[target], errors='coerce').to_numpy(dtype=float)
+        y = torch.tensor(y_np, dtype=torch.float64)
+        n = x.shape[0]
+        if gb_col is None:
+            group_index = torch.arange(n, dtype=torch.long)
+            group_labels = np.asarray(df.index)
+            g_count = n
+        else:
+            codes, uniques = pd.factorize(df[gb_col], sort=False)
+            if np.any(codes < 0):
+                raise ValueError('Missing values in group column are not supported')
+            group_index = torch.tensor(codes, dtype=torch.long)
+            group_labels = np.asarray(uniques)
+            g_count = len(uniques)
+
+        if self.ranef_indices_ is None or np.sum(self.ranef_indices_) == 0:
+            raise RuntimeError(
+                'Structured new-data inference requires configured random effects')
+        ranef_ids = np.where(self.ranef_indices_)[0]
+        q = len(ranef_ids)
+        z_all = x[:, self.ranef_indices_]
+        scores = torch.zeros((g_count, self.K_), dtype=torch.float64)
+        local_u_mu = torch.zeros(
+            (g_count, self.D_, self.K_, self.M_), dtype=torch.float64)
+        local_u_Sig = torch.zeros(
+            (g_count, self.D_, self.K_, self.M_, self.M_), dtype=torch.float64)
+        has_shared = hasattr(self, 'num_shared_preds_') and self.num_shared_preds_ > 0
+
+        for dd, tt in enumerate(self.target_names_):
+            mask = ~torch.isnan(y[:, dd])
+            xm = x[mask]
+            ym = y[mask, dd]
+            gm = group_index[mask]
+            zm = z_all[mask]
+            shared_mean = self._get_gaussian_shared_mean(xm, dd)
+            traj_mean = self._get_gaussian_traj_mean(xm, dd)
+
+            shared_var = torch.zeros(xm.shape[0], dtype=torch.float64)
+            if has_shared:
+                xs = xm[:, self.shared_indices_]
+                shared_var = torch.sum(
+                    xs ** 2 * self.w_var_shared_[:, dd].unsqueeze(0), dim=1)
+            if has_shared:
+                xt = xm[:, self.traj_indices_]
+                wv = self.w_var_[self.traj_indices_, dd, :]
+                traj_var = torch.sum(
+                    xt[:, None, :] ** 2 * wv.T[None, :, :], dim=2)
+            else:
+                traj_var = torch.sum(
+                    xm[:, None, :] ** 2 * self.w_var_[:, dd, :].T[None, :, :],
+                    dim=2)
+
+            ztz = torch.zeros((g_count, q, q), dtype=torch.float64)
+            if zm.shape[0] > 0:
+                ztz.index_add_(0, gm, torch.einsum('ni,nj->nij', zm, zm))
+            prior_cov = self._get_structured_ranef_cov(tt)
+            prior_inv = torch.inverse(prior_cov)
+
+            for kk in range(self.K_):
+                residual = ym - shared_mean - traj_mean[:, kk]
+                ztr = torch.zeros((g_count, q), dtype=torch.float64)
+                if zm.shape[0] > 0:
+                    ztr.index_add_(0, gm, zm * residual[:, None])
+                prec = self.lambda_a_[dd, kk] / self.lambda_b_[dd, kk]
+                post_cov = torch.linalg.inv(
+                    prior_inv[None, :, :] + prec * ztz)
+                post_mean = torch.einsum(
+                    'gab,gb->ga', post_cov, prec * ztr)
+
+                local_u_mu[:, dd, kk, ranef_ids] = post_mean
+                for aa, ia in enumerate(ranef_ids):
+                    for bb, ib in enumerate(ranef_ids):
+                        local_u_Sig[:, dd, kk, ia, ib] = post_cov[:, aa, bb]
+
+                if xm.shape[0] > 0:
+                    bmean = torch.einsum('ni,ni->n', zm, post_mean[gm])
+                    bvar = torch.einsum('ni,nij,nj->n', zm, post_cov[gm], zm)
+                    resid2 = ym - shared_mean - traj_mean[:, kk] - bmean
+                    esq = resid2 ** 2 + shared_var + traj_var[:, kk] + bvar
+                    eloglam = torch.digamma(self.lambda_a_[dd, kk]) -                         torch.log(self.lambda_b_[dd, kk])
+                    row_ll = 0.5 * (eloglam - np.log(2 * np.pi)) -                         0.5 * prec * esq
+                    grouped = torch.zeros(g_count, dtype=torch.float64)
+                    grouped.index_add_(0, gm, row_ll)
+                else:
+                    grouped = torch.zeros(g_count, dtype=torch.float64)
+                kl = self._gaussian_kl_zero_mean_prior(
+                    post_mean, post_cov, prior_cov)
+                scores[:, kk] += grouped - kl
+
+        return {
+            'group_scores': scores,
+            'group_index': group_index,
+            'group_labels': group_labels,
+            'u_mu': local_u_mu,
+            'u_Sig': local_u_Sig,
+            'X': x,
+            'Y': y,
+        }
+
+    def infer_new_data(self, df, gb_col=None, mode='strict', max_iters=100,
+                       tol=1e-8, return_random_effects=True):
+        """Infer trajectory membership for subjects not used to fit the model.
+
+        Parameters
+        ----------
+        df : pandas.DataFrame
+            New longitudinal data containing the model predictors and targets.
+
+        gb_col : str, optional
+            Subject/group identifier. If omitted, each row is treated as a
+            separate subject.
+
+        mode : {'strict', 'adapt_prevalence'}
+            ``strict`` freezes all trained global quantities, including the
+            fitted stick posterior, and estimates only local assignments and
+            class-conditional random effects. ``adapt_prevalence`` also
+            re-estimates the new cohort's stick posterior under the same alpha,
+            while keeping fixed effects, residual precisions, and D fixed.
+
+        max_iters : int
+            Maximum q(z)/q(v) alternations for prevalence adaptation.
+
+        tol : float
+            Maximum absolute change in group responsibilities used to stop
+            prevalence adaptation.
+
+        return_random_effects : bool
+            Include class-conditional local random-effect means/covariances.
+
+        Returns
+        -------
+        result : dict
+            Contains row-level and group-level responsibilities, group labels,
+            and (optionally) class-conditional local random effects. For
+            ``adapt_prevalence`` it also contains the test-cohort Beta stick
+            parameters and local convergence diagnostics. The fitted model
+            itself is not modified.
+        """
+        if mode not in ('strict', 'adapt_prevalence'):
+            raise ValueError("mode must be 'strict' or 'adapt_prevalence'")
+        local = self._structured_new_data_local_state(df, gb_col=gb_col)
+        scores = local['group_scores']
+        group_index = local['group_index']
+
+        if mode == 'strict':
+            elogw = self._expected_log_stick_weights()
+            r_row = self._responsibilities_from_group_scores(
+                scores, group_index, expected_log_weights=elogw)
+            r_group = torch.softmax(scores + elogw[None, :], dim=1)
+            v_a = self.v_a_.clone().detach()
+            v_b = self.v_b_.clone().detach()
+            n_iter = 1
+            converged = True
+            max_r_change = 0.0
+        else:
+            if int(max_iters) < 1:
+                raise ValueError('max_iters must be >= 1')
+            v_a = torch.ones(self.K_, dtype=torch.float64)
+            v_b = torch.full(
+                (self.K_,), float(self.alpha_), dtype=torch.float64)
+            r_group = torch.softmax(
+                scores + self._expected_log_stick_weights_from_params(
+                    v_a, v_b)[None, :], dim=1)
+            n_iter = 0
+            converged = False
+            max_r_change = np.inf
+            for ii in range(int(max_iters)):
+                n_iter = ii + 1
+                old = r_group.clone()
+                counts = torch.sum(r_group, dim=0)
+                v_a = 1.0 + counts
+                for kk in range(self.K_):
+                    v_b[kk] = self.alpha_ + torch.sum(counts[kk + 1:])
+                elogw = self._expected_log_stick_weights_from_params(v_a, v_b)
+                r_group = torch.softmax(scores + elogw[None, :], dim=1)
+                max_r_change = torch.max(torch.abs(r_group - old)).item()
+                if max_r_change <= float(tol):
+                    converged = True
+                    break
+            r_row = r_group[group_index, :]
+
+        result = {
+            'mode': mode,
+            'R': r_row,
+            'R_group': r_group,
+            'group_labels': local['group_labels'],
+            'group_index': group_index,
+            'v_a': v_a,
+            'v_b': v_b,
+            'iterations': n_iter,
+            'converged': converged,
+            'max_responsibility_change': float(max_r_change),
+        }
+        if return_random_effects:
+            result['u_mu'] = local['u_mu']
+            result['u_Sig'] = local['u_Sig']
+
+            # Also expose posterior-marginal random effects after averaging
+            # over trajectory uncertainty.  For each group/target,
+            #   E[b] = sum_k r_k m_k
+            #   Var[b] = sum_k r_k (S_k + m_k m_k') - E[b]E[b]'.
+            # The full M-dimensional matrices intentionally retain zeros in
+            # non-random-effect predictor coordinates for API consistency.
+            u_mu = local['u_mu']
+            u_sig = local['u_Sig']
+            marginal_mu = torch.einsum('gk,gdkm->gdm', r_group, u_mu)
+            second = torch.einsum(
+                'gk,gdkmn->gdmn', r_group, u_sig) + torch.einsum(
+                'gk,gdkm,gdkn->gdmn', r_group, u_mu, u_mu)
+            marginal_sig = second - torch.einsum(
+                'gdm,gdn->gdmn', marginal_mu, marginal_mu)
+            # Numerical symmetrization; mixture-moment arithmetic can leave
+            # machine-precision asymmetry.
+            marginal_sig = 0.5 * (
+                marginal_sig + marginal_sig.transpose(-1, -2))
+            result['u_mu_marginal'] = marginal_mu
+            result['u_Sig_marginal'] = marginal_sig
+            result['ranef_indices'] = np.where(self.ranef_indices_)[0].astype(int)
+            result['ranef_predictor_names'] = [
+                self.predictor_names_[ii]
+                for ii in result['ranef_indices']]
+        return result
+
+    def predict_random_effects(self, df, gb_col=None, mode='strict',
+                               max_iters=100, tol=1e-8):
+        """Public convenience API for new-subject local random effects.
+
+        Returns the same structured inference result as :meth:`infer_new_data`,
+        including q(z), class-conditional random-effect means/covariances, and
+        optional test-cohort prevalence-adapted stick parameters. No fitted
+        global trajectory parameter is modified.
+        """
+        return self.infer_new_data(
+            df, gb_col=gb_col, mode=mode, max_iters=max_iters, tol=tol,
+            return_random_effects=True)
+
     @staticmethod
     def _gaussian_kl_zero_mean_prior(mean, cov, prior_cov):
         """KL[N(mean,cov) || N(0,prior_cov)] for a leading batch."""
@@ -1538,11 +1963,30 @@ class MultDPRegression:
                     mean, cov, prior_cov)
         return scores
 
-    def _responsibilities_from_group_scores(self, group_scores, group_index):
+    def _responsibilities_from_group_scores(self, group_scores, group_index,
+                                            expected_log_weights=None):
+        """Convert group-level local scores into row-level responsibilities.
+
+        Parameters
+        ----------
+        group_scores : torch.Tensor, shape (G, K)
+            Local expected log-likelihood minus local KL terms.
+
+        group_index : torch.Tensor, shape (N,)
+            Mapping from rows to group indices.
+
+        expected_log_weights : torch.Tensor, shape (K,), optional
+            Expected log mixture weights. If omitted, the fitted model's
+            stick posterior is used. Supplying this explicitly is useful for
+            independent-cohort prevalence adaptation while keeping trajectory
+            parameters fixed.
+        """
         # Structured DP mode deliberately does NOT hard-threshold or prune
         # components. K is only a truncation ceiling. A component with tiny
         # current mass remains eligible to revive on a later coordinate update.
-        logits = group_scores + self._expected_log_stick_weights()[None, :]
+        if expected_log_weights is None:
+            expected_log_weights = self._expected_log_stick_weights()
+        logits = group_scores + expected_log_weights[None, :]
         new_r = torch.softmax(logits, dim=1)
         if torch.any(~torch.isfinite(new_r)):
             raise RuntimeError(
@@ -1562,91 +2006,18 @@ class MultDPRegression:
 
     def get_R_matrix_structured(self, df=None, gb_col=None, df_helper=None,
                                 test_data=False):
-        """Infer class probabilities with fresh q(b_i|z_i=k) local factors.
+        """Infer trajectory probabilities under the structured factorization.
 
-        For new longitudinal subjects this analytically conditions their random
-        effects within every candidate class. This is intentionally different
-        from the historical ``test_data=True`` behavior, which set random
-        effects to zero.
+        Training-data calls perform the normal q(z) coordinate update. For an
+        external dataframe, global parameters are frozen and fresh local
+        q(b_i|z_i=k) factors are inferred for every candidate trajectory.
+        ``test_data`` is retained for API compatibility; structured external
+        inference never silently zeros random effects.
         """
         if df is None or df_helper is not None:
             return self._update_z_structured_training()
-        if self.num_binary_targets_ > 0:
-            raise NotImplementedError(
-                "Structured prediction currently supports Gaussian targets only")
-
-        x = torch.tensor(df[self.predictor_names_].values, dtype=torch.float64)
-        y = torch.tensor(df[self.target_names_].values, dtype=torch.float64)
-        n = x.shape[0]
-        if gb_col is None:
-            group_index = torch.arange(n, dtype=torch.long)
-            g_count = n
-        else:
-            codes, _ = pd.factorize(df[gb_col], sort=False)
-            group_index = torch.tensor(codes, dtype=torch.long)
-            g_count = int(np.max(codes)) + 1
-        z_all = x[:, self.ranef_indices_]
-        ranef_ids = np.where(self.ranef_indices_)[0]
-        active = np.where(self.sig_trajs_)[0]
-        scores = torch.zeros((g_count, self.K_), dtype=torch.float64)
-        has_shared = hasattr(self, 'num_shared_preds_') and \
-            self.num_shared_preds_ > 0
-
-        for dd, tt in enumerate(self.target_names_):
-            mask = ~torch.isnan(y[:, dd])
-            xm = x[mask]
-            ym = y[mask, dd]
-            gm = group_index[mask]
-            zm = z_all[mask]
-            shared_mean = self._get_gaussian_shared_mean(xm, dd)
-            traj_mean = self._get_gaussian_traj_mean(xm, dd)
-
-            shared_var = torch.zeros(xm.shape[0], dtype=torch.float64)
-            if has_shared:
-                xs = xm[:, self.shared_indices_]
-                shared_var = torch.sum(
-                    xs ** 2 * self.w_var_shared_[:, dd].unsqueeze(0), dim=1)
-            if has_shared:
-                xt = xm[:, self.traj_indices_]
-                wv = self.w_var_[self.traj_indices_, dd, :]
-                traj_var = torch.sum(
-                    xt[:, None, :] ** 2 * wv.T[None, :, :], dim=2)
-            else:
-                traj_var = torch.sum(
-                    xm[:, None, :] ** 2 * self.w_var_[:, dd, :].T[None, :, :],
-                    dim=2)
-
-            ztz = torch.zeros(
-                (g_count, len(ranef_ids), len(ranef_ids)), dtype=torch.float64)
-            ztz.index_add_(0, gm, torch.einsum('ni,nj->nij', zm, zm))
-            nobs = torch.zeros(g_count, dtype=torch.float64)
-            nobs.index_add_(0, gm, torch.ones(zm.shape[0], dtype=torch.float64))
-            prior_cov = self._get_structured_ranef_cov(tt)
-            prior_inv = torch.inverse(prior_cov)
-
-            for kk in active:
-                residual = ym - shared_mean - traj_mean[:, kk]
-                ztr = torch.zeros((g_count, len(ranef_ids)), dtype=torch.float64)
-                ztr.index_add_(0, gm, zm * residual[:, None])
-                prec = self.lambda_a_[dd, kk] / self.lambda_b_[dd, kk]
-                post_cov = torch.linalg.inv(
-                    prior_inv[None, :, :] + prec * ztz)
-                post_mean = torch.einsum(
-                    'gab,gb->ga', post_cov, prec * ztr)
-                bmean = torch.einsum('ni,ni->n', zm, post_mean[gm])
-                bvar = torch.einsum('ni,nij,nj->n', zm, post_cov[gm], zm)
-                resid2 = ym - shared_mean - traj_mean[:, kk] - bmean
-                esq = resid2 ** 2 + shared_var + traj_var[:, kk] + bvar
-                eloglam = torch.digamma(self.lambda_a_[dd, kk]) - \
-                    torch.log(self.lambda_b_[dd, kk])
-                row_ll = 0.5 * (eloglam - np.log(2 * np.pi)) - 0.5 * prec * esq
-                grouped = torch.zeros(g_count, dtype=torch.float64)
-                grouped.index_add_(0, gm, row_ll)
-                kl = self._gaussian_kl_zero_mean_prior(
-                    post_mean, post_cov, prior_cov)
-                scores[:, kk] += grouped - kl
-
-        return self._responsibilities_from_group_scores(scores, group_index)
+        return self.infer_new_data(
+            df, gb_col=gb_col, mode='strict', return_random_effects=False)['R']
 
     @staticmethod
     def _normal_kl_diag(mu, var, mu0, var0):
@@ -1729,6 +2100,13 @@ class MultDPRegression:
         """
         # Structured DP mode always treats K as a truncation ceiling.
         self.sig_trajs_ = torch.ones(self.K_, dtype=torch.bool)
+        if not hasattr(self, 'ranef_cov_strategy_'):
+            self.ranef_cov_strategy_ = getattr(self, 'ranef_cov_mode_', 'fixed')
+        if not hasattr(self, 'ranef_cov_stage_'):
+            self.ranef_cov_stage_ = getattr(self, 'ranef_cov_mode_', 'fixed')
+        if not hasattr(self, 'ranef_cov_release_iteration_'):
+            self.ranef_cov_release_iteration_ = None
+        self.fit_complete_ = False
 
         # Local factors must correspond to the starting global parameters.
         self.update_v()
@@ -1738,7 +2116,20 @@ class MultDPRegression:
         if verbose:
             print(f"initial structured ELBO {prev_elbo:.6f}")
 
-        for inc in range(1, iters + 1):
+        # In staged covariance mode ``iters`` is a per-phase budget: up to
+        # ``iters`` fixed-D iterations are allowed to reach objective
+        # convergence, followed by up to ``iters`` estimated-D iterations.
+        # This prevents a late fixed-D convergence from starving the released-D
+        # phase. A continuation that is already in the estimate phase receives
+        # only one additional ``iters`` budget.
+        strategy_at_start = getattr(
+            self, 'ranef_cov_strategy_', self.ranef_cov_mode_)
+        stage_at_start = getattr(self, 'ranef_cov_stage_', self.ranef_cov_mode_)
+        staged_two_phase_segment = (
+            strategy_at_start == 'staged' and stage_at_start == 'fixed')
+        max_segment_iters = int(iters) * (2 if staged_two_phase_segment else 1)
+
+        for inc in range(1, max_segment_iters + 1):
             old_r = self.R_.clone()
             old_w = self.w_mu_.clone()
             old_shared = self.w_mu_shared_.clone() if \
@@ -1763,8 +2154,14 @@ class MultDPRegression:
                 # covariance M-step.
                 self.update_u_structured()
 
-                if self.ranef_cov_mode_ == 'estimate' and \
-                   inc > self.ranef_cov_warmup_iters_:
+                cov_ready = False
+                if self.ranef_cov_mode_ == 'estimate':
+                    if getattr(self, 'ranef_cov_strategy_', 'estimate') == 'staged':
+                        cov_ready = self.ranef_cov_release_iteration_ is not None and \
+                            (iteration_offset + inc) > self.ranef_cov_release_iteration_
+                    else:
+                        cov_ready = inc > self.ranef_cov_warmup_iters_
+                if cov_ready:
                     cov_attempted = True
                     local_before_cov = self._structured_training_local_scores()
                     cov_elbo_before = self.compute_structured_elbo(
@@ -1845,6 +2242,13 @@ class MultDPRegression:
                 'parameter_tolerances_met': parameter_pass,
                 'joint_convergence_met': bool(
                     objective_pass is True and parameter_pass),
+                'ranef_cov_strategy': getattr(
+                    self, 'ranef_cov_strategy_', self.ranef_cov_mode_),
+                'ranef_cov_stage': getattr(
+                    self, 'ranef_cov_stage_', self.ranef_cov_mode_),
+                'ranef_cov_release_iteration': getattr(
+                    self, 'ranef_cov_release_iteration_', None),
+                'ranef_cov_released_after_iteration': False,
                 'mean_max_posterior': float(torch.mean(torch.max(rg, dim=1).values)),
                 'expected_occupied_k': occ['expected_occupied_k'],
                 'map_occupied_k': occ['map_occupied_k'],
@@ -1876,17 +2280,66 @@ class MultDPRegression:
                     f"E[Kocc] {occ['expected_occupied_k']:.2f}, "
                     f"MAPK {occ['map_occupied_k']}")
 
+            global_iter = int(iteration_offset + inc)
+            strategy = getattr(self, 'ranef_cov_strategy_', self.ranef_cov_mode_)
+            stage = getattr(self, 'ranef_cov_stage_', self.ranef_cov_mode_)
+            if strategy == 'staged' and stage == 'estimate' and \
+               self.ranef_cov_release_iteration_ is not None:
+                stage_iter = global_iter - int(self.ranef_cov_release_iteration_)
+            else:
+                stage_iter = inc
+
             convergence_min = self.structured_min_iters_
-            if self.ranef_cov_mode_ == 'estimate':
+            if strategy == 'estimate':
                 convergence_min = builtins.max(
                     convergence_min, self.ranef_cov_warmup_iters_ + 1)
-            if inc >= convergence_min:
+
+            if stage_iter >= convergence_min:
                 self.objective_converged_ = objective_pass
                 self.parameter_converged_ = parameter_pass
                 self.converged_ = bool(
                     objective_pass is True and parameter_pass)
-                if self.converged_:
+
+                if strategy == 'staged' and stage == 'fixed' and \
+                   objective_pass is True:
+                    self.ranef_cov_release_iteration_ = global_iter
+                    self.ranef_cov_stage_ = 'estimate'
+                    self.ranef_cov_mode_ = 'estimate'
+                    self.objective_converged_ = False
+                    self.parameter_converged_ = False
+                    self.converged_ = False
+                    self.fit_complete_ = False
+                    self.inference_history_[-1][
+                        'ranef_cov_released_after_iteration'] = True
+                    self.inference_history_[-1][
+                        'ranef_cov_release_iteration'] = global_iter
+                    if self.staged_covariance_diagnostics_ is None:
+                        self.staged_covariance_diagnostics_ = {'strategy': 'staged'}
+                    self.staged_covariance_diagnostics_.update({
+                        'release_iteration': global_iter,
+                        'fixed_phase_final_elbo': float(elbo),
+                        'final_stage': 'estimate',
+                        'fit_complete': False,
+                    })
+                    if verbose:
+                        print(
+                            f"fixed-D objective converged at iteration {global_iter}; "
+                            "releasing D")
+                elif objective_pass is True:
+                    # Objective convergence is the practical completion
+                    # criterion. Parameter convergence remains a stricter QC
+                    # diagnostic and does not force indefinite fitting.
+                    self.fit_complete_ = True
                     break
+
+            # A staged segment gets an independent iteration budget for each
+            # phase. If the fixed-D phase has not converged within its budget,
+            # do not silently spend the estimate-phase budget continuing fixed D;
+            # the repeat remains incomplete/ineligible and its QC is reported.
+            if staged_two_phase_segment and \
+               getattr(self, 'ranef_cov_stage_', None) == 'fixed' and \
+               inc >= int(iters):
+                break
             prev_elbo = elbo
 
         # Always leave a final occupancy/truncation summary on the model.
@@ -1902,8 +2355,30 @@ class MultDPRegression:
                     'max_delta_ranef_cov', 'map_agreement_previous',
                     'objective_tolerance_met',
                     'parameter_tolerances_met',
-                    'joint_convergence_met']
+                    'joint_convergence_met', 'ranef_cov_strategy',
+                    'ranef_cov_stage', 'ranef_cov_release_iteration']
             }
+            self.final_convergence_diagnostics_['fit_complete'] = bool(
+                getattr(self, 'fit_complete_', False))
+        if getattr(self, 'ranef_cov_strategy_', None) == 'staged':
+            if self.staged_covariance_diagnostics_ is None:
+                self.staged_covariance_diagnostics_ = {'strategy': 'staged'}
+            final_elbo = (self.inference_history_[-1].get('elbo')
+                          if len(self.inference_history_) > 0 else None)
+            self.staged_covariance_diagnostics_.update({
+                'release_iteration': getattr(
+                    self, 'ranef_cov_release_iteration_', None),
+                'final_stage': getattr(self, 'ranef_cov_stage_', None),
+                'final_elbo': float(final_elbo) if final_elbo is not None else None,
+                'final_covariance': {
+                    tt: self._get_structured_ranef_cov(tt).detach().cpu().numpy().tolist()
+                    for tt in self.target_names_},
+                'objective_converged': getattr(
+                    self, 'objective_converged_', None),
+                'parameter_converged': bool(getattr(
+                    self, 'parameter_converged_', False)),
+                'fit_complete': bool(getattr(self, 'fit_complete_', False)),
+            })
 
     def update_v(self):
         """Updates the parameters of the Beta distributions for latent
@@ -4088,7 +4563,8 @@ class MultDPRegression:
         self.R_[:] = init_traj_probs
         self.sig_trajs_ = torch.max(self.R_, 0)[0] > self.prob_thresh_
 
-    def augment_df_with_traj_info(self, df, gb_col=None, test_data=False):
+    def augment_df_with_traj_info(self, df, gb_col=None, test_data=False,
+                                  inference_mode='strict'):
         """Compute the probability that each data instance belongs to each of
         the 'k' clusters. Note that 'X' and 'Y' can be "new" data; that is,
         data that was not necessarily used to train the model.
@@ -4104,9 +4580,14 @@ class MultDPRegression:
             df column to groupby. Should correspond to subject identifier.
 
         test_data : bool, optional
-            Indicates whether the current data set is the one being trained
-            on or a new (test) data set. This is required to properly handle
-            presence or absence of random effects.
+            Historical compatibility flag. Structured external inference does
+            not zero random effects.
+
+        inference_mode : {'strict', 'adapt_prevalence'}, optional
+            Structured new-cohort inference mode. Strict inference freezes all
+            trained global quantities. Prevalence adaptation additionally
+            estimates test-cohort stick weights while keeping trajectory
+            coefficients, residual precisions, and D fixed.
 
         Returns
         -------
@@ -4116,8 +4597,13 @@ class MultDPRegression:
             'traj_<num>', <num> indicates each of the trajectories and the 
             column values are the probabilities of assignment. 
         """        
-        R = self.get_R_matrix(df=df, gb_col=gb_col,
-                              test_data=test_data).numpy()
+        if getattr(self, 'ranef_factorization_', 'mean_field') == 'structured' and            df is not None:
+            R = self.infer_new_data(
+                df, gb_col=gb_col, mode=inference_mode,
+                return_random_effects=False)['R'].detach().cpu().numpy()
+        else:
+            R = self.get_R_matrix(df=df, gb_col=gb_col,
+                                  test_data=test_data).numpy()
         N = df.shape[0]
         # Now augment the dataframe with trajectory info
         traj = []
@@ -4336,8 +4822,8 @@ class MultDPRegression:
         # Scatter plot of observed data
         if not hide_scatter:
             traj = df_traj['traj'].values
-            sig_ids = np.where(self.sig_trajs_)[0]
-            for ii, kk in enumerate(sig_ids):
+            plot_ids = self.get_reportable_trajectory_ids()
+            for ii, kk in enumerate(plot_ids):
                 if traj_probs[kk] < min_traj_prob or \
                    traj_probs[kk] > max_traj_prob:
                     continue
@@ -4530,7 +5016,7 @@ class MultDPRegression:
 
         fill_alpha : float, optional
             Value between 0 and 1 that controls opacity of each trajectorys 
-            fill region (which indicates +\- 2 residual standard deviations 
+            fill region (which indicates +/- 2 residual standard deviations 
             about the mean)
         """
         # Compute the probability vector for each trajectory

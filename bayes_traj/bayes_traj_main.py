@@ -47,6 +47,102 @@ def _write_provenance(output_path, op):
         write_provenance_data(output_path, generator_args=op)
 
 
+def _tensor_all_finite(x):
+    if x is None:
+        return True
+    if torch.is_tensor(x):
+        return bool(torch.all(torch.isfinite(x)))
+    try:
+        return bool(np.all(np.isfinite(np.asarray(x, dtype=float))))
+    except Exception:
+        return False
+
+
+def _material_negative_elbo_steps(history_rows, rel_tol=1e-10):
+    """Count ELBO decreases larger than a scale-aware numerical tolerance."""
+    count = 0
+    worst = 0.0
+    max_tol = 0.0
+    for row in history_rows:
+        delta = row.get('delta_elbo', np.nan)
+        current = row.get('elbo', np.nan)
+        if not np.isfinite(delta) or not np.isfinite(current):
+            continue
+        previous = float(current) - float(delta)
+        tol = float(rel_tol) * max(1.0, abs(previous))
+        max_tol = max(max_tol, tol)
+        if float(delta) < -tol:
+            count += 1
+            worst = min(worst, float(delta))
+    return count, worst, max_tol
+
+
+def _structured_repeat_eligibility(mm, final_elbo, negative_steps):
+    """Return (eligible, reasons) for structured-repeat model selection.
+
+    Eligibility deliberately uses objective/QC validity rather than the much
+    stricter parameter-change tolerances. Only eligible repeats compete on
+    final ELBO.
+    """
+    reasons = []
+    if not np.isfinite(final_elbo):
+        reasons.append('nonfinite_final_elbo')
+    if getattr(mm, 'objective_converged_', None) is not True:
+        reasons.append('objective_not_converged')
+    if not bool(getattr(mm, 'fit_complete_', False)):
+        reasons.append('fit_not_complete')
+    if int(negative_steps) > 0:
+        reasons.append('negative_elbo_step')
+
+    # Responsibilities must be finite, non-negative, and normalized.
+    try:
+        rg = mm._get_group_responsibilities().double()
+        if torch.any(~torch.isfinite(rg)):
+            reasons.append('nonfinite_responsibilities')
+        if torch.any(rg < -1e-12):
+            reasons.append('negative_responsibility')
+        row_sum = torch.sum(rg, dim=1)
+        if torch.max(torch.abs(row_sum - 1.0)).item() > 1e-8:
+            reasons.append('responsibilities_not_normalized')
+    except Exception:
+        reasons.append('responsibility_qc_failed')
+
+    for name in ('w_mu_', 'w_var_', 'lambda_a_', 'lambda_b_', 'v_a_', 'v_b_'):
+        if not _tensor_all_finite(getattr(mm, name, None)):
+            reasons.append(f'nonfinite_{name.rstrip("_")}')
+    try:
+        if torch.any(mm.w_var_ < 0):
+            reasons.append('negative_w_variance')
+        if torch.any(mm.lambda_a_ <= 0) or torch.any(mm.lambda_b_ <= 0):
+            reasons.append('invalid_precision_parameters')
+        if torch.any(mm.v_a_ <= 0) or torch.any(mm.v_b_ <= 0):
+            reasons.append('invalid_stick_parameters')
+    except Exception:
+        reasons.append('global_parameter_qc_failed')
+
+    strategy = getattr(mm, 'ranef_cov_strategy_',
+                       getattr(mm, 'ranef_cov_mode_', 'fixed'))
+    if strategy == 'staged':
+        if getattr(mm, 'ranef_cov_release_iteration_', None) is None:
+            reasons.append('staged_D_not_released')
+        if getattr(mm, 'ranef_cov_stage_', None) != 'estimate':
+            reasons.append('staged_D_not_in_final_phase')
+    if strategy in ('estimate', 'staged'):
+        try:
+            for tt in mm.target_names_:
+                cov = mm._get_structured_ranef_cov(tt)
+                if torch.any(~torch.isfinite(cov)):
+                    reasons.append(f'nonfinite_D_{tt}')
+                    continue
+                torch.linalg.cholesky(cov)
+        except Exception:
+            reasons.append('random_effect_covariance_not_positive_definite')
+
+    # Keep order stable while removing duplicates.
+    reasons = list(dict.fromkeys(reasons))
+    return len(reasons) == 0, reasons
+
+
 def _pad_axis(arr, new_k, axis, fill_value):
     if arr is None:
         return None
@@ -129,8 +225,10 @@ def main():
     parser.add_argument('--out_model', help='Pickle file name. If specified, \
         the model object will be written to this file.', dest='out_model',
         metavar='<string>', default=None, required=False)
-    parser.add_argument('--iters', help='Number of inference iterations',
-        dest='iters', metavar='<int>', default=100)
+    parser.add_argument('--iters', help='Maximum inference iterations. In '
+        'structured staged covariance mode this is a per-phase budget: up to '
+        'this many fixed-D iterations, then up to this many estimated-D '
+        'iterations after release.', dest='iters', metavar='<int>', default=100)
     parser.add_argument('--repeats', help='Number of repeats to attempt. In '
         'structured mode, repeats of the same truncated-DP specification are '
         'ranked by final ELBO (higher is better). Historical mean-field mode '
@@ -203,18 +301,23 @@ def main():
         WAIC2', type=int, default=100)
     parser.add_argument('--seed', help='Seed to use for WAIC2 \
         sampling', type=int, default=None)
+    parser.add_argument('--fit_seed', help='Optional base random seed for model '
+        'initialization. Repeat r uses fit_seed+r. The seed is recorded in the '
+        'repeat summary.', type=int, default=None)
     parser.add_argument('--ranef_factorization',
         choices=['mean_field', 'structured'], default='mean_field',
-        help='Random-effect VI factorization. mean_field preserves historical '
-             'bayes_traj behavior; structured uses q(z_i)q(b_i|z_i).')
-    parser.add_argument('--ranef_cov_mode', choices=['fixed', 'estimate'],
-        default='fixed', help='In structured mode, keep the supplied random-'
-        'effect covariance fixed or estimate it during coordinate ascent.')
+        help='Random-effect VI factorization. mean_field preserves the legacy '
+             'implementation for backward compatibility; structured is the '
+             'corrected/recommended q(z_i)q(b_i|z_i) implementation.')
+    parser.add_argument('--ranef_cov_mode', choices=['fixed', 'estimate', 'staged'],
+        default='fixed', help='Structured random-effect covariance strategy: fixed; '
+        'estimate from the start; or staged (fit with D fixed until objective '
+        'convergence, then release D and continue).')
     parser.add_argument('--ranef_cov_min_eig', type=float, default=1e-8,
         help='Minimum eigenvalue for estimated random-effect covariance.')
-    parser.add_argument('--structured_tol_elbo_rel', type=float, default=None,
-        help='Optional relative ELBO convergence tolerance in structured mode. '
-        'If omitted, run the requested number of iterations.')
+    parser.add_argument('--structured_tol_elbo_rel', type=float, default=1e-7,
+        help='Relative ELBO convergence tolerance in structured mode. '
+        'Objective convergence is the primary fit-completion criterion.')
     parser.add_argument('--structured_tol_r', type=float, default=1e-5,
         help='Structured-mode max responsibility-change tolerance.')
     parser.add_argument('--structured_tol_w', type=float, default=1e-5,
@@ -240,7 +343,8 @@ def main():
     parser.add_argument('--resume_model', default=None,
         help='Continue a previously saved structured MultDPRegression pickle '
         'instead of reinitializing from the prior. --iters is interpreted as '
-        'additional iterations. Only one repeat is allowed when resuming.')
+        'additional iterations (per phase if a new staged covariance strategy '
+        'is requested). Only one repeat is allowed when resuming.')
     parser.add_argument('--resume_reset_history', action='store_true',
         help='When resuming a structured model, discard prior inference '
         'history and restart iteration numbering at zero. Model parameters '
@@ -405,6 +509,19 @@ def main():
     if op.alpha is not None:
         prior_data['alpha'] = float(op.alpha)
 
+    # Random effects plus the historical mean-field path are retained only for
+    # backward compatibility.  The structured factorization is the corrected
+    # implementation and should be used for new random-effect fits.
+    if op.ranef_factorization == 'mean_field' and \
+       prior_data.get('ranef_indices') is not None and \
+       np.any(np.asarray(prior_data['ranef_indices']).astype(bool)):
+        warnings.warn(
+            'Random effects are configured with --ranef_factorization '
+            'mean_field. This is the legacy random-effect implementation and '
+            'is retained for backward compatibility only. Use '
+            '--ranef_factorization structured for new fits.',
+            FutureWarning)
+
     # Historical mode preserves the prior-defined K behavior. Structured DP
     # mode instead treats -k as a truncation ceiling. If the prior contains
     # fewer initialized components, pad the initialization arrays so posterior
@@ -542,6 +659,11 @@ def main():
 
     print("Fitting...")
     for r in np.arange(repeats):
+        repeat_seed = None
+        if op.fit_seed is not None:
+            repeat_seed = int(op.fit_seed) + int(r)
+            np.random.seed(repeat_seed)
+            torch.manual_seed(repeat_seed)
         if r > 0:
             if structured_mode:
                 print(
@@ -646,14 +768,27 @@ def main():
                 [hh.get('delta_elbo', np.nan) for hh in segment_rows],
                 dtype=float)
             finite_deltas = deltas[np.isfinite(deltas)]
-            negative_steps = int(np.sum(finite_deltas < -1e-8))
+            negative_steps, worst_negative_step, max_negative_tol = \
+                _material_negative_elbo_steps(segment_rows)
+            eligible, ineligible_reasons = _structured_repeat_eligibility(
+                mm, final_elbo, negative_steps)
             row = {
                 'repeat': int(r),
+                'fit_seed': repeat_seed,
+                'eligible': bool(eligible),
+                'ineligibility_reasons': ';'.join(ineligible_reasons),
                 'selection_metric': 'elbo',
                 'final_elbo': float(final_elbo),
                 'objective_converged': mm.objective_converged_,
                 'parameter_converged': bool(mm.parameter_converged_),
                 'converged': bool(mm.converged_),
+                'fit_complete': bool(getattr(mm, 'fit_complete_', False)),
+                'ranef_cov_strategy': getattr(
+                    mm, 'ranef_cov_strategy_', mm.ranef_cov_mode_),
+                'ranef_cov_stage': getattr(
+                    mm, 'ranef_cov_stage_', mm.ranef_cov_mode_),
+                'ranef_cov_release_iteration': getattr(
+                    mm, 'ranef_cov_release_iteration_', None),
                 'iterations': int(mm.n_iter_),
                 'fit_segment': segment,
                 'segment_iterations': int(len(segment_rows)),
@@ -671,6 +806,8 @@ def main():
                     'map_agreement_previous', np.nan),
                 'negative_elbo_steps': negative_steps,
                 'elbo_monotone_within_tolerance': bool(negative_steps == 0),
+                'worst_material_negative_elbo_step': worst_negative_step,
+                'maximum_negative_elbo_numerical_tolerance': max_negative_tol,
                 'minimum_delta_elbo': (
                     float(np.min(finite_deltas))
                     if finite_deltas.size > 0 else np.nan),
@@ -697,9 +834,11 @@ def main():
                 f"tail stick={occ['tail_expected_stick_weight']:.3e}, "
                 f"objective_conv={mm.objective_converged_}, "
                 f"parameter_conv={mm.parameter_converged_}, "
-                f"joint_conv={mm.converged_}")
+                f"eligible={eligible}")
+            if not eligible:
+                print('  ineligible: ' + ', '.join(ineligible_reasons))
 
-            if np.isfinite(final_elbo) and final_elbo > best_elbo:
+            if eligible and final_elbo > best_elbo:
                 best_elbo = float(final_elbo)
                 best_mm = mm
                 best_repeat = int(r)
@@ -708,6 +847,7 @@ def main():
             nfin = int(torch.sum(mm.sig_trajs_).item())
             repeat_rows.append({
                 'repeat': int(r),
+                'fit_seed': repeat_seed,
                 'selection_metric': 'waic2',
                 'waic2': float(waic2),
                 'num_final_trajs': nfin,
@@ -722,25 +862,30 @@ def main():
             pd.DataFrame(repeat_rows).to_csv(repeat_summary_path, index=False)
 
     if best_mm is None:
-        raise RuntimeError('No finite/eligible fit was produced across repeats')
+        for rr in repeat_rows:
+            rr['selected'] = False
+        if repeat_summary_path is not None:
+            pd.DataFrame(repeat_rows).to_csv(repeat_summary_path, index=False)
+            print(f"Saved repeat summary: {repeat_summary_path}")
+            _write_provenance(repeat_summary_path, op)
+        raise RuntimeError(
+            'No eligible fit was produced across repeats; no model was selected. '
+            'Inspect the complete repeat summary for QC failure reasons.')
 
-    best_mm.repeat_selection_metric_ = 'elbo' if structured_mode else 'waic2'
+    best_mm.repeat_selection_metric_ = 'eligible_final_elbo' if structured_mode else 'waic2'
     best_mm.best_repeat_ = best_repeat
+    for rr in repeat_rows:
+        rr['selected'] = bool(int(rr['repeat']) == int(best_repeat))
     best_mm.repeat_summary_ = repeat_rows
 
     if structured_mode:
         print(
-            f"Selected repeat {best_repeat} with highest ELBO {best_elbo:.6f}.")
-        if op.structured_tol_elbo_rel is not None and \
-           best_mm.objective_converged_ is not True:
+            f"Selected eligible repeat {best_repeat} with highest ELBO {best_elbo:.6f}.")
+        if not best_mm.parameter_converged_:
             warnings.warn(
-                'Highest-ELBO structured repeat did not meet the requested '
-                'objective convergence tolerance; inspect repeat summary.')
-        elif not best_mm.parameter_converged_:
-            warnings.warn(
-                'Highest-ELBO structured repeat is objective-converged but '
-                'did not meet all parameter-change tolerances; inspect the '
-                'repeat summary before use.')
+                'Selected structured repeat is objective-converged and eligible '
+                'but did not meet all parameter-change tolerances; these are '
+                'reported as stricter diagnostics rather than selection gates.')
     else:
         print(
             f"Selected repeat {best_repeat} with lowest WAIC2 {best_waic2}.")

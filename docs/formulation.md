@@ -130,6 +130,21 @@ the random effects have mean \\( \mathbf{0} \\), and the unstructured covariance
 matrix \\( \boldsymbol{\Sigma}_0\\) captures prior believe about predictor
 variability within a trajectory subgroup.
 
+In the corrected structured Gaussian implementation, the population
+random-effect covariance for target \(d\) is denoted \(D_d\). It can either be
+held fixed at its supplied value or estimated as an empirical-Bayes point
+parameter from posterior second moments of the class-conditional random
+effects. The recommended estimated-covariance workflow is *staged*: first fit
+the trajectory model with \(D_d\) fixed until the ELBO objective converges,
+then release \(D_d\) and continue optimization. The covariance is common
+across trajectories within a target, while the residual precision below remains
+trajectory-specific.
+
+The current structured random-effect implementation supports Gaussian targets.
+The historical likelihood formulation for binary targets remains available, but
+class-conditional structured random effects are not currently implemented for
+binary outcomes.
+
 
 We learn the residual precisions, \\( \boldsymbol{\lambda} \\), for each of the
 \\(D_c \times \infty\\) linear regressors, and place gamma priors over these terms:
@@ -162,7 +177,13 @@ belief about whether there are fewer groups (low scale parameter value) or
 more groups (larger scale parameter value).
 A benefit of the non-parametric framework is that the number of components
 that best describe the observed data is automatically determined conditioned on
-this value.
+this value. Computationally, the stick-breaking representation is truncated at
+a finite ceiling \(K\). In structured inference this truncation is not treated
+as the number of trajectories: all truncated components remain available during
+optimization, and effective trajectory complexity is summarized from posterior
+occupancy (effective membership, probability of occupancy, MAP occupied count,
+and residual stick mass). A non-negligible amount of posterior mass near/beyond
+the truncation is a diagnostic that \(K\) should be increased.
 
 With these terms defined, the joint density is given as:
 $$

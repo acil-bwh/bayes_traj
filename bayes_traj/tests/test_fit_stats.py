@@ -323,3 +323,27 @@ def test_compute_waic2():
         pdb.set_trace()
     assert waic2_test > waic2_ref, "Error in WAIC computation"
 
+
+
+def test_assignment_diagnostics_are_group_weighted_not_visit_weighted():
+    mm = get_gt_model(use_ranefs=False)
+    # Subject a has 5 visits, b has 4. Give each subject a distinct soft
+    # posterior. Group-level summaries should average subjects equally.
+    a_rows = np.asarray(mm.gb_.groups['a'])
+    b_rows = np.asarray(mm.gb_.groups['b'])
+    mm.R_[:] = 0.0
+    mm.R_[a_rows, 0] = 0.9
+    mm.R_[a_rows, 1] = 0.1
+    mm.R_[b_rows, 0] = 0.2
+    mm.R_[b_rows, 1] = 0.8
+    mm.sig_trajs_ = torch.tensor([True, True, False, False, False])
+
+    props = prob_prop(mm, traj_ids=[0, 1])
+    assert np.isclose(props[0][1], 0.55)
+    assert np.isclose(props[1][1], 0.45)
+    # Row weighting would have produced (5*.9 + 4*.2)/9 != .55.
+    assert not np.isclose(props[0][1], (5 * 0.9 + 4 * 0.2) / 9)
+
+    diag = assignment_diagnostics(mm, traj_ids=[0, 1])
+    assert diag['num_groups'] == 2
+    assert np.isclose(diag['mean_max_posterior'], 0.85)

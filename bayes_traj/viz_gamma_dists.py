@@ -5,7 +5,6 @@ import numpy as np
 from scipy.special import gamma
 from scipy.special import loggamma
 import pickle, pdb
-from provenance_tools.write_provenance_data import write_provenance_data
 import matplotlib.pyplot as plt
 
 def main():
@@ -71,15 +70,15 @@ def main():
         else:
             num_groups = df_traj.shape[0]    
     
-        for traj in np.where(mm.sig_trajs_)[0]:
-            num_obs_in_traj = sum(df_traj.traj.values == traj)
-            if mm.gb_ is not None:
-                num_groups_in_traj = df_traj[df_traj.traj.values == traj].\
-                    groupby(groupby_col).ngroups
-            else:
-                num_groups_in_traj = num_obs_in_traj
-            
-            frac = num_groups_in_traj/num_groups
+        if hasattr(mm, 'get_reportable_trajectory_ids'):
+            traj_ids = mm.get_reportable_trajectory_ids()
+        else:
+            traj_ids = np.where(mm.sig_trajs_)[0]
+        traj_probs = mm.get_traj_probs()
+        for traj in traj_ids:
+            # For structured DP fits use posterior mean membership rather than
+            # treating sig_trajs_ (the truncation support) as occupied classes.
+            frac = float(traj_probs[traj])
             if frac > op.min_traj_prob:
                 m = mm.lambda_a_[target_index, traj]/\
                     mm.lambda_b_[target_index, traj]

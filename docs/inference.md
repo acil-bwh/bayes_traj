@@ -46,8 +46,83 @@ p\left(\mathbf{W}\_c,
 \boldsymbol{\Sigma}_0
 \right)
 $$
-This posterior probability is approximated using variational inference. The
-standard mean field variational inference approach is to assume a factorized
+This posterior probability is approximated using variational inference.
+
+## Current structured Gaussian random-effect inference
+
+For longitudinal Gaussian targets with random effects, the recommended
+implementation uses a structured variational family that preserves dependence
+between trajectory membership and the subject-specific random effect:
+
+$$
+q(\mathbf{W},\boldsymbol{\lambda},\mathbf{v})
+\prod_{g=1}^{G}q(\mathbf{z}_g)
+\prod_{d=1}^{D_c}\prod_{k=1}^{K}
+q(\mathbf{u}_{g,d,k}\mid z_{g,k}=1).
+$$
+
+For subject $g$, target $d$, and trajectory $k$, let $Z_g$ contain the
+random-effect predictor columns and let $\mu_{g,d,k}$ denote the fixed-effect
+mean. Conditional on trajectory $k$, the Gaussian local factor has covariance
+and mean
+
+$$
+S_{g,d,k}=\left[D_d^{-1}+\mathbb{E}(\lambda_{d,k})Z_g^T Z_g\right]^{-1},
+$$
+
+$$
+m_{g,d,k}=S_{g,d,k}\mathbb{E}(\lambda_{d,k})
+Z_g^T(\mathbf{y}_{g,d}-\boldsymbol{\mu}_{g,d,k}).
+$$
+
+These local updates are **not multiplied by the current trajectory
+responsibility**. Each candidate trajectory therefore gets a genuine
+class-conditional random-effect posterior. The responsibility update uses the
+expected stick log weight plus the class-conditional expected log likelihood
+minus the KL divergence between the local random-effect posterior and its
+population prior.
+
+The implementation evaluates a structured ELBO after each coordinate cycle.
+Objective convergence (relative ELBO change) is recorded separately from
+stricter parameter-change convergence. For repeated fits of the same model
+specification, only QC-eligible/objective-converged fits compete for selection,
+and the eligible fit with the highest final ELBO is retained. This ELBO ranking
+is intended for random restarts of the *same* specification, not for comparing
+models with different priors, truncations, or likelihoods.
+
+In structured DP inference, $K$ is a truncation ceiling. Responsibilities are
+not irreversibly thresholded to zero. Effective trajectory complexity is
+reported from posterior occupancy, and residual stick mass is used to assess
+whether the truncation is sufficiently large.
+
+### Estimating the population random-effect covariance
+
+The population covariance $D_d$ can be fixed or point-estimated. The staged
+strategy is recommended when estimation is requested: optimize with $D_d$ fixed
+until the ELBO objective converges, then release $D_d$ and continue. The point
+update averages posterior second moments over subjects and trajectories,
+weighted by $q(z_g=k)$; groups without observations for target $d$ are excluded.
+Candidate covariance updates are constrained positive definite and rejected if
+they materially lower the structured ELBO. This is an empirical-Bayes/point
+estimate of $D_d$, not a variational posterior over the covariance itself.
+
+### Inference for new/test subjects
+
+For an already-trained structured model, `infer_new_data`/`assign_trajectory`
+provide two modes. `strict` freezes all trained global quantities (including the
+source stick posterior) and estimates only new-subject responsibilities and
+class-conditional random effects. `adapt_prevalence` also estimates a new
+cohort's stick posterior while holding trajectory coefficients, residual
+precisions, and $D_d$ fixed. Strict inference is the recommended default for
+external validation. Target columns may be absent and are treated as missing
+evidence; predictor columns are required.
+
+The following mean-field derivations describe the historical implementation and
+remain relevant for backward compatibility and non-structured paths. They should
+not be taken as the recommended random-effect factorization for new Gaussian
+longitudinal analyses.
+
+The standard mean field variational inference approach is to assume a factorized
 approximation of this distribution, in our case:
 $$
 p^\*(\mathbf{W}\_{c})

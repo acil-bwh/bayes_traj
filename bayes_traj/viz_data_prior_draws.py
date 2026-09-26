@@ -229,8 +229,7 @@ def main():
         print("Saving figure...")
         plt.savefig(op.fig_file)
         print("Writing provenance info...")
-        write_provenance_data(op.fig_file, generator_args=op, desc=""" """,
-                              module_name='bayes_traj')
+        write_provenance_data(op.fig_file, generator_args=op, desc=""" """)
         print("DONE.")
     else:
         plt.show()
